@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 
@@ -48,14 +48,14 @@ class EventStatus(StrEnum):
 def _format_datetime(dt: datetime) -> str:
     """Convert *dt* to UTC and return ISO 8601 with ``Z`` suffix.
 
-    Naive datetimes are treated as UTC.
+    Naive datetimes are treated as UTC.  Microseconds are stripped for
+    deterministic output.
     """
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        dt = dt.astimezone(timezone.utc)
-    # isoformat() yields "+00:00" for UTC – replace with canonical "Z"
-    return dt.isoformat().replace("+00:00", "Z")
+    dt = dt.astimezone(timezone.utc)
+    dt = dt.replace(microsecond=0)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 TdbDateTime = Annotated[
@@ -91,7 +91,7 @@ class TdbDocument(BaseModel):
 
 
 class InboxNote(TdbDocument):
-    type_: str = Field(alias="@type", default="InboxNote")
+    type_: Literal["InboxNote"] = Field(alias="@type", default="InboxNote")
     content: str
     status: InboxNoteStatus
     created_at: TdbDateTime
@@ -99,7 +99,7 @@ class InboxNote(TdbDocument):
 
 
 class InboxAudio(TdbDocument):
-    type_: str = Field(alias="@type", default="InboxAudio")
+    type_: Literal["InboxAudio"] = Field(alias="@type", default="InboxAudio")
     file_name: str
     file_path: str
     transcription: str
@@ -110,7 +110,7 @@ class InboxAudio(TdbDocument):
 
 
 class Task(TdbDocument):
-    type_: str = Field(alias="@type", default="Task")
+    type_: Literal["Task"] = Field(alias="@type", default="Task")
     name: str
     description: str | None = None
     priority: int | None = None
@@ -124,7 +124,7 @@ class Task(TdbDocument):
 
 
 class Event(TdbDocument):
-    type_: str = Field(alias="@type", default="Event")
+    type_: Literal["Event"] = Field(alias="@type", default="Event")
     name: str
     description: str | None = None
     priority: int | None = None
@@ -139,7 +139,7 @@ class Event(TdbDocument):
 
 
 class Reminder(TdbDocument):
-    type_: str = Field(alias="@type", default="Reminder")
+    type_: Literal["Reminder"] = Field(alias="@type", default="Reminder")
     name: str
     description: str | None = None
     priority: int | None = None
@@ -153,20 +153,20 @@ class Reminder(TdbDocument):
 class Contact(TdbDocument):
     """@subdocument – nested inline in ``Person.contact``."""
 
-    type_: str = Field(alias="@type", default="Contact")
+    type_: Literal["Contact"] = Field(alias="@type", default="Contact")
     email: str | None = None
     phone: str | None = None
     domicile: str | None = None
 
 
 class Person(TdbDocument):
-    type_: str = Field(alias="@type", default="Person")
+    type_: Literal["Person"] = Field(alias="@type", default="Person")
     name: str
     contact: Contact | None = None
 
 
 class Location(TdbDocument):
-    type_: str = Field(alias="@type", default="Location")
+    type_: Literal["Location"] = Field(alias="@type", default="Location")
     name: str
     address: str | None = None
     aliases: list[str] = Field(default_factory=list)

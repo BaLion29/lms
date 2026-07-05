@@ -2,6 +2,9 @@
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+from pydantic import ValidationError
+
 from ingestd.models import (
     Contact,
     Event,
@@ -211,3 +214,40 @@ def test_extra_fields_ignored():
     # coordinates must not leak into serialised output
     result = loc.to_tdb()
     assert "coordinates" not in result
+
+
+# ========================================================================
+# Microseconds stripped in serialisation
+# ========================================================================
+
+
+def test_datetime_with_microseconds_serializes_without_them():
+    """Datetime with non-zero microseconds → output has no fractional seconds."""
+    dt = datetime(2026, 7, 5, 14, 0, 0, 123456, tzinfo=UTC)
+    note = InboxNote(
+        content="micros",
+        status=InboxNoteStatus.NEW,
+        created_at=dt,
+        updated_at=dt,
+    )
+    result = note.to_tdb()
+    assert result["created_at"] == "2026-07-05T14:00:00Z"
+    assert result["updated_at"] == "2026-07-05T14:00:00Z"
+
+
+# ========================================================================
+# Wrong @type → ValidationError
+# ========================================================================
+
+
+def test_inboxnote_wrong_at_type_raises_validation_error():
+    """Parsing a payload with @type mismatch raises ValidationError."""
+    data = {
+        "@type": "Task",
+        "content": "hello",
+        "status": "new",
+        "created_at": "2026-07-05T14:00:00Z",
+        "updated_at": "2026-07-05T14:00:00Z",
+    }
+    with pytest.raises(ValidationError):
+        InboxNote.model_validate(data)

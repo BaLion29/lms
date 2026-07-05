@@ -75,7 +75,7 @@ class TdbClient:
         self.org = org
         self.db = db
         self._client = httpx.AsyncClient(
-            base_url=base_url,
+            base_url=self.base_url,
             auth=httpx.BasicAuth(user, password),
             timeout=httpx.Timeout(timeout),
         )
@@ -150,7 +150,7 @@ class TdbClient:
 
         Raises ``ValueError`` if *doc* is missing ``@id``.
         """
-        if "@id" not in doc:
+        if not doc.get("@id"):
             raise ValueError("Document must contain '@id' for replace")
         response = await self._client.put(
             self._doc_path(branch),
@@ -180,7 +180,7 @@ class TdbClient:
         )
         await self._raise_on_error(response)
         body: dict[str, Any] = response.json()
-        if "errors" in body:
+        if body.get("errors"):
             raise TdbError(response.status_code, response.text)
         return body.get("data", {})  # type: ignore[no-any-return]
 
