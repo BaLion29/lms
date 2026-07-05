@@ -43,9 +43,9 @@ Required variables are validated at startup.
 | `INGESTD_TDB_BRANCH`          | `main`                   | No       | TerminusDB branch                                |
 | `INGESTD_TDB_USER`            | `admin`                  | No       | TerminusDB basic-auth username                   |
 | `INGESTD_TDB_PASSWORD`        | —                        | **Yes**  | TerminusDB basic-auth password                   |
-| `INGESTD_LLM_BASE_URL`        | —                        | **Yes**  | LLM API base URL (e.g. LiteLLM gateway)          |
-| `INGESTD_LLM_API_KEY`         | —                        | **Yes**  | LLM API key                                      |
-| `INGESTD_LLM_MODEL`           | —                        | **Yes**  | LLM model name                                   |
+| `INGESTD_LLM_BASE_URL`        | `""`                     | **Yes**  | LLM API base URL (e.g. LiteLLM gateway)          |
+| `INGESTD_LLM_API_KEY`         | `""`                     | **Yes**  | LLM API key                                      |
+| `INGESTD_LLM_MODEL`           | `""`                     | **Yes**  | LLM model name                                   |
 | `INGESTD_POLL_INTERVAL_SECONDS`| `60`                    | No       | Seconds between poll cycles                      |
 | `INGESTD_MAX_LLM_RETRIES`     | `3`                      | No       | Max retries on TerminusDB rejection per inbox item|
 | `INGESTD_DRY_RUN`             | `false`                  | No       | Run extraction without writing to the database   |
