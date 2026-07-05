@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from pydantic_ai import Agent
+from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
@@ -59,22 +60,28 @@ def usage_limits(settings: Settings) -> UsageLimits:
 # ---------------------------------------------------------------------------
 
 
-def build_agent(settings: Settings) -> Agent[QuerydDeps, str]:
+def build_agent(
+    settings: Settings, model: Model | None = None
+) -> Agent[QuerydDeps, str]:
     """Build a pydantic-ai Agent for the queryd service.
 
-    * Model: OpenAI-compatible via OpenAIChatModel.
+    * Model: OpenAI-compatible via OpenAIChatModel (or *model* if provided).
     * Temperature 0 for deterministic answers.
     * Tools from ``build_tools(settings)``, gated by ``enable_writes``.
     * Static system prompt + per-request dynamic briefing.
+
+    *model* is a **test seam**: supply a ``FunctionModel`` / ``TestModel``
+    to bypass real LLM calls in unit tests.
     """
-    model = OpenAIChatModel(
-        settings.llm_model,
-        provider=OpenAIProvider(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
-        ),
-        settings=ModelSettings(temperature=0),
-    )
+    if model is None:
+        model = OpenAIChatModel(
+            settings.llm_model,
+            provider=OpenAIProvider(
+                base_url=settings.llm_base_url,
+                api_key=settings.llm_api_key,
+            ),
+            settings=ModelSettings(temperature=0),
+        )
 
     agent = Agent[QuerydDeps, str](
         model,

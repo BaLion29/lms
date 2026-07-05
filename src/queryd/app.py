@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -13,9 +14,37 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from lms_core.tdb import TdbClient, TdbError
+from pydantic_ai.exceptions import (
+    ModelAPIError,
+    ModelHTTPError,
+    UnexpectedModelBehavior,
+    UsageLimitExceeded,
+)
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
+from pydantic_ai.models import Model
 
+from queryd.agent import build_agent, usage_limits
+from queryd.schema_briefing import (
+    fetch_introspection,
+    render_prompt_briefing,
+    render_schema_summary,
+)
 from queryd.settings import Settings
-from queryd.tools import ToolTraceEntry
+from queryd.tools import QuerydDeps, ToolTraceEntry
+
+log = structlog.get_logger()
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_PLACEHOLDER_BRIEFING = "schema unavailable at startup"
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +97,34 @@ def _bearer_auth(request: Request) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Lazy schema re-fetch helper
+# ---------------------------------------------------------------------------
+
+
+async def _ensure_briefing(app: FastAPI) -> None:
+    """If the cached briefing is the placeholder, attempt one re-fetch.
+
+    Uses an asyncio.Lock so concurrent requests don't stampede.
+    On failure the placeholder stays in place and the agent still runs.
+    """
+    if app.state.prompt_briefing != _PLACEHOLDER_BRIEFING:
+        return
+
+    async with app.state._briefing_lock:
+        # Double-check after acquiring the lock
+        if app.state.prompt_briefing != _PLACEHOLDER_BRIEFING:
+            return
+        tdb: TdbClient = app.state.tdb
+        try:
+            intro = await fetch_introspection(tdb)
+            app.state.schema_summary = render_schema_summary(intro)
+            app.state.prompt_briefing = render_prompt_briefing(intro)
+            log.info("lazy schema re-fetch succeeded")
+        except Exception:
+            log.warning("lazy schema re-fetch failed", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
 
@@ -75,6 +132,7 @@ def _bearer_auth(request: Request) -> None:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     settings: Settings = app.state.settings
+    model: Model | None = app.state._model_seam
     tdb = TdbClient(
         base_url=settings.tdb_url,
         org=settings.tdb_org,
@@ -84,6 +142,23 @@ async def _lifespan(app: FastAPI):
         timeout=settings.request_timeout_seconds,
     )
     app.state.tdb = tdb
+
+    # Build the agent once at startup.
+    app.state.agent = build_agent(settings, model=model)
+
+    # Introspection: try at startup, store placeholder on failure.
+    try:
+        intro = await fetch_introspection(tdb)
+        app.state.schema_summary = render_schema_summary(intro)
+        app.state.prompt_briefing = render_prompt_briefing(intro)
+        log.info("schema introspection succeeded at startup")
+    except Exception:
+        log.warning("schema introspection failed at startup", exc_info=True)
+        app.state.schema_summary = _PLACEHOLDER_BRIEFING
+        app.state.prompt_briefing = _PLACEHOLDER_BRIEFING
+
+    app.state._briefing_lock = asyncio.Lock()
+
     try:
         yield
     finally:
@@ -113,15 +188,23 @@ def _get_version() -> str:
         return "dev"
 
 
-def create_app(settings: Settings) -> FastAPI:
-    """Build the FastAPI application for the given *settings*."""
+def create_app(settings: Settings, model: Model | None = None) -> FastAPI:
+    """Build the FastAPI application for the given *settings*.
+
+    *model* is a **test seam**: when provided it is injected into the
+    agent so unit tests can supply a ``FunctionModel`` or ``TestModel``
+    without reaching a real LLM.
+    """
     _configure_logging()
 
+    # We smuggle *model* into the lifespan via app.state so the
+    # lifespan closure can pick it up without capturing it directly.
     app = FastAPI(
         title="queryd",
         lifespan=_lifespan,
     )
     app.state.settings = settings
+    app.state._model_seam = model  # consumed in _lifespan, never read elsewhere
 
     # CORS middleware (optional)
     if settings.cors_origins:
@@ -162,7 +245,7 @@ def create_app(settings: Settings) -> FastAPI:
         )
 
     # ------------------------------------------------------------------
-    # /v1/chat (auth + validation, stub)
+    # /v1/chat (auth + validation)
     # ------------------------------------------------------------------
 
     @app.post(
@@ -181,6 +264,71 @@ def create_app(settings: Settings) -> FastAPI:
                 status_code=422,
                 detail="last message must be from the user",
             )
-        raise HTTPException(status_code=501, detail="not implemented")
+
+        # Lazy retry schema briefing if it was unavailable at startup.
+        await _ensure_briefing(app)
+
+        # Build history from all messages except the last.
+        history: list[ModelMessage] | None = None
+        if len(body.messages) > 1:
+            history = []
+            for msg in body.messages[:-1]:
+                if msg.role == "user":
+                    history.append(
+                        ModelRequest(parts=[UserPromptPart(content=msg.content)])
+                    )
+                else:
+                    history.append(ModelResponse(parts=[TextPart(content=msg.content)]))
+
+        prompt = body.messages[-1].content
+
+        # Build fresh deps for this request.
+        deps = QuerydDeps(
+            tdb=app.state.tdb,
+            settings=app.state.settings,
+            schema_summary=app.state.schema_summary,
+            prompt_briefing=app.state.prompt_briefing,
+            trace=[],
+            tool_calls_used=0,
+        )
+
+        agent = app.state.agent
+        limits = usage_limits(app.state.settings)
+
+        try:
+            async with asyncio.timeout(app.state.settings.request_timeout_seconds):
+                result = await agent.run(
+                    prompt,
+                    deps=deps,
+                    message_history=history or None,
+                    usage_limits=limits,
+                )
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                status_code=504,
+                content={"detail": "request timed out"},
+            )
+        except UsageLimitExceeded:
+            log.warning("usage limit exceeded (hard backstop)")
+            return JSONResponse(
+                status_code=502,
+                content={"detail": "model exceeded iteration budget"},
+            )
+        except (
+            ModelHTTPError,
+            ModelAPIError,
+            UnexpectedModelBehavior,
+            Exception,
+        ):
+            log.error("llm provider error", exc_info=True)
+            return JSONResponse(
+                status_code=502,
+                content={"detail": "llm provider error"},
+            )
+
+        return ChatResponse(
+            message=result.output,
+            tool_trace=deps.trace,
+        )
 
     return app

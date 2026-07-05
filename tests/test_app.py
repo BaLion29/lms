@@ -7,6 +7,9 @@ from contextlib import contextmanager
 import respx
 from fastapi.testclient import TestClient
 
+from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.models.function import FunctionModel
+
 from queryd.app import create_app
 from queryd.settings import Settings
 
@@ -37,10 +40,10 @@ def _tdb_exists_route() -> str:
 
 
 @contextmanager
-def _client(settings: Settings | None = None, **overrides):
+def _client(settings: Settings | None = None, model=None, **overrides):
     """Create a TestClient with the app lifespan managed."""
     s = settings if settings is not None else _make_settings(**overrides)
-    app = create_app(s)
+    app = create_app(s, model=model)
     with TestClient(app) as c:
         yield c
 
@@ -119,16 +122,23 @@ def test_v1_chat_wrong_token():
     assert resp.status_code == 401
 
 
-def test_v1_chat_valid_auth_returns_501():
-    """Valid auth + good payload returns 501 (stub)."""
-    with _client() as client:
+def test_v1_chat_valid_auth_returns_200():
+    """Valid auth + good payload now hits the real endpoint and returns 200."""
+    hello_model = FunctionModel(
+        function=lambda messages, info: ModelResponse(
+            parts=[TextPart(content="hello back")]
+        )
+    )
+    with _client(model=hello_model) as client:
         resp = client.post(
             "/v1/chat",
             json={"messages": [{"role": "user", "content": "hello"}]},
             headers={"Authorization": "Bearer test-token"},
         )
-    assert resp.status_code == 501
-    assert resp.json()["detail"] == "not implemented"
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["message"] == "hello back"
+    assert data["tool_trace"] == []
 
 
 # ---------------------------------------------------------------------------
