@@ -136,7 +136,7 @@ def build_agent(model: Model) -> Agent[None, ExtractionResult]:
         model,
         output_type=ExtractionResult,
         retries=2,
-        model_settings=ModelSettings(temperature=0.0),
+        model_settings=ModelSettings(temperature=0.0, timeout=120),
     )
 
 
