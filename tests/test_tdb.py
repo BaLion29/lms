@@ -289,6 +289,109 @@ async def test_graphql_non_200_raises_tdberror(client, respx_mock):
 
 
 # ---------------------------------------------------------------------------
+# db_exists
+# ---------------------------------------------------------------------------
+
+
+async def test_db_exists_true(client, respx_mock):
+    route = respx_mock.get(f"{BASE}/api/db/{ORG}/{DB}").respond(
+        status_code=200,
+        json={"name": DB},
+    )
+    assert await client.db_exists() is True
+    assert route.called
+
+
+async def test_db_exists_false(client, respx_mock):
+    route = respx_mock.get(f"{BASE}/api/db/{ORG}/{DB}").respond(
+        status_code=404,
+        json={"api:message": "not found"},
+    )
+    assert await client.db_exists() is False
+    assert route.called
+
+
+# ---------------------------------------------------------------------------
+# create_db
+# ---------------------------------------------------------------------------
+
+
+async def test_create_db(client, respx_mock):
+    route = respx_mock.post(f"{BASE}/api/db/{ORG}/{DB}").respond(
+        status_code=201,
+        json={"name": DB},
+    )
+    await client.create_db(label="testdb", comment="hello")
+    assert route.called
+    req = route.calls.last.request
+    import json
+
+    body = json.loads(req.read())
+    assert body["label"] == "testdb"
+    assert body["comment"] == "hello"
+    assert body["schema"] is True
+
+
+async def test_create_db_defaults(client, respx_mock):
+    route = respx_mock.post(f"{BASE}/api/db/{ORG}/{DB}").respond(
+        status_code=201,
+        json={"name": DB},
+    )
+    await client.create_db()
+    assert route.called
+    req = route.calls.last.request
+    import json
+
+    body = json.loads(req.read())
+    assert body["label"] == DB
+    assert body["comment"] == "created by ingestd bootstrap"
+    assert body["schema"] is True
+
+
+async def test_create_db_non_2xx_raises_tdberror(client, respx_mock):
+    respx_mock.post(f"{BASE}/api/db/{ORG}/{DB}").respond(
+        status_code=409, text="Database already exists"
+    )
+    with pytest.raises(TdbError) as exc_info:
+        await client.create_db()
+    assert exc_info.value.status == 409
+
+
+# ---------------------------------------------------------------------------
+# push_schema
+# ---------------------------------------------------------------------------
+
+
+async def test_push_schema(client, respx_mock):
+    schema_payload = [{"@type": "@context"}, {"@id": "Foo", "@type": "Class"}]
+    route = respx_mock.post(
+        f"{BASE}/api/document/{ORG}/{DB}",
+    ).respond(status_code=200, json=[])
+
+    await client.push_schema(schema_payload)
+    assert route.called
+    req = route.calls.last.request
+    assert req.url.params["graph_type"] == "schema"
+    assert req.url.params["full_replace"] == "true"
+    assert req.url.params["author"] == "ingestd"
+    assert req.url.params["message"] == "bootstrap"
+
+    import json
+
+    sent = json.loads(req.read())
+    assert sent == schema_payload
+
+
+async def test_push_schema_non_2xx_raises_tdberror(client, respx_mock):
+    respx_mock.post(
+        f"{BASE}/api/document/{ORG}/{DB}",
+    ).respond(status_code=400, text="bad schema")
+    with pytest.raises(TdbError) as exc_info:
+        await client.push_schema([])
+    assert exc_info.value.status == 400
+
+
+# ---------------------------------------------------------------------------
 # async context manager
 # ---------------------------------------------------------------------------
 

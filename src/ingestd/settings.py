@@ -15,9 +15,9 @@ class Settings(BaseSettings):
     tdb_password: str
 
     # LLM configuration
-    llm_base_url: str
-    llm_api_key: str
-    llm_model: str
+    llm_base_url: str = ""
+    llm_api_key: str = ""
+    llm_model: str = ""
 
     # Operational
     poll_interval_seconds: int = 60

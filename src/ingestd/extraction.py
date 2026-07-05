@@ -1,17 +1,26 @@
-"""Pydantic AI extraction agent — turns freeform notes into typed proposals."""
+"""Pydantic AI extraction agent — turns freeform notes into typed proposals.
+
+Uses text-based JSON extraction (not tool calls) for broad model compatibility.
+"""
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+import structlog
+from pydantic import BaseModel, Field, ValidationError
 from pydantic_ai import Agent
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 from zoneinfo import ZoneInfo
+
+logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Output models
@@ -67,6 +76,40 @@ class ExtractionResult(BaseModel):
 
 _TIMEZONE = ZoneInfo("Europe/Zurich")
 
+_JSON_SCHEMA = """{
+  "proposals": [
+    {
+      "kind": "task",
+      "name": "<string>",
+      "description": "<string or null>",
+      "priority": <integer 1-5 or null>,
+      "estimated_duration": <minutes or null>,
+      "due_date": "<ISO 8601 datetime or null>"
+    },
+    {
+      "kind": "event",
+      "name": "<string>",
+      "description": "<string or null>",
+      "start_datetime": "<ISO 8601 datetime or null>",
+      "end_datetime": "<ISO 8601 datetime or null>",
+      "location_name": "<string or null>"
+    },
+    {
+      "kind": "reminder",
+      "name": "<string>",
+      "description": "<string or null>"
+    },
+    {
+      "kind": "person",
+      "name": "<string>",
+      "email": "<string or null>",
+      "phone": "<string or null>"
+    }
+  ],
+  "reasoning": "<string: brief explanation of the extraction>",
+  "confidence": <float 0.0 to 1.0>
+}"""
+
 
 def _build_system_prompt() -> str:
     """Return the system prompt with today's date injected at call time."""
@@ -90,7 +133,14 @@ or a date is not explicitly stated or clearly implied, leave it null/None.
 cautiously, but do not alter the semantic meaning.
 - When the user prompt includes known-entity context (people/locations), reuse the EXACT \
 names as listed for entities the note refers to. Do not paraphrase known names.
-- Return an empty proposals list when there is nothing actionable in the input."""
+- Return an empty proposals list when there is nothing actionable in the input.
+
+Return ONLY valid JSON in a markdown code block (```json ... ```). The JSON must follow \
+this exact schema:
+
+```json
+{_JSON_SCHEMA}
+```"""
 
 
 # ---------------------------------------------------------------------------
@@ -122,20 +172,53 @@ def _build_user_prompt(
 
 
 # ---------------------------------------------------------------------------
+# JSON extraction from LLM text response
+# ---------------------------------------------------------------------------
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
+
+
+def _extract_json_from_text(text: str) -> str:
+    """Extract a JSON string from an LLM text response.
+
+    Handles markdown code fences (``````json ... ```````), plain JSON, and
+    responses where JSON is embedded in explanatory text.
+    """
+    # Try code fence first
+    m = _JSON_FENCE_RE.search(text)
+    if m:
+        return m.group(1).strip()
+
+    # Try to find a JSON object directly
+    text = text.strip()
+    if text.startswith("{"):
+        return text
+
+    # Last resort: try to find { ... } pair
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        return text[start : end + 1]
+
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Factory functions
 # ---------------------------------------------------------------------------
 
 
-def build_agent(model: Model) -> Agent[None, ExtractionResult]:
+def build_agent(model: Model) -> Agent[None, str]:
     """Return a configured extraction agent using *model*.
 
-    The agent runs with temperature 0 for deterministic output and retries=2
-    for built-in output validation retries.
+    The agent returns plain text (JSON code block) — the caller is responsible
+    for parsing the response into ``ExtractionResult`` via ``parse_extraction``.
+
+    Runs with temperature 0 for deterministic output.
     """
     return Agent(
         model,
-        output_type=ExtractionResult,
-        retries=2,
+        output_type=str,
         model_settings=ModelSettings(temperature=0.0, timeout=120),
     )
 
@@ -151,8 +234,32 @@ def build_llm_model(base_url: str, api_key: str, model_name: str) -> OpenAIChatM
 # ---------------------------------------------------------------------------
 
 
+def parse_extraction(raw_text: str) -> ExtractionResult:
+    """Parse JSON from an LLM text response into an ``ExtractionResult``.
+
+    Handles code fences and other formatting quirks.
+    """
+    json_str = _extract_json_from_text(raw_text)
+    try:
+        return ExtractionResult.model_validate_json(json_str)
+    except ValidationError:
+        # Try parsing as a plain list of proposals wrapped manually
+        # Some models might return just the proposals array
+        try:
+            proposals_data = json.loads(json_str)
+            if isinstance(proposals_data, list):
+                return ExtractionResult.model_validate({
+                    "proposals": proposals_data,
+                    "reasoning": "extracted from list response",
+                    "confidence": 0.7,
+                })
+        except (json.JSONDecodeError, ValidationError):
+            pass
+        raise
+
+
 async def extract(
-    agent: Agent[None, ExtractionResult],
+    agent: Agent[None, str],
     text: str,
     reference_dt: datetime,
     entity_context: str,
@@ -174,5 +281,25 @@ async def extract(
     system_prompt = _build_system_prompt()
     user_prompt = _build_user_prompt(text, reference_dt, entity_context, error_feedback)
 
-    result = await agent.run(user_prompt, instructions=system_prompt)
-    return result.output
+    try:
+        result = await agent.run(user_prompt, instructions=system_prompt)
+    except UnexpectedModelBehavior:
+        logger.warning("extraction_model_behavior_error")
+        return ExtractionResult(
+            proposals=[],
+            reasoning="LLM did not produce a parsable response.",
+            confidence=0.0,
+        )
+
+    raw_text: str = result.output
+
+    if not raw_text or not raw_text.strip():
+        logger.warning("extraction_empty_response")
+        return ExtractionResult(
+            proposals=[],
+            reasoning="LLM returned empty response.",
+            confidence=0.0,
+        )
+
+    logger.debug("extraction_raw_response", raw=raw_text[:500])
+    return parse_extraction(raw_text)

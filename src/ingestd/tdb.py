@@ -185,6 +185,48 @@ class TdbClient:
         return body.get("data", {})  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------
+    # Database / schema lifecycle
+    # ------------------------------------------------------------------
+
+    async def db_exists(self) -> bool:
+        """Check whether the database exists (returns True on 2xx)."""
+        response = await self._client.get(
+            f"/api/db/{self.org}/{self.db}",
+        )
+        return response.is_success
+
+    async def create_db(
+        self, label: str = "", comment: str = "", *, schema: bool = True
+    ) -> None:
+        """Create the database.
+
+        Does NOT verify existence first — use ``db_exists()`` to check.
+        """
+        response = await self._client.post(
+            f"/api/db/{self.org}/{self.db}",
+            json={
+                "label": label or self.db,
+                "comment": comment or "created by ingestd bootstrap",
+                "schema": schema,
+            },
+        )
+        await self._raise_on_error(response)
+
+    async def push_schema(self, schema: list[dict[str, Any]]) -> None:
+        """Push/replace the full schema (``full_replace=true``, idempotent)."""
+        response = await self._client.post(
+            f"/api/document/{self.org}/{self.db}",
+            params={
+                "graph_type": "schema",
+                "full_replace": "true",
+                "author": "ingestd",
+                "message": "bootstrap",
+            },
+            json=schema,
+        )
+        await self._raise_on_error(response)
+
+    # ------------------------------------------------------------------
     # Convenience
     # ------------------------------------------------------------------
 

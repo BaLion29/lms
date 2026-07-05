@@ -8,11 +8,10 @@ import pytest
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
-    ToolCallPart,
+    TextPart,
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
-from pydantic_ai.models.test import TestModel
 
 from ingestd.extraction import (
     EventProposal,
@@ -21,6 +20,7 @@ from ingestd.extraction import (
     TaskProposal,
     build_agent,
     extract,
+    parse_extraction,
 )
 
 UTC = timezone.utc
@@ -31,17 +31,15 @@ UTC = timezone.utc
 # ---------------------------------------------------------------------------
 
 
-def _make_response(result: ExtractionResult) -> ModelResponse:
-    """Build a FunctionModel response carrying *result* as the output tool call."""
-    return ModelResponse(
-        parts=[
-            ToolCallPart(
-                "final_result",
-                result.model_dump(mode="json"),
-                tool_call_id="call_test",
-            )
-        ]
-    )
+def _make_response(text: str) -> ModelResponse:
+    """Build a FunctionModel response carrying *text* as TextPart."""
+    return ModelResponse(parts=[TextPart(text)])
+
+
+def _json_response(result: ExtractionResult) -> ModelResponse:
+    """Build a JSON code-fenced response (mimics real LLM output)."""
+    json_str = result.model_dump_json(indent=2)
+    return _make_response(f"```json\n{json_str}\n```")
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +84,7 @@ async def test_task_with_resolved_due_date():
             reasoning="The note mentions a review due next Friday.",
             confidence=0.95,
         )
-        return _make_response(result)
+        return _json_response(result)
 
     agent = build_agent(FunctionModel(model_func))
     note_text = "Project review am Freitag um 17 Uhr"
@@ -141,7 +139,7 @@ async def test_event_and_person_proposals():
             reasoning="Found a meeting and a person.",
             confidence=0.9,
         )
-        return _make_response(result)
+        return _json_response(result)
 
     agent = build_agent(FunctionModel(model_func))
     output = await extract(
@@ -178,7 +176,7 @@ async def test_empty_proposals():
             reasoning="Nothing actionable in the note.",
             confidence=0.99,
         )
-        return _make_response(result)
+        return _json_response(result)
 
     agent = build_agent(FunctionModel(model_func))
     output = await extract(
@@ -224,7 +222,7 @@ async def test_german_transcription_language_preserved():
             reasoning="Der Nutzer möchte eine Einkaufsliste erstellen.",
             confidence=0.92,
         )
-        return _make_response(result)
+        return _json_response(result)
 
     agent = build_agent(FunctionModel(model_func))
     german_text = (
@@ -240,9 +238,6 @@ async def test_german_transcription_language_preserved():
     assert isinstance(task, TaskProposal)
     assert task.name == "Einkaufsliste für Geburtstagsfeier"
     assert task.description == "Milch, Eier, Mehl, Butter kaufen"
-
-    # System prompt should be in English
-    # (instructions come separately, not in the user prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +267,7 @@ async def test_error_feedback_in_prompt():
             reasoning="Adjusted output to fix the schema error.",
             confidence=0.85,
         )
-        return _make_response(result)
+        return _json_response(result)
 
     agent = build_agent(FunctionModel(model_func))
     error_text = "SchemaCheckFailure: property 'due_date' must be an ISO 8601 datetime"
@@ -293,16 +288,25 @@ async def test_error_feedback_in_prompt():
 
 
 # ---------------------------------------------------------------------------
-# Test 6: TestModel smoke — structural validity
+# Test 6: FunctionModel smoke — structural validity
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_testmodel_smoke():
-    """Run the agent with TestModel() and assert it produces a structurally
-    valid ExtractionResult.  TestModel auto-generates from the schema."""
+    """Run the agent with a FunctionModel returning empty proposals and assert
+    it produces a structurally valid ExtractionResult."""
     reference_dt = datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
-    agent = build_agent(TestModel())
+
+    async def model_func(messages: list, agent_info: AgentInfo) -> ModelResponse:
+        result = ExtractionResult(
+            proposals=[TaskProposal(name="Buy milk")],
+            reasoning="Should buy milk.",
+            confidence=0.9,
+        )
+        return _json_response(result)
+
+    agent = build_agent(FunctionModel(model_func))
 
     output = await extract(
         agent,
@@ -313,7 +317,80 @@ async def test_testmodel_smoke():
 
     assert isinstance(output, ExtractionResult)
     assert isinstance(output.proposals, list)
-    # TestModel may generate proposals or empty list — both are valid
-    # but the result must be structurally parseable
+    assert len(output.proposals) >= 1
     assert 0.0 <= output.confidence <= 1.0 or isinstance(output.confidence, float)
     assert isinstance(output.reasoning, str)
+
+
+# ---------------------------------------------------------------------------
+# Test 7: parse_extraction with code fence
+# ---------------------------------------------------------------------------
+
+
+def test_parse_extraction_code_fence():
+    """parse_extraction handles ```json ... ``` code fences."""
+    raw = """Here is the result:
+```json
+{
+  "proposals": [{"kind": "task", "name": "Do it"}],
+  "reasoning": "Simple task.",
+  "confidence": 0.95
+}
+```
+Done."""
+    result = parse_extraction(raw)
+    assert len(result.proposals) == 1
+    assert result.proposals[0].name == "Do it"
+    assert result.confidence == 0.95
+
+
+# ---------------------------------------------------------------------------
+# Test 8: parse_extraction plain JSON
+# ---------------------------------------------------------------------------
+
+
+def test_parse_extraction_plain_json():
+    """parse_extraction handles plain JSON without code fences."""
+    raw = '{"proposals":[],"reasoning":"Nothing.","confidence":1.0}'
+    result = parse_extraction(raw)
+    assert result.proposals == []
+    assert result.confidence == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Test 9: parse_extraction embedded JSON
+# ---------------------------------------------------------------------------
+
+
+def test_parse_extraction_embedded_json():
+    """parse_extraction finds JSON embedded in extraneous text."""
+    raw = 'I found this: {"proposals":[{"kind":"task","name":"X"}],"reasoning":"ok","confidence":0.8} end'
+    result = parse_extraction(raw)
+    assert len(result.proposals) == 1
+    assert result.proposals[0].name == "X"
+
+
+# ---------------------------------------------------------------------------
+# Test 10: extract handles empty proposals response
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_extract_empty_response_returns_empty_result():
+    """When the LLM returns empty proposals, extract returns empty ExtractionResult."""
+    reference_dt = datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
+
+    result = ExtractionResult(
+        proposals=[],
+        reasoning="Nothing to do.",
+        confidence=0.99,
+    )
+
+    async def model_func(messages: list, agent_info: AgentInfo) -> ModelResponse:
+        return _json_response(result)
+
+    agent = build_agent(FunctionModel(model_func))
+    output = await extract(agent, "whatever", reference_dt, "")
+
+    assert output.proposals == []
+    assert output.confidence == 0.99
