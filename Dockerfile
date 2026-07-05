@@ -8,13 +8,12 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Layer 1 — project metadata (cached unless deps change)
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --no-dev
+# Copy lms-core and lms-ingestd preserving the ../lms-core relative layout
+# so that the editable path dependency resolves.
+COPY lms-core/ /app/lms-core/
+COPY lms-ingestd/ /app/lms-ingestd/
 
-# Layer 2 — source code (busts cache on code changes)
-COPY src/ /app/src/
-COPY README.md /app/
+WORKDIR /app/lms-ingestd
 
 RUN uv sync --frozen --no-dev
 
@@ -26,13 +25,15 @@ FROM python:3.12-slim-bookworm
 # Create non-root user (uid 1000)
 RUN useradd -m -u 1000 ingestd
 
-# Copy the application venv from builder, owned by the runtime user
+# Copy the application venv + source from builder, owned by the runtime user.
+# Keeping the same paths (/app/lms-core, /app/lms-ingestd) ensures uv's
+# editable installs (which record absolute paths) remain valid.
 COPY --from=builder --chown=ingestd:ingestd /app /app
 
 # Put the venv on PATH so the entrypoint script is found directly
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/lms-ingestd/.venv/bin:$PATH"
 
-WORKDIR /app
+WORKDIR /app/lms-ingestd
 
 USER ingestd
 
