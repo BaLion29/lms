@@ -70,6 +70,14 @@ class ExtractionResult(BaseModel):
     confidence: float
 
 
+class ExtractionError(Exception):
+    """Raised when extraction fails after all retries.
+
+    Wraps the underlying cause so callers can inspect it while treating the
+    whole extraction attempt as a single failure.
+    """
+
+
 # ---------------------------------------------------------------------------
 # System prompt builder (runtime date injection)
 # ---------------------------------------------------------------------------
@@ -114,11 +122,11 @@ _JSON_SCHEMA = """{
 def _build_system_prompt() -> str:
     """Return the system prompt with today's date injected at call time."""
     today = datetime.now(_TIMEZONE)
-    today_str = today.strftime("%A, %Y-%m-%d (%Z, UTC%z)")
+    today_str = today.strftime("%A, %Y-%m-%d (%Z)")
     return f"""You are an extraction assistant. Your job is to read a short note or transcription \
 and extract structured proposals (tasks, events, reminders, people).
 
-Today's date: {today_str}
+Today is {today_str}
 Timezone: Europe/Zurich.
 
 Guidelines:
@@ -127,6 +135,12 @@ the input's language — do not translate.
 - Relative dates ("Freitag", "next week", "morgen") must be resolved to ABSOLUTE datetimes \
 using the reference datetime provided in the user prompt. The reference datetime is the \
 inbox document's created_at or recorded_at.
+- When resolving weekday names (e.g. "Freitag", "Monday"), first determine the weekday \
+of the reference datetime, then count forward to the next occurrence of the target \
+weekday (the reference date itself counts as day 0). Do not count backward.
+  For example: reference = Sunday 2026-07-05, target = "Friday" → 2026-07-10
+  (Sunday=0, Monday=1, Tuesday=2, Wednesday=3, Thursday=4, Friday=5 → +5 days).
+  reference = Tuesday, target = "Monday" → the following Monday (+6 days), not yesterday.
 - Do NOT invent details — omit optional fields rather than guessing. If priority, duration, \
 or a date is not explicitly stated or clearly implied, leave it null/None.
 - Transcriptions may contain speech-to-text errors. Normalize obvious name mistranscriptions \
@@ -155,9 +169,9 @@ def _build_user_prompt(
     error_feedback: str | None,
 ) -> str:
     """Assemble the complete user prompt for one extraction call."""
-    ref_str = reference_dt.strftime("%A, %Y-%m-%d %H:%M %Z")
+    ref_str = reference_dt.strftime("%A, %Y-%m-%dT%H:%M:%SZ")
     parts = [
-        f"Reference datetime (the note was created/recorded at): {ref_str}",
+        f"The note was created on {ref_str}",
     ]
     if entity_context.strip():
         parts.append(f"Known-entity context:\n{entity_context}")
@@ -189,14 +203,19 @@ def _extract_json_from_text(text: str) -> str:
     if m:
         return m.group(1).strip()
 
-    # Try to find a JSON object directly
+    # Try to find a JSON object or array directly
     text = text.strip()
-    if text.startswith("{"):
+    if text.startswith("{") or text.startswith("["):
         return text
 
-    # Last resort: try to find { ... } pair
+    # Last resort: try to find { ... } or [ ... ] pair
     start = text.find("{")
     end = text.rfind("}")
+    if start != -1 and end > start:
+        return text[start : end + 1]
+
+    start = text.find("[")
+    end = text.rfind("]")
     if start != -1 and end > start:
         return text[start : end + 1]
 
@@ -248,11 +267,13 @@ def parse_extraction(raw_text: str) -> ExtractionResult:
         try:
             proposals_data = json.loads(json_str)
             if isinstance(proposals_data, list):
-                return ExtractionResult.model_validate({
-                    "proposals": proposals_data,
-                    "reasoning": "extracted from list response",
-                    "confidence": 0.7,
-                })
+                return ExtractionResult.model_validate(
+                    {
+                        "proposals": proposals_data,
+                        "reasoning": "extracted from list response",
+                        "confidence": 0.7,
+                    }
+                )
         except (json.JSONDecodeError, ValidationError):
             pass
         raise
@@ -264,8 +285,12 @@ async def extract(
     reference_dt: datetime,
     entity_context: str,
     error_feedback: str | None = None,
+    max_parse_retries: int = 2,
 ) -> ExtractionResult:
     """Run extraction on *text* and return the structured result.
+
+    Retries the LLM call up to *max_parse_retries* times on parse failures
+    (invalid JSON / schema mismatch) before giving up.
 
     Parameters
     ----------
@@ -277,29 +302,56 @@ async def extract(
         hints.  May be an empty string.
     error_feedback: If set, the raw TerminusDB rejection body from a previous
         attempt.  Included verbatim in the prompt so the model can correct itself.
+    max_parse_retries: Maximum number of LLM retries when the output cannot be
+        parsed as valid ``ExtractionResult`` JSON (default 2).
+
+    Raises
+    ------
+    ExtractionError
+        When the LLM response cannot be parsed after all retries, or the model
+        produces no usable text at all.
     """
     system_prompt = _build_system_prompt()
     user_prompt = _build_user_prompt(text, reference_dt, entity_context, error_feedback)
 
-    try:
-        result = await agent.run(user_prompt, instructions=system_prompt)
-    except UnexpectedModelBehavior:
-        logger.warning("extraction_model_behavior_error")
-        return ExtractionResult(
-            proposals=[],
-            reasoning="LLM did not produce a parsable response.",
-            confidence=0.0,
-        )
+    last_error: Exception | None = None
 
-    raw_text: str = result.output
+    for attempt in range(max_parse_retries + 1):
+        try:
+            result = await agent.run(user_prompt, instructions=system_prompt)
+        except UnexpectedModelBehavior as e:
+            raise ExtractionError("LLM did not produce a parsable response") from e
 
-    if not raw_text or not raw_text.strip():
-        logger.warning("extraction_empty_response")
-        return ExtractionResult(
-            proposals=[],
-            reasoning="LLM returned empty response.",
-            confidence=0.0,
-        )
+        raw_text: str = result.output
 
-    logger.debug("extraction_raw_response", raw=raw_text[:500])
-    return parse_extraction(raw_text)
+        if not raw_text or not raw_text.strip():
+            logger.warning("extraction_empty_response", attempt=attempt)
+            if attempt < max_parse_retries:
+                continue
+            raise ExtractionError("LLM returned empty response after all retries")
+
+        try:
+            parsed = parse_extraction(raw_text)
+            logger.debug("extraction_raw_response", raw=raw_text[:500])
+            return parsed
+        except ValidationError as e:
+            last_error = e
+            logger.warning(
+                "extraction_parse_failure",
+                attempt=attempt,
+                error=str(e),
+            )
+            if attempt < max_parse_retries:
+                user_prompt = _build_user_prompt(
+                    text,
+                    reference_dt,
+                    entity_context,
+                    f"JSON parsing error: {e}. "
+                    "Please return valid JSON matching the expected schema.",
+                )
+                continue
+            raise ExtractionError(
+                f"Parse failure after {max_parse_retries + 1} attempts"
+            ) from last_error
+
+    raise ExtractionError("Extraction failed after all retries")

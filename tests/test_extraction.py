@@ -15,6 +15,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from ingestd.extraction import (
     EventProposal,
+    ExtractionError,
     ExtractionResult,
     PersonProposal,
     TaskProposal,
@@ -92,12 +93,19 @@ async def test_task_with_resolved_due_date():
 
     # Assert user prompt content
     assert "2026-07-05" in captured_user_content
-    assert "14:00" in captured_user_content
+    assert "T14:00:00Z" in captured_user_content
     assert note_text in captured_user_content
+    assert "Sunday" in captured_user_content
 
     # Assert system prompt contains today's date
     assert captured_instructions is not None
     assert "Europe/Zurich" in captured_instructions
+    assert "Today is" in captured_instructions
+    # Weekday anchoring instruction
+    assert (
+        "count forward to the next occurrence of the target weekday"
+        in captured_instructions
+    )
 
     # Assert result
     assert len(output.proposals) == 1
@@ -394,3 +402,93 @@ async def test_extract_empty_response_returns_empty_result():
 
     assert output.proposals == []
     assert output.confidence == 0.99
+
+
+# ---------------------------------------------------------------------------
+# Test 11 — Parse retries on bad JSON, eventually succeeds
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_parse_retry_succeeds():
+    """First call returns bad JSON; second call returns valid JSON → succeeds."""
+    reference_dt = datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
+    calls = [0]
+
+    async def model_func(messages: list, agent_info: AgentInfo) -> ModelResponse:
+        calls[0] += 1
+        if calls[0] == 1:
+            return _make_response("not json at all, just garbage")
+        result = ExtractionResult(
+            proposals=[TaskProposal(name="Finally good")],
+            reasoning="Retried and succeeded.",
+            confidence=0.85,
+        )
+        return _json_response(result)
+
+    agent = build_agent(FunctionModel(model_func))
+    output = await extract(agent, "Some note", reference_dt, "")
+
+    assert calls[0] == 2
+    assert len(output.proposals) == 1
+    assert output.proposals[0].name == "Finally good"
+
+
+# ---------------------------------------------------------------------------
+# Test 12 — Parse retries exhausted → ExtractionError
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_parse_retry_exhausted_raises_extraction_error():
+    """All attempts return bad JSON → ExtractionError raised."""
+    reference_dt = datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
+
+    async def model_func(messages: list, agent_info: AgentInfo) -> ModelResponse:
+        return _make_response("garbage every time")
+
+    agent = build_agent(FunctionModel(model_func))
+
+    with pytest.raises(ExtractionError, match="Parse failure"):
+        await extract(agent, "Some note", reference_dt, "")
+
+
+# ---------------------------------------------------------------------------
+# Test 13 — Empty response retried → ExtractionError
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_empty_response_retried_raises_extraction_error():
+    """LLM returns empty text every time → ExtractionError after retries.
+
+    Note: FunctionModel can raise UnexpectedModelBehavior for truly empty
+    responses before we reach the empty-text check.  We use whitespace-only
+    strings to exercise the explicit empty-check path instead.
+    """
+    reference_dt = datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
+
+    async def model_func(messages: list, agent_info: AgentInfo) -> ModelResponse:
+        return _make_response("   ")
+
+    agent = build_agent(FunctionModel(model_func))
+
+    with pytest.raises(ExtractionError, match="empty response"):
+        await extract(agent, "Some note", reference_dt, "")
+
+
+# ---------------------------------------------------------------------------
+# Test 14 — parse_extraction with fallback list parsing
+# ---------------------------------------------------------------------------
+
+
+def test_parse_extraction_flat_list_fallback():
+    """parse_extraction wraps a bare JSON array into ExtractionResult."""
+    raw = '[{"kind":"task","name":"X"},{"kind":"reminder","name":"Y"}]'
+    result = parse_extraction(raw)
+    assert len(result.proposals) == 2
+    assert result.proposals[0].kind == "task"
+    assert result.proposals[0].name == "X"
+    assert result.proposals[1].kind == "reminder"
+    assert result.proposals[1].name == "Y"
+    assert result.confidence == 0.7

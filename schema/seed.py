@@ -59,7 +59,9 @@ async def seed(settings: Settings) -> None:
         to_insert: list[dict[str, object]] = []
 
         # 1. InboxNote (EN): dentist appointment
-        content_1 = "Call the dentist to schedule a cleaning appointment, ideally next week."
+        content_1 = (
+            "Call the dentist to schedule a cleaning appointment, ideally next week."
+        )
         if content_1 not in existing_note_contents:
             note1 = InboxNote(
                 content=content_1,
@@ -87,9 +89,7 @@ async def seed(settings: Settings) -> None:
             logger.info("inbox_note_already_exists", content=content_2[:60])
 
         # 3. InboxAudio (DE): hiking memo
-        transcription = (
-            "Erinnerung: nächsten Samstag um zehn Uhr Wanderung zur Rotondohütte mit Ben."
-        )
+        transcription = "Erinnerung: nächsten Samstag um zehn Uhr Wanderung zur Rotondohütte mit Ben."
         if transcription not in existing_audio_transcriptions:
             audio = InboxAudio(
                 file_name="memo-042.m4a",

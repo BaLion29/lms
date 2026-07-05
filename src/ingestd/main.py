@@ -15,6 +15,24 @@ from ingestd.settings import Settings
 from ingestd.tdb import TdbClient
 
 
+def validate_llm_settings(settings: Settings) -> None:
+    """Validate that required LLM settings are non-empty.
+
+    Prints an error and exits with code 2 if any are missing.
+    """
+    missing: list[str] = []
+    if not settings.llm_base_url:
+        missing.append("INGESTD_LLM_BASE_URL")
+    if not settings.llm_api_key:
+        missing.append("INGESTD_LLM_API_KEY")
+    if not settings.llm_model:
+        missing.append("INGESTD_LLM_MODEL")
+    if missing:
+        logger = structlog.get_logger(__name__)
+        logger.error("missing_llm_settings", missing=missing)
+        sys.exit(2)
+
+
 def _configure_logging() -> None:
     structlog.configure(
         processors=[
@@ -47,6 +65,8 @@ async def async_main(
     settings = Settings()  # type: ignore[call-arg]
     if dry_run:
         settings = settings.model_copy(update={"dry_run": True})
+
+    validate_llm_settings(settings)
 
     tdb = TdbClient(
         base_url=settings.tdb_url,
