@@ -143,6 +143,19 @@ async def test_insert_documents_custom_message(client, respx_mock):
     assert req.url.params["message"] == "custom commit"
 
 
+async def test_insert_documents_custom_author(client, respx_mock):
+    """The *author* keyword-only parameter controls the commit author."""
+    route = respx_mock.post(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json=[])
+
+    await client.insert_documents([], author="queryd")
+    req = route.calls.last.request
+    assert req.url.params["author"] == "queryd"
+    # Default message still works
+    assert req.url.params["message"] == "ingestd"
+
+
 # ---------------------------------------------------------------------------
 # replace_document
 # ---------------------------------------------------------------------------
@@ -178,6 +191,76 @@ async def test_replace_document_missing_at_id_raises_valueerror(client, respx_mo
         await client.replace_document({"@type": "InboxNote", "status": "new"})
 
     assert not route.called
+
+
+async def test_replace_document_custom_author(client, respx_mock):
+    """The *author* keyword-only parameter controls the commit author."""
+    route = respx_mock.put(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json=["terminusdb:///data/Task/abc"])
+
+    doc = {"@id": "Task/abc", "@type": "Task", "status": "open"}
+    await client.replace_document(doc, author="queryd", message="status change")
+    assert route.called
+    req = route.calls.last.request
+    assert req.url.params["author"] == "queryd"
+    assert req.url.params["message"] == "status change"
+
+
+# ---------------------------------------------------------------------------
+# get_document
+# ---------------------------------------------------------------------------
+
+
+async def test_get_document_short_iri(client, respx_mock):
+    """Fetch a single document by short IRI."""
+    doc = {"@id": "Task/abc", "@type": "Task", "name": "Test", "status": "open"}
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json=doc)
+
+    result = await client.get_document("Task/abc")
+
+    assert route.called
+    req = route.calls.last.request
+    assert req.url.params["id"] == "Task/abc"
+    assert result == doc
+
+
+async def test_get_document_full_iri(client, respx_mock):
+    """Full IRI is normalised to short before the request."""
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json={"@id": "Task/abc", "@type": "Task"})
+
+    result = await client.get_document("terminusdb:///data/Task/abc")
+
+    assert route.called
+    req = route.calls.last.request
+    assert req.url.params["id"] == "Task/abc"
+    assert result["@id"] == "Task/abc"
+
+
+async def test_get_document_custom_branch(client, respx_mock):
+    """Branch parameter is forwarded."""
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/develop",
+    ).respond(json={"@id": "Task/abc"})
+
+    await client.get_document("Task/abc", branch="develop")
+    assert route.called
+
+
+async def test_get_document_404_raises_tdberror(client, respx_mock):
+    """Non-2xx (e.g. 404) raises TdbError."""
+    respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(status_code=404, text='{"api:message":"not found"}')
+
+    with pytest.raises(TdbError) as exc_info:
+        await client.get_document("Task/nonexistent")
+
+    assert exc_info.value.status == 404
 
 
 # ---------------------------------------------------------------------------

@@ -121,18 +121,41 @@ class TdbClient:
         await self._raise_on_error(response)
         return response.json()  # type: ignore[no-any-return]
 
+    async def get_document(self, iri: str, branch: str = "main") -> dict[str, Any]:
+        """Fetch a single document by *iri* (short or full) from *branch*.
+
+        Uses the same document API endpoint as ``get_documents`` but
+        with an ``id`` query parameter.  Raises ``TdbError`` on any
+        non-2xx response (including 404).
+        """
+        short = short_iri(iri)
+        response = await self._client.get(
+            self._doc_path(branch),
+            params={"id": short},
+        )
+        await self._raise_on_error(response)
+        data = response.json()
+        # The endpoint may return a bare object or a list.
+        if isinstance(data, list):
+            if not data:
+                raise TdbError(404, f"Document not found: {iri}")
+            return data[0]  # type: ignore[no-any-return]
+        return data  # type: ignore[no-any-return]
+
     async def insert_documents(
         self,
         docs: list[dict[str, Any]],
         branch: str = "main",
         message: str = "ingestd",
+        *,
+        author: str = "ingestd",
     ) -> list[str]:
         """Insert *docs* and return the list of full IRIs."""
         response = await self._client.post(
             self._doc_path(branch),
             params={
                 "graph_type": "instance",
-                "author": "ingestd",
+                "author": author,
                 "message": message,
             },
             json=docs,
@@ -145,6 +168,8 @@ class TdbClient:
         doc: dict[str, Any],
         branch: str = "main",
         message: str = "ingestd",
+        *,
+        author: str = "ingestd",
     ) -> None:
         """Replace a single document (must contain ``@id``).
 
@@ -156,7 +181,7 @@ class TdbClient:
             self._doc_path(branch),
             params={
                 "graph_type": "instance",
-                "author": "ingestd",
+                "author": author,
                 "message": message,
             },
             json=doc,
