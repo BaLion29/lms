@@ -1,18 +1,11 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from lms_core.settings import TdbSettings
+from pydantic_settings import SettingsConfigDict
 
 
-class Settings(BaseSettings):
+class Settings(TdbSettings):
     """Application settings loaded from environment variables prefixed with INGESTD_."""
 
     model_config = SettingsConfigDict(env_prefix="INGESTD_")
-
-    # TerminusDB connection
-    tdb_url: str = "http://localhost:6363"
-    tdb_org: str = "admin"
-    tdb_db: str
-    tdb_branch: str = "main"
-    tdb_user: str = "admin"
-    tdb_password: str
 
     # LLM configuration
     llm_base_url: str = ""

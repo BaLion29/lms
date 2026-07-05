@@ -7,12 +7,16 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "lms-core",
     "pydantic>=2",
     "pydantic-settings",
     "pydantic-ai-slim[openai]",
     "httpx",
     "structlog",
 ]
+
+[tool.uv.sources]
+lms-core = { path = "../lms-core", editable = true }
 
 [project.scripts]
 ingestd = "ingestd.main:main"

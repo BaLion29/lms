@@ -12,7 +12,7 @@ import structlog
 from ingestd.extraction import build_agent, build_llm_model
 from ingestd.pipeline import Pipeline
 from ingestd.settings import Settings
-from ingestd.tdb import TdbClient
+from lms_core.tdb import TdbClient
 
 
 def validate_llm_settings(settings: Settings) -> None:

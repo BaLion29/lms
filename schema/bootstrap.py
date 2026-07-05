@@ -9,7 +9,7 @@ from pathlib import Path
 import structlog
 
 from ingestd.settings import Settings
-from ingestd.tdb import TdbClient, TdbError
+from lms_core.tdb import TdbClient, TdbError
 
 logger = structlog.get_logger(__name__)
 

@@ -15,7 +15,7 @@ from ingestd.extraction import (
 )
 from ingestd.pipeline import Pipeline
 from ingestd.settings import Settings
-from ingestd.tdb import TdbError
+from lms_core.tdb import TdbError
 
 
 # ---------------------------------------------------------------------------

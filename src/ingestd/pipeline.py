@@ -22,7 +22,8 @@ from ingestd.linking import (
     match_location,
     match_person,
 )
-from ingestd.models import (
+from ingestd.settings import Settings
+from lms_core.models import (
     Contact,
     Event,
     EventStatus,
@@ -33,8 +34,7 @@ from ingestd.models import (
     TaskStatus,
     _format_datetime,
 )
-from ingestd.settings import Settings
-from ingestd.tdb import TdbClient, TdbError, short_iri
+from lms_core.tdb import TdbClient, TdbError, short_iri
 
 logger = structlog.get_logger(__name__)
 
