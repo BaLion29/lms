@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from lms_core.tdb import TdbClient, TdbError
 
 from queryd.settings import Settings
+from queryd.tools import ToolTraceEntry
 
 
 # ---------------------------------------------------------------------------
@@ -29,12 +30,6 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
-
-
-class ToolTraceEntry(BaseModel):
-    tool: str
-    input: dict[str, object]
-    output_summary: str
 
 
 class ChatResponse(BaseModel):
