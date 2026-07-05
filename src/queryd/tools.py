@@ -16,14 +16,15 @@ import functools
 import inspect
 import json
 import re
+import typing
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import structlog
 from pydantic import BaseModel
 from pydantic_ai import RunContext, Tool
-from zoneinfo import ZoneInfo
 
 from lms_core.models import (
     Reminder,
@@ -36,6 +37,8 @@ from lms_core.tdb import TdbClient, TdbError, short_iri
 from queryd.settings import Settings
 
 log = structlog.get_logger()
+
+ZURICH = ZoneInfo("Europe/Zurich")
 
 # ---------------------------------------------------------------------------
 # Shared request / response models
@@ -112,7 +115,7 @@ def _traced(func):
             # Return a suitable value for the tool's declared output type.
             # Write tools return dict; read tools return str.
             return_hint = inspect.signature(func).return_annotation
-            if return_hint is dict or str(return_hint).startswith("dict"):
+            if return_hint is dict or typing.get_origin(return_hint) is dict:
                 return {"ok": False, "error": _BUDGET_EXHAUSTED}
             return _BUDGET_EXHAUSTED
 
@@ -134,7 +137,10 @@ def _traced(func):
 
         # Derive a one-line output summary.
         if isinstance(result, str):
-            output = f"{len(result)} chars"
+            if result.startswith("ERROR: "):
+                output = f"error: {result[7:][:120]}"
+            else:
+                output = f"{len(result)} chars"
         elif isinstance(result, dict):
             if result.get("ok"):
                 output = f"ok iri={result.get('iri', '?')}"
@@ -174,7 +180,13 @@ _STRIP_PATTERN = re.compile(
     re.DOTALL,
 )
 
-_HARMFUL_KEYWORDS = re.compile(r"\b(mutation|subscription)\b", re.IGNORECASE)
+# Guards against operation definitions starting with mutation/subscription.
+# Matches at document start or after a closing brace of a previous operation.
+# Known residual false positive: inline fragments like `{ a { b } mutation }`
+# (mutation used as a bare field name, which is harmless but syntactically odd).
+_HARMFUL_KEYWORDS = re.compile(
+    r"(?:^|})\s*(mutation|subscription)\b", re.IGNORECASE | re.MULTILINE
+)
 _HARMFUL_FUNCTIONS = [
     "_insertDocuments",
     "_replaceDocuments",
@@ -225,16 +237,16 @@ async def graphql_query(
     # ---- mutation guard ------------------------------------------------
     error = _check_graphql(query)
     if error is not None:
-        return error
+        return f"ERROR: {error}"
 
     # ---- execute with timeout -----------------------------------------
     try:
         async with asyncio.timeout(10):
             result = await ctx.deps.tdb.graphql(query, variables)
     except asyncio.TimeoutError:
-        return "GraphQL query timed out (10s)"
+        return "ERROR: GraphQL query timed out (10s)"
     except TdbError as exc:
-        return str(exc)
+        return f"ERROR: {exc}"
 
     # ---- serialize & truncate -----------------------------------------
     text = json.dumps(result, ensure_ascii=False, default=str)
@@ -256,7 +268,7 @@ async def get_document(ctx: RunContext[QuerydDeps], iri: str) -> str:
     try:
         doc = await ctx.deps.tdb.get_document(iri)
     except TdbError as exc:
-        return f"document not found: {iri} ({exc.status})"
+        return f"ERROR: document not found: {iri} ({exc.status})"
 
     text = json.dumps(doc, ensure_ascii=False, default=str)
     if len(text) > 50_000:
@@ -270,8 +282,7 @@ async def today(ctx: RunContext[QuerydDeps]) -> str:
 
     Useful for resolving relative date expressions like "next Monday".
     """
-    zurich = ZoneInfo("Europe/Zurich")
-    now = datetime.now(zurich)
+    now = datetime.now(ZURICH)
     iso = now.isoformat(timespec="seconds")
     weekday = now.strftime("%A")
     week = now.isocalendar().week
@@ -304,7 +315,7 @@ async def set_task_status(
         return {"ok": False, "error": f"document not found: {iri} ({exc.status})"}
 
     if doc.get("@type") != "Task":
-        return {"ok": False, "error": f"@{iri} is not a Task (type={doc.get('@type')})"}
+        return {"ok": False, "error": f"{iri} is not a Task (type={doc.get('@type')})"}
 
     doc["status"] = status
     doc["updated_at"] = _now_utc_str()
@@ -323,7 +334,7 @@ async def set_task_status(
             message=f"queryd: set status {status} on {iri}",
             author="queryd",
         )
-    except (TdbError, Exception) as exc:
+    except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
     return {"ok": True, "iri": iri}
@@ -347,7 +358,7 @@ async def set_event_status(
     if doc.get("@type") != "Event":
         return {
             "ok": False,
-            "error": f"@{iri} is not an Event (type={doc.get('@type')})",
+            "error": f"{iri} is not an Event (type={doc.get('@type')})",
         }
 
     doc["status"] = status
@@ -367,7 +378,7 @@ async def set_event_status(
             message=f"queryd: set status {status} on {iri}",
             author="queryd",
         )
-    except (TdbError, Exception) as exc:
+    except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
     return {"ok": True, "iri": iri}
@@ -382,14 +393,15 @@ async def create_task(
     priority: int | None = None,
 ) -> dict[str, object]:
     """Create a new Task document."""
+    now_dt = datetime.now(timezone.utc)
     task = Task(
         name=name,
         description=description,
         due_date=due_date,
         priority=priority,
         status=TaskStatus.OPEN,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=now_dt,
+        updated_at=now_dt,
     )
     doc = task.to_tdb()
     branch = ctx.deps.settings.tdb_branch
@@ -403,7 +415,7 @@ async def create_task(
             message=f"queryd: create task {name}",
             author="queryd",
         )
-    except (TdbError, Exception) as exc:
+    except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
     result_iri = short_iri(iris[0]) if iris else "unknown"
@@ -438,7 +450,7 @@ async def create_reminder(
         if target.get("@type") not in ("Task", "Event"):
             return {
                 "ok": False,
-                "error": f"refers_to @{siri} has type {target.get('@type')}, expected Task or Event",
+                "error": f"refers_to {siri} has type {target.get('@type')}, expected Task or Event",
             }
         refers_to = siri
 
@@ -461,7 +473,7 @@ async def create_reminder(
             message=f"queryd: create reminder {name}",
             author="queryd",
         )
-    except (TdbError, Exception) as exc:
+    except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
     result_iri = short_iri(iris[0]) if iris else "unknown"
@@ -491,7 +503,7 @@ async def update_task(
         return {"ok": False, "error": f"document not found: {iri} ({exc.status})"}
 
     if doc.get("@type") != "Task":
-        return {"ok": False, "error": f"@{iri} is not a Task (type={doc.get('@type')})"}
+        return {"ok": False, "error": f"{iri} is not a Task (type={doc.get('@type')})"}
 
     if name is not None:
         doc["name"] = name
@@ -512,7 +524,7 @@ async def update_task(
             message=f"queryd: update task {iri}",
             author="queryd",
         )
-    except (TdbError, Exception) as exc:
+    except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
     return {"ok": True, "iri": iri}

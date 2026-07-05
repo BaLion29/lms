@@ -1,5 +1,8 @@
 """Tests for queryd.settings."""
 
+import pytest
+from pydantic import ValidationError
+
 from queryd.settings import Settings
 
 
@@ -121,3 +124,59 @@ def test_cors_origins_list_passthrough():
         cors_origins=["http://a.com", "http://b.com"],
     )
     assert s.cors_origins == ["http://a.com", "http://b.com"]
+
+
+def test_listen_addr_valid():
+    """Valid host:port is accepted."""
+    s = Settings(
+        api_token="t",
+        tdb_db="db",
+        tdb_password="pw",
+        llm_base_url="http://x",
+        llm_api_key="k",
+        llm_model="m",
+        listen_addr="127.0.0.1:9000",
+    )
+    assert s.listen_addr == "127.0.0.1:9000"
+
+
+def test_listen_addr_no_colon_raises():
+    """listen_addr without colon raises ValidationError."""
+    with pytest.raises(ValidationError, match="host:port"):
+        Settings(
+            api_token="t",
+            tdb_db="db",
+            tdb_password="pw",
+            llm_base_url="http://x",
+            llm_api_key="k",
+            llm_model="m",
+            listen_addr="127.0.0.1",
+        )
+
+
+def test_listen_addr_bad_port_raises():
+    """listen_addr with non-integer port raises ValidationError."""
+    with pytest.raises(ValidationError, match="must be an integer"):
+        Settings(
+            api_token="t",
+            tdb_db="db",
+            tdb_password="pw",
+            llm_base_url="http://x",
+            llm_api_key="k",
+            llm_model="m",
+            listen_addr="0.0.0.0:xyz",
+        )
+
+
+def test_listen_addr_port_out_of_range():
+    """listen_addr with port > 65535 raises ValidationError."""
+    with pytest.raises(ValidationError, match="out of range"):
+        Settings(
+            api_token="t",
+            tdb_db="db",
+            tdb_password="pw",
+            llm_base_url="http://x",
+            llm_api_key="k",
+            llm_model="m",
+            listen_addr="0.0.0.0:99999",
+        )

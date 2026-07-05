@@ -107,18 +107,20 @@ async def _ensure_briefing(app: FastAPI) -> None:
     Uses an asyncio.Lock so concurrent requests don't stampede.
     On failure the placeholder stays in place and the agent still runs.
     """
-    if app.state.prompt_briefing != _PLACEHOLDER_BRIEFING:
+    if app.state.briefings[1] != _PLACEHOLDER_BRIEFING:
         return
 
     async with app.state._briefing_lock:
         # Double-check after acquiring the lock
-        if app.state.prompt_briefing != _PLACEHOLDER_BRIEFING:
+        if app.state.briefings[1] != _PLACEHOLDER_BRIEFING:
             return
         tdb: TdbClient = app.state.tdb
         try:
             intro = await fetch_introspection(tdb)
-            app.state.schema_summary = render_schema_summary(intro)
-            app.state.prompt_briefing = render_prompt_briefing(intro)
+            app.state.briefings = (
+                render_schema_summary(intro),
+                render_prompt_briefing(intro),
+            )
             log.info("lazy schema re-fetch succeeded")
         except Exception:
             log.warning("lazy schema re-fetch failed", exc_info=True)
@@ -130,9 +132,7 @@ async def _ensure_briefing(app: FastAPI) -> None:
 
 
 @asynccontextmanager
-async def _lifespan(app: FastAPI):
-    settings: Settings = app.state.settings
-    model: Model | None = app.state._model_seam
+async def _lifespan(app: FastAPI, settings: Settings, model: Model | None = None):
     tdb = TdbClient(
         base_url=settings.tdb_url,
         org=settings.tdb_org,
@@ -149,13 +149,14 @@ async def _lifespan(app: FastAPI):
     # Introspection: try at startup, store placeholder on failure.
     try:
         intro = await fetch_introspection(tdb)
-        app.state.schema_summary = render_schema_summary(intro)
-        app.state.prompt_briefing = render_prompt_briefing(intro)
+        app.state.briefings = (
+            render_schema_summary(intro),
+            render_prompt_briefing(intro),
+        )
         log.info("schema introspection succeeded at startup")
     except Exception:
         log.warning("schema introspection failed at startup", exc_info=True)
-        app.state.schema_summary = _PLACEHOLDER_BRIEFING
-        app.state.prompt_briefing = _PLACEHOLDER_BRIEFING
+        app.state.briefings = (_PLACEHOLDER_BRIEFING, _PLACEHOLDER_BRIEFING)
 
     app.state._briefing_lock = asyncio.Lock()
 
@@ -197,14 +198,16 @@ def create_app(settings: Settings, model: Model | None = None) -> FastAPI:
     """
     _configure_logging()
 
-    # We smuggle *model* into the lifespan via app.state so the
-    # lifespan closure can pick it up without capturing it directly.
+    @asynccontextmanager
+    async def _app_lifespan(app: FastAPI):
+        async with _lifespan(app, settings, model) as _:
+            yield
+
     app = FastAPI(
         title="queryd",
-        lifespan=_lifespan,
+        lifespan=_app_lifespan,
     )
     app.state.settings = settings
-    app.state._model_seam = model  # consumed in _lifespan, never read elsewhere
 
     # CORS middleware (optional)
     if settings.cors_origins:
@@ -283,11 +286,12 @@ def create_app(settings: Settings, model: Model | None = None) -> FastAPI:
         prompt = body.messages[-1].content
 
         # Build fresh deps for this request.
+        schema_summary, prompt_briefing = app.state.briefings
         deps = QuerydDeps(
             tdb=app.state.tdb,
             settings=app.state.settings,
-            schema_summary=app.state.schema_summary,
-            prompt_briefing=app.state.prompt_briefing,
+            schema_summary=schema_summary,
+            prompt_briefing=prompt_briefing,
             trace=[],
             tool_calls_used=0,
         )
@@ -314,6 +318,8 @@ def create_app(settings: Settings, model: Model | None = None) -> FastAPI:
                 status_code=502,
                 content={"detail": "model exceeded iteration budget"},
             )
+        except HTTPException:
+            raise
         except (
             ModelHTTPError,
             ModelAPIError,

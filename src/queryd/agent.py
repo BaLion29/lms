@@ -4,14 +4,14 @@ iteration cap."""
 from __future__ import annotations
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
-from zoneinfo import ZoneInfo
 
 from queryd.settings import Settings
 from queryd.tools import QuerydDeps, build_tools
@@ -38,6 +38,8 @@ Follow these rules:
 - Use the today() tool if unsure about the date.
 - Call get_schema_details when a GraphQL query fails and self-correct.
 """.strip()
+
+ZURICH = ZoneInfo("Europe/Zurich")
 
 
 # ---------------------------------------------------------------------------
@@ -94,10 +96,9 @@ def build_agent(
 
     # Per-request dynamic system prompt injection
     @agent.system_prompt
-    async def _dynamic_briefing(ctx):
+    async def _dynamic_briefing(ctx: RunContext[QuerydDeps]) -> str:
         """Inject current date in Europe/Zurich + schema briefing."""
-        zurich = ZoneInfo("Europe/Zurich")
-        now = datetime.now(zurich)
+        now = datetime.now(ZURICH)
         iso = now.isoformat(timespec="seconds")
         weekday = now.strftime("%A")
         week = now.isocalendar().week

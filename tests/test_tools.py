@@ -693,6 +693,31 @@ def test_strip_pattern_removes_strings_and_comments():
     assert "Task" in stripped
 
 
+def test_check_graphql_mutation_at_document_start_rejected():
+    """mutation keyword at start of document is rejected."""
+    assert "prohibited keyword" in _check_graphql("mutation { _deleteDocuments(x:1) }")
+
+
+def test_check_graphql_mutation_after_newline_rejected():
+    """mutation after leading whitespace is rejected."""
+    assert "prohibited keyword" in _check_graphql("  \n mutation Foo { x }")
+
+
+def test_check_graphql_mutation_after_other_operation_rejected():
+    """mutation after query in same document is rejected."""
+    assert "prohibited keyword" in _check_graphql("query A { x } mutation B { y }")
+
+
+def test_check_graphql_mutation_as_alias_allowed():
+    """mutation used as a field alias is allowed."""
+    assert _check_graphql("{ mutation: Task { _id } }") is None
+
+
+def test_check_graphql_mutation_as_operation_name_allowed():
+    """mutation used as operation name (query mutation { ... }) is allowed."""
+    assert _check_graphql("query mutation { Task { _id } }") is None
+
+
 # ---------------------------------------------------------------------------
 # Tracing
 # ---------------------------------------------------------------------------
@@ -731,5 +756,5 @@ async def test_trace_output_summary_on_error(respx_mock):
     ctx = _make_ctx()
     await get_document(ctx, "Task/nope")
     entry = ctx.deps.trace[0]
-    assert "error" not in entry.output_summary.lower()  # str result uses "N chars"
-    assert "chars" in entry.output_summary
+    assert entry.output_summary.startswith("error: ")
+    assert "document not found" in entry.output_summary
