@@ -63,6 +63,8 @@ class QuerydDeps:
     settings: Settings
     schema_summary: str
     trace: list[ToolTraceEntry] = field(default_factory=list)
+    prompt_briefing: str = ""
+    tool_calls_used: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +93,28 @@ def _traced(func):
     @functools.wraps(func)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         ctx: RunContext[QuerydDeps] = args[0]
+
+        # Soft iteration cap: refuse execution if budget exhausted.
+        ctx.deps.tool_calls_used += 1
+        _BUDGET_EXHAUSTED = (
+            "Tool-call budget exhausted. "
+            "Answer the user now with the information you already have."
+        )
+        if ctx.deps.tool_calls_used > ctx.deps.settings.max_tool_iterations:
+            # Record the refusal as a trace entry for debuggability.
+            ctx.deps.trace.append(
+                ToolTraceEntry(
+                    tool=func.__name__,
+                    input={},
+                    output_summary="budget exhausted",
+                )
+            )
+            # Return a suitable value for the tool's declared output type.
+            # Write tools return dict; read tools return str.
+            return_hint = inspect.signature(func).return_annotation
+            if return_hint is dict or str(return_hint).startswith("dict"):
+                return {"ok": False, "error": _BUDGET_EXHAUSTED}
+            return _BUDGET_EXHAUSTED
 
         # Merge positional and keyword args into a single kwargs dict
         # for tracing purposes.
