@@ -1,10 +1,29 @@
 """Pydantic v2 models mirroring the TerminusDB schema."""
 
-from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
+from pydantic import Field
+
+from lms_core.base import TdbDateTime, TdbDocument, _format_datetime  # noqa: F401 — re-exported
+
+__all__ = [
+    "TdbDateTime",
+    "TdbDocument",
+    "_format_datetime",
+    "Contact",
+    "Event",
+    "EventStatus",
+    "InboxAudio",
+    "InboxAudioStatus",
+    "InboxNote",
+    "InboxNoteStatus",
+    "Location",
+    "Person",
+    "Reminder",
+    "Task",
+    "TaskStatus",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -38,51 +57,6 @@ class EventStatus(StrEnum):
     PLANNED = "planned"
     CLOSED = "closed"
     CANCELLED = "cancelled"
-
-
-# ---------------------------------------------------------------------------
-# Datetime: ISO 8601 UTC with Z suffix
-# ---------------------------------------------------------------------------
-
-
-def _format_datetime(dt: datetime) -> str:
-    """Convert *dt* to UTC and return ISO 8601 with ``Z`` suffix.
-
-    Naive datetimes are treated as UTC.  Microseconds are stripped for
-    deterministic output.
-    """
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    dt = dt.astimezone(timezone.utc)
-    dt = dt.replace(microsecond=0)
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-TdbDateTime = Annotated[
-    datetime,
-    PlainSerializer(_format_datetime, return_type=str),
-]
-
-
-# ---------------------------------------------------------------------------
-# Shared base
-# ---------------------------------------------------------------------------
-
-
-class TdbDocument(BaseModel):
-    """Base for every TerminusDB document model.
-
-    Provides ``@id``, ``extra="ignore"`` (forward-compat) and
-    ``to_tdb()`` which serialises with ``@`` aliases and omits ``None``
-    values.
-    """
-
-    id_: str | None = Field(alias="@id", default=None)
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
-
-    def to_tdb(self) -> dict[str, object]:
-        """Return a dict suitable for the TerminusDB document API."""
-        return self.model_dump(by_alias=True, exclude_none=True, mode="json")
 
 
 # ---------------------------------------------------------------------------
