@@ -69,7 +69,10 @@ class Range:
 
     def __init__(self, spec: str) -> None:
         self.parts: list[tuple[str, Version]] = []
-        for part in spec.strip().split():
+        stripped = spec.strip()
+        if not stripped:
+            raise RangeError("Range spec must not be empty or whitespace-only")
+        for part in stripped.split():
             if not part:
                 continue
             m = _COMPARATOR_RE.fullmatch(part)

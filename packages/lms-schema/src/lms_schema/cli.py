@@ -14,7 +14,8 @@ import json
 import sys
 from pathlib import Path
 
-from .composer import compose, ComposerError
+from . import SchemaError
+from .composer import compose
 from .differ import (
     Change,
     classify_module_changes,
@@ -41,7 +42,7 @@ def _cmd_compose(args: argparse.Namespace) -> int:
 
     try:
         result = compose(modules_dir)
-    except ComposerError as exc:
+    except SchemaError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
@@ -62,7 +63,7 @@ def _cmd_compose(args: argparse.Namespace) -> int:
             "checksum": info.checksum,
         }
     lock_path = out_dir / "modules.lock.json"
-    lock_path.write_text(json.dumps(lock, indent=2) + "\n")
+    lock_path.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n")
 
     print(f"Composed {len(result.modules)} modules → {schema_path}")
     print(f"Lock file written → {lock_path}")
@@ -132,7 +133,7 @@ def _diff_fragments(
     # (we use the composer to get canonical checksums)
     try:
         result = compose(current_modules_dir)
-    except ComposerError as exc:
+    except SchemaError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(2)
 
@@ -239,7 +240,7 @@ async def _diff_live(
     # Build the composed schema and compute id-to-module mapping
     try:
         result = compose(current_modules_dir)
-    except ComposerError as exc:
+    except SchemaError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(2)
 
@@ -290,9 +291,13 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
     if baseline_lock is not None or baseline_modules_dir is not None:
         print("=== Fragment diff (baseline comparison) ===")
-        changes, violations, warnings = _diff_fragments(
-            modules_dir, baseline_modules_dir, baseline_lock
-        )
+        try:
+            changes, violations, warnings = _diff_fragments(
+                modules_dir, baseline_modules_dir, baseline_lock
+            )
+        except SchemaError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
         _print_changes(changes)
         all_guardrail_violations.extend(violations)
         all_warnings.extend(warnings)

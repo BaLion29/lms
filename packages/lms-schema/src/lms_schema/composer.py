@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import SchemaError
 from .manifest import Manifest, ManifestError
 from .semver import Range
 
@@ -25,7 +26,7 @@ from .semver import Range
 # ---------------------------------------------------------------------------
 
 
-class ComposerError(Exception):
+class ComposerError(SchemaError):
     """Base for all composition errors."""
 
 
@@ -91,6 +92,14 @@ class ComposeResult:
 # ---------------------------------------------------------------------------
 
 
+def fragment_checksum(fragment_array: list[dict[str, Any]]) -> str:
+    """Return the canonical checksum for a schema fragment.
+
+    Canonical form: sha256(json.dumps(array, sort_keys=True, separators=(",", ":")))
+    """
+    return _sha256(fragment_array)
+
+
 def compose(modules_dir: Path) -> ComposeResult:
     """Compose all schema modules under *modules_dir* into a single schema.
 
@@ -141,10 +150,10 @@ def compose(modules_dir: Path) -> ComposeResult:
     order = _topo_sort(modules)
 
     # ── 5. Load definitions & validate ───────────────────────────────
-    _validate_all(modules, order)
+    all_classes = _validate_all(modules, order)
 
     # ── 6. Assemble composed schema + checksums ──────────────────────
-    return _assemble(modules, order)
+    return _assemble(modules, order, all_classes)
 
 
 # ---------------------------------------------------------------------------
@@ -191,25 +200,31 @@ def _topo_sort(modules: dict[str, Manifest]) -> list[str]:
 
 
 def _find_cycle(nodes: set[str], edges: dict[str, list[str]]) -> list[str]:
-    """Find one cycle among *nodes* using DFS."""
+    """Find one cycle among *nodes* using DFS.
+
+    Uses ``stack`` to track the current DFS path: when we encounter a neighbour
+    that is already on the stack we have found a back-edge, which identifies a
+    cycle.  ``visited`` prevents re-exploring subtrees that are already known
+    to be cycle-free (or whose cycles have already been reported).
+    """
     visited: set[str] = set()
-    stack: list[str] = []
+    stack: list[str] = []  # current DFS path (node is on the path iff it is in stack)
 
     def dfs(v: str) -> list[str] | None:
         visited.add(v)
-        stack.append(v)
+        stack.append(v)               # enter node
         for nxt in edges.get(v, []):
             if nxt not in nodes:
                 continue
             if nxt in stack:
-                # Found a cycle
+                # Back-edge found — extract the cycle slice from stack
                 idx = stack.index(nxt)
                 return stack[idx:] + [nxt]
             if nxt not in visited:
                 result = dfs(nxt)
                 if result:
                     return result
-        stack.pop()
+        stack.pop()                    # exit node — no cycle reachable through v
         return None
 
     for node in sorted(nodes):
@@ -217,7 +232,7 @@ def _find_cycle(nodes: set[str], edges: dict[str, list[str]]) -> list[str]:
             result = dfs(node)
             if result:
                 return result
-    return list(nodes)  # fallback
+    return list(nodes)  # fallback (should not be reached)
 
 
 # ---------------------------------------------------------------------------
@@ -225,8 +240,10 @@ def _find_cycle(nodes: set[str], edges: dict[str, list[str]]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _validate_all(modules: dict[str, Manifest], order: list[str]) -> None:
-    """Run all validations on the loaded modules."""
+def _validate_all(
+    modules: dict[str, Manifest], order: list[str],
+) -> dict[str, list[dict[str, Any]]]:
+    """Run all validations on the loaded modules.  Returns per-module parsed classes."""
     # Build class → defining-module-name map
     class_to_module: dict[str, str] = {}
     all_classes_per_module: dict[str, list[dict[str, Any]]] = {}
@@ -254,31 +271,50 @@ def _validate_all(modules: dict[str, Manifest], order: list[str]) -> None:
                 )
             class_to_module[cid] = name
 
+    # Validate exports: every exported @id must be defined in that module
+    for name in order:
+        m = modules[name]
+        classes = all_classes_per_module[name]
+        own_ids: set[str] = {
+            cls["@id"]
+            for cls in classes
+            if "@id" in cls and cls.get("@type") != "@context"
+        }
+        for export_id in m.exports:
+            if export_id not in own_ids:
+                raise ComposerError(
+                    f"Module '{name}' exports '@id' '{export_id}' "
+                    f"which is not defined in its schema.json"
+                )
+
     # L1: only core may have @abstract classes or @context
     _validate_l1(modules, all_classes_per_module)
 
     # L2: reference traversal
     _validate_l2(modules, all_classes_per_module, class_to_module)
 
+    return all_classes_per_module
+
 
 def _validate_l1(
     modules: dict[str, Manifest],
     all_classes: dict[str, list[dict[str, Any]]],
 ) -> None:
-    """L1: Only core may define @abstract classes or @context."""
+    """L1: Only core may define @abstract classes.  No module may embed @context."""
     for name, classes in all_classes.items():
-        if name == "core":
-            continue
+        is_core = (name == "core")
         for cls in classes:
-            if "@abstract" in cls:
+            # @abstract: only core may define abstract classes
+            if not is_core and "@abstract" in cls:
                 raise L1Error(
                     f"Module '{name}' defines abstract class '{cls.get('@id')}'. "
                     "Only 'core' may define abstract classes (L1)."
                 )
+            # @context: forbidden in ALL modules (core's context lives in context.json)
             if cls.get("@type") == "@context":
                 raise L1Error(
-                    f"Module '{name}' provides a @context block. "
-                    "Only 'core' may provide @context (L1)."
+                    f"Module '{name}' contains a @context block in schema.json. "
+                    "@context must live only in core's context.json (L1)."
                 )
 
 
@@ -311,12 +347,21 @@ def _extract_refs(cls: dict[str, Any]) -> list[str]:
                 if isinstance(item, str):
                     refs.append(item)
 
-    # @oneOf → dict of class refs
+    # @oneOf → dict mapping prop-name → class-ref, list of wrapper-dicts, or a wrapper-dict
     oneof = cls.get("@oneOf")
     if isinstance(oneof, dict):
         for v in oneof.values():
             if isinstance(v, str):
                 refs.append(v)
+            elif isinstance(v, dict):
+                # wrapper-dict value: walk with same logic
+                refs.extend(_extract_refs(v))
+    elif isinstance(oneof, list):
+        for item in oneof:
+            if isinstance(item, str):
+                refs.append(item)
+            elif isinstance(item, dict):
+                refs.extend(_extract_refs(item))
 
     # Regular properties (non-@ keys, skip known meta keys)
     META_KEYS = {
@@ -332,6 +377,10 @@ def _extract_refs(cls: dict[str, Any]) -> list[str]:
             class_val = val.get("@class")
             if isinstance(class_val, str):
                 refs.append(class_val)
+            elif isinstance(class_val, dict):
+                # Nested wrapper (e.g. Set → Optional → X):
+                # recurse into the inner dict to find its @class
+                refs.extend(_extract_refs(class_val))
 
     return refs
 
@@ -394,8 +443,13 @@ def _validate_l2(
 def _assemble(
     modules: dict[str, Manifest],
     order: list[str],
+    all_classes: dict[str, list[dict[str, Any]]],
 ) -> ComposeResult:
-    """Build the composed schema and compute checksums."""
+    """Build the composed schema and compute checksums.
+
+    *all_classes* is the per-module parsed schema.json arrays (already
+    loaded and validated) to avoid re-reading files.
+    """
     # Load @context from core
     core_dir = modules["core"].module_dir
     context_path = core_dir / "context.json"
@@ -409,11 +463,10 @@ def _assemble(
 
     for name in order:
         m = modules[name]
-        schema_path = m.module_dir / "schema.json"
-        classes: list[dict[str, Any]] = json.loads(schema_path.read_text())
+        classes = all_classes[name]
 
         # Checksum over the canonical fragment (the raw array, not re-sorted)
-        checksum = _sha256(classes)
+        checksum = fragment_checksum(classes)
         infos.append(ModuleInfo(name=name, version=m.version, checksum=checksum))
 
         # Sort classes by @id for deterministic composed output

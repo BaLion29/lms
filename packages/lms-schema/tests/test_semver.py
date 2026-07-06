@@ -125,3 +125,11 @@ class TestRange:
             Range("^1.0.0")  # caret not supported
         with pytest.raises(RangeError):
             Range("1.0")  # incomplete version
+
+    def test_empty_spec_raises(self) -> None:
+        with pytest.raises(RangeError, match="empty or whitespace-only"):
+            Range("")
+        with pytest.raises(RangeError, match="empty or whitespace-only"):
+            Range("   ")
+        with pytest.raises(RangeError, match="empty or whitespace-only"):
+            Range("\t\n")

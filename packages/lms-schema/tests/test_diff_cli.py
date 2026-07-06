@@ -103,7 +103,7 @@ class TestDiffExitCodes:
 
         mod_dir = tmp_path / "current"
         _make_core(mod_dir)
-        _make_module(mod_dir, "m1", version="1.1.0", exports=["Foo"],
+        _make_module(mod_dir, "m1", version="1.1.0", exports=[],
                      classes=[])  # removed Foo
 
         # Build real lock from baseline
@@ -126,7 +126,7 @@ class TestDiffExitCodes:
 
         mod_dir = tmp_path / "current"
         _make_core(mod_dir)
-        _make_module(mod_dir, "m1", version="2.0.0", exports=["Foo"],
+        _make_module(mod_dir, "m1", version="2.0.0", exports=[],
                      classes=[])  # removed Foo, no migrations
 
         from lms_schema.composer import compose
@@ -149,7 +149,7 @@ class TestDiffExitCodes:
 
         mod_dir = tmp_path / "current"
         _make_core(mod_dir)
-        _make_module(mod_dir, "m1", version="2.0.0", exports=["Foo"],
+        _make_module(mod_dir, "m1", version="2.0.0", exports=[],
                      classes=[],  # removed Foo
                      migrations={"0001_old.py": "# old\n", "0002_new.py": "# new\n"})
 
@@ -230,3 +230,20 @@ class TestDiffExitCodes:
 
         proc = _run_diff(mod_dir, baseline_modules=bl_dir, baseline_lock=lock_path)
         assert proc.returncode == 0, f"stdout={proc.stdout} stderr={proc.stderr}"
+
+    def test_malformed_manifest_no_traceback(self, tmp_path: Path):
+        """Malformed manifest should produce a clean error, not a raw traceback."""
+        _make_core(tmp_path)
+        mod = tmp_path / "m1"
+        mod.mkdir(parents=True, exist_ok=True)
+        (mod / "manifest.json").write_text("{invalid json")
+        (mod / "schema.json").write_text("[]")
+
+        # Baseline dir triggers _diff_fragments which loads manifests
+        bl_dir = tmp_path / "baseline"
+        _make_core(bl_dir)
+
+        proc = _run_diff(tmp_path, baseline_modules=bl_dir)
+        assert proc.returncode == 2, f"stdout={proc.stdout} stderr={proc.stderr}"
+        assert "Error" in proc.stderr
+        assert "Traceback" not in proc.stderr

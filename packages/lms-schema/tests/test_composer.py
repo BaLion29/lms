@@ -9,11 +9,14 @@ import pytest
 
 from lms_schema.composer import (
     compose,
+    ComposerError,
     CycleError,
     L1Error,
     L2Error,
     DuplicateIdError,
     DepMismatchError,
+    _extract_refs,
+    fragment_checksum,
 )
 
 
@@ -297,13 +300,18 @@ def _normalize(schema_array: list[dict]) -> tuple[dict, dict[str, dict]]:
 
     The canonical JSON of each class object is used as the value so that
     key-order differences within a class do not cause false mismatches.
+
+    Asserts exactly one @context object is present on each side.
     """
     import json as _json
-    context = None
+    contexts: list[dict] = [obj for obj in schema_array if obj.get("@type") == "@context"]
+    assert len(contexts) == 1, (
+        f"Expected exactly one @context object, found {len(contexts)}"
+    )
+    context = contexts[0]
     classes: dict[str, dict] = {}
     for obj in schema_array:
         if obj.get("@type") == "@context":
-            context = obj
             continue
         cid = obj["@id"]
         # Canonical-JSON representation as a string for byte-exact comparison
@@ -339,3 +347,162 @@ def test_equivalence_with_monolithic() -> None:
     for cid, mono_cls in mono_classes.items():
         comp_cls = comp_classes[cid]
         assert comp_cls == mono_cls, f"Mismatch for class '{cid}'"
+
+
+# ---------------------------------------------------------------------------
+# Finding 1: exports validation — reject bogus exports
+# ---------------------------------------------------------------------------
+
+
+def test_exports_must_be_defined(tmp_path: Path) -> None:
+    """Exports must reference an @id actually defined in the module's schema.json."""
+    _make_core(tmp_path)
+
+    _make_module(
+        tmp_path, "m1",
+        exports=["Ghost"],  # not defined
+        classes=[{"@id": "Real", "@type": "Class"}],
+    )
+
+    with pytest.raises(ComposerError) as exc:
+        compose(tmp_path)
+    assert "m1" in str(exc.value)
+    assert "Ghost" in str(exc.value)
+
+
+def test_enum_can_be_exported(tmp_path: Path) -> None:
+    """Enum @ids are valid exports (enums are module-private by default but exportable)."""
+    _make_core(tmp_path)
+
+    _make_module(
+        tmp_path, "m1",
+        exports=["MyEnum"],
+        classes=[{"@id": "MyEnum", "@type": "Enum", "@value": ["a", "b"]}],
+    )
+
+    result = compose(tmp_path)
+    names = [m.name for m in result.modules]
+    assert "m1" in names
+
+
+def test_valid_exports_no_error(tmp_path: Path) -> None:
+    """Valid exports that match defined @ids should compose cleanly."""
+    _make_core(tmp_path)
+
+    _make_module(
+        tmp_path, "m1",
+        exports=["Foo"],
+        classes=[{"@id": "Foo", "@type": "Class"}],
+    )
+
+    result = compose(tmp_path)
+    assert any(m.name == "m1" for m in result.modules)
+
+
+# ---------------------------------------------------------------------------
+# Finding 3: _extract_refs — nested wrapper recursion
+# ---------------------------------------------------------------------------
+
+
+def test_extract_refs_nested_wrapper() -> None:
+    """When @class is itself a dict (nested wrapper), recurse to find inner refs."""
+    cls = {
+        "@id": "Test",
+        "@type": "Class",
+        "prop": {"@class": {"@class": "InnerRef", "@type": "Optional"}, "@type": "Set"},
+    }
+    refs = _extract_refs(cls)
+    assert "InnerRef" in refs
+
+
+# ---------------------------------------------------------------------------
+# Finding 4: @oneOf — list-of-dicts and wrapper values
+# ---------------------------------------------------------------------------
+
+
+def test_extract_refs_oneof_list_of_dicts() -> None:
+    """@oneOf as a list of wrapper-dicts should extract class refs."""
+    cls = {
+        "@id": "Test",
+        "@type": "Class",
+        "@oneOf": [
+            {"@class": "A", "@type": "Optional"},
+            {"@class": "B", "@type": "Set"},
+        ],
+    }
+    refs = _extract_refs(cls)
+    assert "A" in refs
+    assert "B" in refs
+
+
+def test_extract_refs_oneof_wrapper_dict() -> None:
+    """@oneOf as a single wrapper dict should extract its @class (recursively)."""
+    cls = {
+        "@id": "Test",
+        "@type": "Class",
+        "@oneOf": {"@class": "Inner", "@type": "Set"},
+    }
+    refs = _extract_refs(cls)
+    assert "Inner" in refs
+
+
+# ---------------------------------------------------------------------------
+# Finding 6: fragment_checksum
+# ---------------------------------------------------------------------------
+
+
+def test_fragment_checksum_deterministic() -> None:
+    """fragment_checksum must be deterministic for the same parsed array."""
+    frag = [{"@id": "A"}, {"@id": "B"}]
+    assert fragment_checksum(frag) == fragment_checksum(frag)
+
+    # Order in the original array matters (it's the raw fragment)
+    frag2 = [{"@id": "B"}, {"@id": "A"}]
+    assert fragment_checksum(frag) != fragment_checksum(frag2)
+
+
+# ---------------------------------------------------------------------------
+# Finding 7: @context in core's schema.json is rejected
+# ---------------------------------------------------------------------------
+
+
+def test_core_context_in_schema_json_rejected(tmp_path: Path) -> None:
+    """Core's @context must live in context.json, not schema.json."""
+    mod_dir = tmp_path / "core"
+    mod_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "name": "core", "version": "1.0.0", "depends_on": [],
+        "exports": [], "description": "core",
+    }
+    (mod_dir / "manifest.json").write_text(json.dumps(manifest))
+    (mod_dir / "context.json").write_text(json.dumps(_core_context()))
+    # Put a @context entry in schema.json — this should be rejected
+    (mod_dir / "schema.json").write_text(json.dumps([
+        {"@abstract": [], "@id": "Source", "@type": "Class"},
+        {"@type": "@context"},
+    ]))
+
+    with pytest.raises(L1Error) as exc:
+        compose(tmp_path)
+    assert "@context" in str(exc.value)
+    assert "core" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Finding 8: @abstract with value false (or any value) is still abstract
+# ---------------------------------------------------------------------------
+
+
+def test_abstract_false_still_abstract(tmp_path: Path) -> None:
+    """'@abstract': false must still be treated as an abstract marker (key presence)."""
+    _make_core(tmp_path)
+
+    _make_module(
+        tmp_path, "m1",
+        exports=["Bad"],
+        classes=[{"@abstract": False, "@id": "Bad", "@type": "Class"}],
+    )
+
+    with pytest.raises(L1Error) as exc:
+        compose(tmp_path)
+    assert "abstract" in str(exc.value).lower()

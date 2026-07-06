@@ -9,10 +9,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from . import SchemaError
 from .semver import Version, Range, VersionError, RangeError
 
 
-class ManifestError(Exception):
+class ManifestError(SchemaError):
     """Raised when a manifest is malformed or references are broken."""
 
 
