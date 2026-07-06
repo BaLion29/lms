@@ -85,6 +85,7 @@ class ModuleInfo:
 class ComposeResult:
     modules: list[ModuleInfo]
     composed_schema: list[dict[str, Any]]
+    class_id_to_module: dict[str, str]  # @id → module name
 
 
 # ---------------------------------------------------------------------------
@@ -150,10 +151,10 @@ def compose(modules_dir: Path) -> ComposeResult:
     order = _topo_sort(modules)
 
     # ── 5. Load definitions & validate ───────────────────────────────
-    all_classes = _validate_all(modules, order)
+    all_classes, class_to_module = _validate_all(modules, order)
 
     # ── 6. Assemble composed schema + checksums ──────────────────────
-    return _assemble(modules, order, all_classes)
+    return _assemble(modules, order, all_classes, class_to_module)
 
 
 # ---------------------------------------------------------------------------
@@ -242,8 +243,11 @@ def _find_cycle(nodes: set[str], edges: dict[str, list[str]]) -> list[str]:
 
 def _validate_all(
     modules: dict[str, Manifest], order: list[str],
-) -> dict[str, list[dict[str, Any]]]:
-    """Run all validations on the loaded modules.  Returns per-module parsed classes."""
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
+    """Run all validations on the loaded modules.
+
+    Returns (per_module_classes, class_id_to_module_name).
+    """
     # Build class → defining-module-name map
     class_to_module: dict[str, str] = {}
     all_classes_per_module: dict[str, list[dict[str, Any]]] = {}
@@ -293,7 +297,7 @@ def _validate_all(
     # L2: reference traversal
     _validate_l2(modules, all_classes_per_module, class_to_module)
 
-    return all_classes_per_module
+    return all_classes_per_module, class_to_module
 
 
 def _validate_l1(
@@ -444,6 +448,7 @@ def _assemble(
     modules: dict[str, Manifest],
     order: list[str],
     all_classes: dict[str, list[dict[str, Any]]],
+    class_to_module: dict[str, str],
 ) -> ComposeResult:
     """Build the composed schema and compute checksums.
 
@@ -473,4 +478,4 @@ def _assemble(
         classes_sorted = sorted(classes, key=lambda c: c.get("@id", ""))
         composed.extend(classes_sorted)
 
-    return ComposeResult(modules=infos, composed_schema=composed)
+    return ComposeResult(modules=infos, composed_schema=composed, class_id_to_module=class_to_module)
