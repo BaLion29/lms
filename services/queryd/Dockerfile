@@ -8,12 +8,14 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Copy lms-core and lms-queryd preserving the ../lms-core relative layout
-# so that the editable path dependency resolves.
-COPY lms-core/ /app/lms-core/
-COPY lms-queryd/ /app/lms-queryd/
+# Copy workspace root so uv can discover the workspace members.
+COPY pyproject.toml uv.lock /app/
 
-WORKDIR /app/lms-queryd
+# Copy the two workspace members needed for this service.
+COPY packages/lms-core/ /app/packages/lms-core/
+COPY services/queryd/ /app/services/queryd/
+
+WORKDIR /app/services/queryd
 
 RUN uv sync --frozen --no-dev
 
@@ -26,15 +28,13 @@ FROM python:3.12-slim-bookworm
 RUN useradd -m -u 1000 queryd
 
 # Copy the application venv + source from builder, owned by the runtime user.
-# Keeping the same paths (/app/lms-core, /app/lms-queryd) ensures uv's
-# editable installs (which record absolute paths) remain valid.
 COPY --from=builder --chown=queryd:queryd /app /app
 
-# Put the venv on PATH so the entrypoint script is found directly
-ENV PATH="/app/lms-queryd/.venv/bin:$PATH" \
+# Put the workspace venv on PATH so the entrypoint script is found directly
+ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 
-WORKDIR /app/lms-queryd
+WORKDIR /app/services/queryd
 
 EXPOSE 8087
 

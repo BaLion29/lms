@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-lms-core = { path = "../lms-core", editable = true }
+lms-core = { workspace = true }
 
 [project.scripts]
 ingestd = "ingestd.main:main"

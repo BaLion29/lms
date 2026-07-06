@@ -27,8 +27,8 @@ services:
     profiles:
       - app
     build:
-      context: ..
-      dockerfile: lms-ingestd/Dockerfile
+      context: ../..
+      dockerfile: services/ingestd/Dockerfile
     environment:
       # TerminusDB connection (pointing at the compose service)
       INGESTD_TDB_URL: http://terminusdb:6363

@@ -2,6 +2,14 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
+[manifest]
+members = [
+    "ingestd",
+    "lms-core",
+    "lms-workspace",
+    "queryd",
+]
+
 [[package]]
 name = "annotated-doc"
 version = "0.0.4"
@@ -259,6 +267,45 @@ wheels = [
 ]
 
 [[package]]
+name = "ingestd"
+version = "0.1.0"
+source = { editable = "services/ingestd" }
+dependencies = [
+    { name = "httpx" },
+    { name = "lms-core" },
+    { name = "pydantic" },
+    { name = "pydantic-ai-slim", extra = ["openai"] },
+    { name = "pydantic-settings" },
+    { name = "structlog" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx" },
+    { name = "lms-core", editable = "packages/lms-core" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "pydantic-ai-slim", extras = ["openai"] },
+    { name = "pydantic-settings" },
+    { name = "structlog" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -338,11 +385,19 @@ wheels = [
 [[package]]
 name = "lms-core"
 version = "0.1.0"
-source = { editable = "../lms-core" }
+source = { editable = "packages/lms-core" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
@@ -359,6 +414,11 @@ dev = [
     { name = "respx" },
     { name = "ruff" },
 ]
+
+[[package]]
+name = "lms-workspace"
+version = "0.0.0"
+source = { virtual = "." }
 
 [[package]]
 name = "logfire-api"
@@ -611,7 +671,7 @@ wheels = [
 [[package]]
 name = "queryd"
 version = "0.1.0"
-source = { editable = "." }
+source = { editable = "services/queryd" }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
@@ -635,7 +695,7 @@ dev = [
 requires-dist = [
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "lms-core", editable = "../lms-core" },
+    { name = "lms-core", editable = "packages/lms-core" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pydantic-ai-slim", extras = ["openai"] },
     { name = "pydantic-settings" },

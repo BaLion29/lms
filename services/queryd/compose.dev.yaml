@@ -27,8 +27,8 @@ services:
     profiles:
       - app
     build:
-      context: ..
-      dockerfile: lms-queryd/Dockerfile
+      context: ../..
+      dockerfile: services/queryd/Dockerfile
     environment:
       # TerminusDB connection (pointing at the compose service)
       QUERYD_TDB_URL: http://terminusdb:6363

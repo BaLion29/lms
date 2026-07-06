@@ -8,12 +8,14 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Copy lms-core and lms-ingestd preserving the ../lms-core relative layout
-# so that the editable path dependency resolves.
-COPY lms-core/ /app/lms-core/
-COPY lms-ingestd/ /app/lms-ingestd/
+# Copy workspace root so uv can discover the workspace members.
+COPY pyproject.toml uv.lock /app/
 
-WORKDIR /app/lms-ingestd
+# Copy the two workspace members needed for this service.
+COPY packages/lms-core/ /app/packages/lms-core/
+COPY services/ingestd/ /app/services/ingestd/
+
+WORKDIR /app/services/ingestd
 
 RUN uv sync --frozen --no-dev
 
@@ -26,14 +28,12 @@ FROM python:3.12-slim-bookworm
 RUN useradd -m -u 1000 ingestd
 
 # Copy the application venv + source from builder, owned by the runtime user.
-# Keeping the same paths (/app/lms-core, /app/lms-ingestd) ensures uv's
-# editable installs (which record absolute paths) remain valid.
 COPY --from=builder --chown=ingestd:ingestd /app /app
 
-# Put the venv on PATH so the entrypoint script is found directly
-ENV PATH="/app/lms-ingestd/.venv/bin:$PATH"
+# Put the workspace venv on PATH so the entrypoint script is found directly
+ENV PATH="/app/.venv/bin:$PATH"
 
-WORKDIR /app/lms-ingestd
+WORKDIR /app/services/ingestd
 
 USER ingestd
 
