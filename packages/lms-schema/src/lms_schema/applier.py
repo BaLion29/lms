@@ -76,15 +76,19 @@ class ActionPlan:
 # ---------------------------------------------------------------------------
 
 
-def _normalize_cls(cls: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of *cls* with arrays sorted for comparison.
+_SORT_ALLOWLIST = {"@inherits"}
 
-    TerminusDB may reorder ``@inherits`` and other array values, so
-    we need an order-independent comparison.
+
+def _normalize_cls(cls: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of *cls* with ``@inherits`` arrays sorted for comparison.
+
+    Only ``@inherits`` is sorted — enum ``@values`` order is significant
+    (TerminusDB stores enum values in ordinal position) and must NOT be
+    silently reordered.
     """
     result = {}
     for key, val in cls.items():
-        if isinstance(val, list) and all(isinstance(item, str) for item in val):
+        if key in _SORT_ALLOWLIST and isinstance(val, list) and all(isinstance(item, str) for item in val):
             result[key] = sorted(val)
         else:
             result[key] = val
@@ -95,7 +99,9 @@ def _schema_eq(composed: list[dict[str, Any]], live: list[dict[str, Any]]) -> bo
     """Return True if composed and live schemas are canonically equal.
 
     Arrays within class definitions (e.g. @inherits) are sorted before
-    comparison to account for TerminusDB's reordering.
+    comparison to account for TerminusDB's reordering.  The ``@context``
+    object (which ``_by_id`` filters out) is compared separately — a
+    context change must trigger a schema push.
     """
     comp_by_id = {cid: _normalize_cls(cls) for cid, cls in _by_id(composed).items()}
     live_by_id = {cid: _normalize_cls(cls) for cid, cls in _by_id(live).items()}
@@ -104,7 +110,18 @@ def _schema_eq(composed: list[dict[str, Any]], live: list[dict[str, Any]]) -> bo
     for cid in comp_by_id:
         if _canonical(comp_by_id[cid]) != _canonical(live_by_id[cid]):
             return False
-    return True
+    # Compare @context objects (both lists must have the same @context to be equal)
+    comp_ctx = _extract_context(composed)
+    live_ctx = _extract_context(live)
+    return comp_ctx == live_ctx
+
+
+def _extract_context(schema: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the ``@context`` object from *schema*, or None if absent."""
+    for obj in schema:
+        if obj.get("@type") == "@context":
+            return obj
+    return None
 
 
 def build_action_plan(
@@ -184,6 +201,26 @@ def build_action_plan(
             else:
                 pending_migrations.append(mig)
 
+    # Warning: recorded migrations whose disk file has been deleted
+    disk_keys: set[tuple[str, str]] = set()
+    for mod_name, migs in disk_migrations_by_module.items():
+        for mig in migs:
+            disk_keys.add((mod_name, mig.filename))
+    for (mod_name, filename) in sorted(recorded - disk_keys):
+        warnings.append(
+            f"Migration {mod_name}/{filename}: recorded in registry "
+            f"but file no longer exists on disk"
+        )
+
+    # Warning: SchemaModule registry docs for modules absent from compose result
+    composed_names = {info.name for info in compose_result.modules}
+    for name in sorted(existing_modules):
+        if name not in composed_names:
+            warnings.append(
+                f"SchemaModule registry entry '{name}' has no corresponding "
+                f"module in compose result"
+            )
+
     if is_bootstrap:
         warnings.append(
             "Bootstrap: SchemaModule class not found on branch — "
@@ -244,9 +281,10 @@ async def _fetch_registry_docs(
 # ---------------------------------------------------------------------------
 
 
-def _load_migration_module(file_path: Path) -> Any:
+def _load_migration_module(file_path: Path, module_name: str) -> Any:
     """Load a migration .py file as a Python module via importlib."""
-    name = f"lms_migration_{file_path.stem}"
+    stem = file_path.stem
+    name = f"lms_migration_{module_name}_{stem}"
     spec = importlib.util.spec_from_file_location(name, file_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot load migration: {file_path}")
@@ -269,13 +307,13 @@ async def run_migrations(
     executed: list[PendingMigration] = []
     for mig in migrations:
         try:
-            mod = _load_migration_module(mig.path)
+            mod = _load_migration_module(mig.path, mig.module)
             await mod.up(tdb, branch)
             executed.append(mig)
-        except Exception:
+        except Exception as exc:
             raise RuntimeError(
                 f"Migration failed: {mig.module}/{mig.filename}"
-            ) from None
+            ) from exc
     return executed
 
 
@@ -469,6 +507,12 @@ async def _upsert_registry_doc(
 
     This is needed because PUT with @id on a non-existent document returns
     404 DocumentNotFound rather than creating it.
+
+    NOTE: The check-then-upsert pattern is NOT atomic — a concurrent
+    operator could delete or insert the document between the GET and the
+    PUT/POST.  This is acceptable because lms-schema is the sole operator
+    on the SchemaModule / SchemaMigration collections and production
+    deployments do NOT run concurrent apply commands on the same branch.
     """
     from lms_core.tdb import TdbError
 
@@ -523,7 +567,9 @@ async def validate_branch(
         if cls_def.get("@type") != "Class":
             continue
         if "@abstract" in cls_def:
-            continue  # skip abstract classes
+            continue  # skip abstract classes — not top-level queryable
+        if "@subdocument" in cls_def:
+            continue  # skip subdocument classes — not top-level queryable in GraphQL
 
         query = f"{{ {cid}(limit:1) {{ _id }} }}"
         try:
@@ -580,10 +626,18 @@ async def promote_branch(
     tdb: "TdbClient",
     branch: str,
     compose_result: ComposeResult,
+    *,
+    force: bool = False,
 ) -> str:
     """Promote *branch* to main by fast-forwarding main to the branch head.
 
-    Returns a status message. Raises on failure.
+    Before resetting, verifies that main's head is an ancestor of *branch*
+    (by checking the branch's commit log for main's head identifier).
+    If ancestry cannot be confirmed, promotion is refused with exit 2
+    unless ``force=True`` is passed.
+
+    Returns a status message. Raises ``ValueError`` if the preconditions
+    are not met and ``force`` is ``False``.
     """
     # Preflight: branch must exist
     if not await tdb.branch_exists(branch):
@@ -596,8 +650,37 @@ async def promote_branch(
     if branch_head == main_head:
         return f"Branch '{branch}' head is the same as main — nothing to promote."
 
+    # Ancestry check: walk the branch log to find main's head identifier.
+    # If main_head appears in the branch's history, main is an ancestor
+    # and the reset is a safe fast-forward.
+    # We fetch the full log (no count limit) for a definitive check;
+    # if the log is huge, the endpoint/pagination may truncate, so we
+    # also accept a reasonable upper bound as "not found".
+    _MAX_LOG = 500
+    branch_log = await tdb.get_branch_log(branch, count=_MAX_LOG)
+    branch_identifiers = {entry.get("identifier") for entry in branch_log}
+    is_ancestor = main_head in branch_identifiers
+
     # Build commit descriptor
     commit_desc = f"{tdb.org}/{tdb.db}/local/commit/{branch_head}"
+
+    if not is_ancestor:
+        msg = (
+            f"WARNING: main's head ({main_head[:12]}...) is NOT an ancestor of "
+            f"'{branch}' head ({branch_head[:12]}...).  Promoting will discard "
+            f"commits on main that are not in '{branch}'."
+        )
+        if not force:
+            raise ValueError(
+                f"{msg}\nUse --force to override this check."
+            )
+        print(msg)
+
+    # Print the warning text before reset for normal (fast-forward) case too
+    print(
+        f"WARNING: promote fast-forwards main to the branch head "
+        f"({branch_head[:12]}...), including any other commits on that branch."
+    )
 
     # Reset main to branch head
     await tdb.reset_branch("main", commit_desc)
@@ -611,9 +694,7 @@ async def promote_branch(
 
     return (
         f"Promoted '{branch}' → main.\n"
-        f"  Main is now at commit: {branch_head}\n"
-        f"  ⚠  WARNING: promote fast-forwards main to the branch head, "
-        f"including any other commits on that branch."
+        f"  Main is now at commit: {branch_head}"
     )
 
 

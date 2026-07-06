@@ -91,6 +91,7 @@ Empirically verified against a local `terminusdb/terminusdb-server:v12.0.6` inst
 - The first entry's `identifier` field is the branch head commit identifier.
 - Use as commit descriptor: `{org}/{db}/local/commit/{identifier}`.
 - Also works without `?count=N` — returns all commits; first entry is always the head.
+- **`?count=N` parameter**: Limits the returned commits to *N* (verified with `?count=1` and `?count=500`).  This is used by the promote ancestry check to scan branch history for main's head identifier without fetching the entire log (up to a safe bound of 500).
 
 ## 7. Branch-scoped GraphQL
 

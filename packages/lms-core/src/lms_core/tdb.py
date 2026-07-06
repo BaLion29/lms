@@ -327,17 +327,30 @@ class TdbClient:
         Uses the log endpoint (GET /api/log/{org}/{db}/local/branch/{branch})
         and returns the ``identifier`` field of the first (newest) commit.
         """
-        response = await self._client.get(
-            f"/api/log/{self.org}/{self.db}/local/branch/{branch}?count=1",
-        )
-        await self._raise_on_error(response)
-        data: list[dict[str, Any]] = response.json()
-        if not data:
+        entries = await self.get_branch_log(branch, count=1)
+        if not entries:
             raise TdbError(404, f"No commits found for branch '{branch}'")
-        identifier = data[0].get("identifier")
+        identifier = entries[0].get("identifier")
         if not identifier:
             raise TdbError(500, f"No identifier in head commit for branch '{branch}'")
         return str(identifier)
+
+    async def get_branch_log(
+        self, branch: str, count: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the commit log for *branch* (newest first).
+
+        Uses GET /api/log/{org}/{db}/local/branch/{branch}[?count=N].
+        When *count* is None the endpoint returns all commits.
+        Each entry contains ``identifier`` and ``timestamp`` fields.
+        """
+        path = f"/api/log/{self.org}/{self.db}/local/branch/{branch}"
+        params: dict[str, str] = {}
+        if count is not None:
+            params["count"] = str(count)
+        response = await self._client.get(path, params=params)
+        await self._raise_on_error(response)
+        return response.json()  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------
     # Promote / merge

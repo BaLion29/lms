@@ -396,6 +396,108 @@ async def test_integration_promote():
         feature_task = next((t for t in tasks if t.get("name") == "Feature task"), None)
         assert feature_task is not None, "Feature task not found on main after promote"
 
+        # Assert warning text on normal promote
+        assert "WARNING" in stdout, "Promote should print WARNING text"
+
+    finally:
+        try:
+            await tdb.aclose()
+        except Exception:
+            pass
+        import httpx
+        async with httpx.AsyncClient(base_url=BASE_URL, auth=httpx.BasicAuth(USER, PASSWORD)) as c:
+            await c.delete(f"/api/db/{ORG}/{db_name}")
+
+
+@pytest.mark.asyncio
+async def test_integration_promote_diverged_main_refused():
+    """Diverged main (main has commits not in branch) → promote refused without --force."""
+    if not await _check_dev_reachable():
+        pytest.skip("Dev TerminusDB instance at localhost:6363 not reachable")
+
+    db_name = _make_db_name()
+    tdb = await _tdb(db_name)
+
+    try:
+        # Create DB
+        await tdb.create_db(label=db_name, comment="diverged promote test")
+        assert await tdb.db_exists()
+
+        # Apply on main first
+        exit_code, stdout, stderr = await _run_cli([
+            "apply",
+            "--modules-dir", str(MODULES_DIR),
+            "--tdb-url", BASE_URL,
+            "--tdb-org", ORG,
+            "--tdb-db", db_name,
+            "--tdb-user", USER,
+            "--tdb-password", PASSWORD,
+            "--branch", "main",
+        ])
+        assert exit_code == 0, f"apply on main failed: {stderr}"
+
+        # Create feature branch from main
+        await tdb.create_branch("feature", origin="main")
+
+        # Insert a document on main (diverging it from feature)
+        task_doc_main = {
+            "@type": "Task",
+            "name": "Main diverged task",
+            "status": "open",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        }
+        await tdb.insert_documents(
+            [task_doc_main],
+            branch="main",
+            author="test",
+            message="diverging commit on main",
+        )
+
+        # Insert a different document on feature
+        task_doc_feature = {
+            "@type": "Task",
+            "name": "Feature task",
+            "status": "open",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        }
+        await tdb.insert_documents(
+            [task_doc_feature],
+            branch="feature",
+            author="test",
+            message="feature task",
+        )
+
+        # Now main has diverged — promote should fail
+        exit_code, stdout, stderr = await _run_cli([
+            "promote",
+            "--modules-dir", str(MODULES_DIR),
+            "--tdb-url", BASE_URL,
+            "--tdb-org", ORG,
+            "--tdb-db", db_name,
+            "--tdb-user", USER,
+            "--tdb-password", PASSWORD,
+            "--branch", "feature",
+        ])
+        assert exit_code == 2, f"promote should have been refused (diverged), got {exit_code}: {stderr}"
+        assert "NOT an ancestor" in stderr or "NOT an ancestor" in stdout
+
+        # Promote with --force should work
+        exit_code, stdout, stderr = await _run_cli([
+            "promote",
+            "--modules-dir", str(MODULES_DIR),
+            "--tdb-url", BASE_URL,
+            "--tdb-org", ORG,
+            "--tdb-db", db_name,
+            "--tdb-user", USER,
+            "--tdb-password", PASSWORD,
+            "--branch", "feature",
+            "--force",
+        ])
+        assert exit_code == 0, f"promote --force failed: {stderr}"
+        assert "WARNING" in stdout
+
     finally:
         try:
             await tdb.aclose()

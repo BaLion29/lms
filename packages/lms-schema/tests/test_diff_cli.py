@@ -99,7 +99,7 @@ class TestDiffExitCodes:
         assert result.returncode == 2, result.stderr
 
     def test_plan_env_fallback(self, tmp_path: Path, monkeypatch):
-        """plan with password via env var validates (still fails on connect but not on arg parse)."""
+        """plan with password via env var validates → does NOT fail with missing-args exit."""
         mod_dir = tmp_path / "mods"
         _make_core(mod_dir)
         monkeypatch.setenv("LMS_SCHEMA_TDB_PASSWORD", "test")
@@ -110,8 +110,12 @@ class TestDiffExitCodes:
                "--tdb-db", "test",
                "--tdb-user", "admin"]
         result = subprocess.run(cmd, capture_output=True, text=True)
-        # Should not be exit 2 (arg parse failure), but will fail on connect
-        assert result.returncode != 2 or "missing required" not in result.stderr.lower()
+        # Password fallback worked (arg validation passed) — stderr must NOT
+        # contain the "missing required" arg-validation error message.
+        # The process may exit 1 (bootstrap plan, connection errors caught
+        # and treated as fresh DB) or 2 (genuine TdbError), but never 2
+        # from missing args.
+        assert "missing required" not in result.stderr.lower()
 
     def test_no_changes_exit_0(self, tmp_path: Path):
         """No changes → exit 0."""

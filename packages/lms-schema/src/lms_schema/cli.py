@@ -13,6 +13,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import SchemaError
 from .composer import compose
@@ -27,6 +28,9 @@ from .differ import (
 from .manifest import Manifest
 from .migrations import list_migrations
 from .semver import Version
+
+if TYPE_CHECKING:
+    from .applier import ActionPlan
 
 
 # ---------------------------------------------------------------------------
@@ -552,7 +556,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     tdb_password = _validate_tdb_args(args)
 
     try:
-        asyncio.run(_apply_branch(args, tdb_password))
+        plan = asyncio.run(_apply_branch(args, tdb_password))
     except Exception as exc:
         from lms_core.tdb import TdbError
         if isinstance(exc, TdbError):
@@ -562,10 +566,12 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             print(f"Error: {exc}", file=sys.stderr)
         return 2
 
+    if plan.has_errors:
+        return 2
     return 0
 
 
-async def _apply_branch(args: argparse.Namespace, tdb_password: str) -> None:
+async def _apply_branch(args: argparse.Namespace, tdb_password: str) -> ActionPlan:
     from lms_core.tdb import TdbClient
     from .applier import apply_plan, _compose_for_branch
 
@@ -588,7 +594,7 @@ async def _apply_branch(args: argparse.Namespace, tdb_password: str) -> None:
             print(f"Branch '{args.branch}' does not exist — creating from main.")
             await client.create_branch(args.branch, origin="main")
 
-        await apply_plan(client, args.branch, compose_result, modules_dir)
+        return await apply_plan(client, args.branch, compose_result, modules_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -656,6 +662,9 @@ def _cmd_promote(args: argparse.Namespace) -> int:
 
     try:
         msg = asyncio.run(_promote_branch(args, tdb_password))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
     except Exception as exc:
         from lms_core.tdb import TdbError
         if isinstance(exc, TdbError):
@@ -687,7 +696,7 @@ async def _promote_branch(args: argparse.Namespace, tdb_password: str) -> str:
         user=args.tdb_user,
         password=tdb_password,
     ) as client:
-        return await promote_branch(client, args.branch, compose_result)
+        return await promote_branch(client, args.branch, compose_result, force=args.force)
 
 
 # ---------------------------------------------------------------------------
@@ -801,6 +810,12 @@ def build_parser() -> argparse.ArgumentParser:
     # promote
     p_promote = sub.add_parser("promote", help="Promote a branch to main")
     _add_tdb_args(p_promote)
+    p_promote.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Promote even if main has diverged (main head is not an ancestor of the branch)",
+    )
 
     return parser
 

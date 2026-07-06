@@ -69,6 +69,26 @@ class TestSchemaEq:
         s2 = [_context(), {"@id": "Bar", "@type": "Class"}, {"@id": "Foo", "@type": "Class"}]
         assert _schema_eq(s1, s2)
 
+    def test_enum_value_reorder_not_equal(self):
+        """Enum @values reordered → schemas differ (order is significant)."""
+        s1 = [
+            _context(),
+            {"@id": "Color", "@type": "Enum", "@value": ["red", "green", "blue"]},
+        ]
+        s2 = [
+            _context(),
+            {"@id": "Color", "@type": "Enum", "@value": ["blue", "green", "red"]},
+        ]
+        assert not _schema_eq(s1, s2)
+
+    def test_context_change_not_equal(self):
+        """@context changed → schemas differ (context must trigger push)."""
+        ctx1 = {"@base": "terminusdb:///data/", "@schema": "terminusdb:///schema#", "@type": "@context"}
+        ctx2 = {"@base": "terminusdb:///other/", "@schema": "terminusdb:///schema#", "@type": "@context"}
+        s1 = [ctx1, {"@id": "Foo", "@type": "Class", "name": "xsd:string"}]
+        s2 = [ctx2, {"@id": "Foo", "@type": "Class", "name": "xsd:string"}]
+        assert not _schema_eq(s1, s2)
+
 
 # ---------------------------------------------------------------------------
 # build_action_plan tests
@@ -274,3 +294,164 @@ class TestBuildActionPlan:
         )
         assert len(plan.registry_module_upserts) == 1
         assert plan.registry_module_upserts[0].name == "inbox"
+
+    def test_missing_disk_migration_warning(self):
+        """Recorded migration whose disk file no longer exists → warning."""
+        classes = _core_classes()
+        cr = _make_compose_result(
+            modules=[
+                ModuleInfo(name="core", version="1.1.0", checksum="abc123"),
+            ],
+            schema=[_context()] + classes,
+        )
+        plan = build_action_plan(
+            compose_result=cr,
+            live_schema=[_context()] + classes,
+            registry_modules=[
+                {"@type": "SchemaModule", "name": "core", "version": "1.1.0", "checksum": "abc123"},
+            ],
+            registry_migrations=[
+                {"@type": "SchemaMigration", "module": "core", "filename": "0001_old.py", "checksum": "abc"},
+            ],
+            disk_migrations_by_module={},  # no files on disk
+            is_bootstrap=False,
+        )
+        assert not plan.has_errors
+        assert len(plan.warnings) >= 1
+        assert any("no longer exists" in w.lower() for w in plan.warnings)
+
+    def test_extra_registry_module_warning(self):
+        """Registry has SchemaModule doc for module absent from compose → warning."""
+        classes = _core_classes()
+        cr = _make_compose_result(
+            modules=[
+                ModuleInfo(name="core", version="1.1.0", checksum="abc123"),
+            ],
+            schema=[_context()] + classes,
+        )
+        plan = build_action_plan(
+            compose_result=cr,
+            live_schema=[_context()] + classes,
+            registry_modules=[
+                {"@type": "SchemaModule", "name": "core", "version": "1.1.0", "checksum": "abc123"},
+                {"@type": "SchemaModule", "name": "ghost", "version": "1.0.0", "checksum": "ffff"},
+            ],
+            registry_migrations=[],
+            disk_migrations_by_module={},
+            is_bootstrap=False,
+        )
+        assert not plan.has_errors
+        assert any("no corresponding module" in w.lower() or "ghost" in w.lower() for w in plan.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Plan exit-code contract tests (pure logic, no network)
+# ---------------------------------------------------------------------------
+
+
+class TestPlanExitCode:
+    """Verify the exit-code contract: 0=up-to-date, 1=actions pending, 2=error."""
+
+    def _ctx(self) -> dict:
+        return {"@base": "terminusdb:///data/", "@schema": "terminusdb:///schema#", "@type": "@context"}
+
+    def test_exit_0_up_to_date(self):
+        """No changes, no errors → exit code 0."""
+        classes = [{"@abstract": [], "@id": "Source", "@type": "Class"}]
+        cr = ComposeResult(
+            modules=[ModuleInfo(name="core", version="1.0.0", checksum="abc")],
+            composed_schema=[self._ctx()] + classes,
+            class_id_to_module={},
+        )
+        plan = build_action_plan(
+            compose_result=cr,
+            live_schema=[self._ctx()] + classes,
+            registry_modules=[{"@type": "SchemaModule", "name": "core", "version": "1.0.0", "checksum": "abc"}],
+            registry_migrations=[],
+            disk_migrations_by_module={},
+            is_bootstrap=False,
+        )
+        assert not plan.has_errors
+        assert not plan.has_actions
+        # CLI contract: 0
+
+    def test_exit_1_actions_pending(self):
+        """Actions pending, no errors → exit code 1."""
+        classes = [{"@abstract": [], "@id": "Source", "@type": "Class"}]
+        cr = ComposeResult(
+            modules=[ModuleInfo(name="core", version="1.0.0", checksum="abc")],
+            composed_schema=[self._ctx()] + classes,
+            class_id_to_module={},
+        )
+        plan = build_action_plan(
+            compose_result=cr,
+            live_schema=[],  # fresh → push needed
+            registry_modules=[],  # fresh → upsert needed
+            registry_migrations=[],
+            disk_migrations_by_module={},
+            is_bootstrap=True,
+        )
+        assert not plan.has_errors
+        assert plan.has_actions
+        # CLI contract: exit 1
+
+    def test_exit_2_errors(self):
+        """Plan has errors → exit code 2."""
+        classes = [{"@abstract": [], "@id": "Source", "@type": "Class"}]
+        cr = ComposeResult(
+            modules=[ModuleInfo(name="core", version="1.0.0", checksum="abc")],
+            composed_schema=[self._ctx()] + classes,
+            class_id_to_module={},
+        )
+        plan = build_action_plan(
+            compose_result=cr,
+            live_schema=[self._ctx()] + classes,
+            registry_modules=[{"@type": "SchemaModule", "name": "core", "version": "1.0.0", "checksum": "abc"}],
+            registry_migrations=[
+                {"@type": "SchemaMigration", "module": "core", "filename": "0001_x.py", "checksum": "old_cs"},
+            ],
+            disk_migrations_by_module={
+                "core": [
+                    PendingMigration(
+                        module="core",
+                        filename="0001_x.py",
+                        checksum="new_cs",
+                        path=Path("/fake/0001_x.py"),
+                    ),
+                ],
+            },
+            is_bootstrap=False,
+        )
+        assert plan.has_errors
+        # CLI contract: exit 2
+
+    def test_errors_take_priority_over_actions(self):
+        """When both errors and actions exist, errors take priority (exit 2)."""
+        classes = [{"@abstract": [], "@id": "Source", "@type": "Class"}]
+        cr = ComposeResult(
+            modules=[ModuleInfo(name="core", version="1.0.0", checksum="abc")],
+            composed_schema=[self._ctx()] + classes,
+            class_id_to_module={},
+        )
+        plan = build_action_plan(
+            compose_result=cr,
+            live_schema=[],  # push needed (action)
+            registry_modules=[],
+            registry_migrations=[
+                {"@type": "SchemaMigration", "module": "core", "filename": "0001_x.py", "checksum": "old_cs"},
+            ],
+            disk_migrations_by_module={
+                "core": [
+                    PendingMigration(
+                        module="core",
+                        filename="0001_x.py",
+                        checksum="new_cs",
+                        path=Path("/fake/0001_x.py"),
+                    ),
+                ],
+            },
+            is_bootstrap=True,
+        )
+        assert plan.has_errors
+        assert plan.has_actions  # still has actions, but errors dominate
+        # CLI contract: exit 2 (errors > actions)
