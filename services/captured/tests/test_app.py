@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from lms_core.conventions import BlobStore
@@ -76,7 +77,7 @@ class StubNoteHandler:
     kinds = ("note",)
     requires: list[ModuleRequirement] = []
 
-    def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
+    async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
         if payload.text and payload.text == "fail-me":
             raise RuntimeError("simulated handler failure")
         return "stub-note-id"
@@ -87,7 +88,7 @@ class StubFileHandler:
     kinds = ("file", "image")
     requires: list[ModuleRequirement] = []
 
-    def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
+    async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
         return "stub-file-id"
 
 
@@ -96,7 +97,7 @@ class StubConflictingHandler:
     kinds = ("note",)
     requires: list[ModuleRequirement] = []
 
-    def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
+    async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
         return "stub-conflict-id"
 
 
@@ -121,6 +122,11 @@ def _fake_discover_factory(result: DiscoveryResult):
 def _fake_select_factory(result: PluginSelection):
     """Return an **async** function (select_plugins is async)."""
     async def _inner(tdb, discovered, *, strict=False, branch="main"):
+        if strict and result.skipped:
+            skipped_names = [n for n, _ in result.skipped]
+            raise RuntimeError(
+                f"Strict plugin mode: skipped={skipped_names}, failed=[]"
+            )
         return result
     return _inner
 
@@ -535,7 +541,7 @@ class FailingHandler:
     kinds = ("fail",)
     requires: list[ModuleRequirement] = []
 
-    def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
+    async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
         raise ValueError("boom")
 
 
@@ -549,6 +555,27 @@ def test_handler_exception_returns_500(monkeypatch):
         )
     assert resp.status_code == 500
     assert resp.json()["detail"] == "capture processing failed"
+
+
+class HttpExceptionHandler:
+    name = "http-error"
+    kinds = ("fail",)
+    requires: list[ModuleRequirement] = []
+
+    async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
+        raise HTTPException(status_code=400, detail="handler says no")
+
+
+def test_handler_http_exception_passes_through(monkeypatch):
+    _patch_app(monkeypatch, handlers=[HttpExceptionHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            json={"text": "trigger", "kind": "fail"},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "handler says no"
 
 
 # ---------------------------------------------------------------------------
@@ -568,3 +595,145 @@ def test_file_capture_invalid_metadata_json(monkeypatch, tmp_path):
         )
     assert resp.status_code == 422
     assert "metadata must be valid JSON" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# captured_at round-trips to handler
+# ---------------------------------------------------------------------------
+
+
+class CapturedAtHandler:
+    name = "captured-at-handler"
+    kinds = ("note",)
+    requires: list[ModuleRequirement] = []
+
+    async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
+        assert payload.captured_at is not None
+        return "captured-at-id"
+
+
+def test_captured_at_roundtrips_to_handler(monkeypatch):
+    _patch_app(monkeypatch, handlers=[CapturedAtHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            json={
+                "text": "hello",
+                "captured_at": "2026-07-05T14:00:00Z",
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 201
+    assert resp.json()["id"] == "captured-at-id"
+
+
+# ---------------------------------------------------------------------------
+# File upload — size in response
+# ---------------------------------------------------------------------------
+
+
+def test_file_capture_response_includes_size(monkeypatch, tmp_path):
+    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    _patch_app(monkeypatch, handlers=[StubFileHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/file",
+            files={"file": ("test.txt", b"hello world", "text/plain")},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["size"] == 11
+
+
+# ---------------------------------------------------------------------------
+# strict_plugins — skipped plugin + strict → startup fails
+# ---------------------------------------------------------------------------
+
+
+class _HandlerWithUnmetReq:
+    name = "unmet-handler"
+    kinds = ("note",)
+    requires = [ModuleRequirement(name="nonexistent", range=">=2.0.0")]
+
+    async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
+        return "nope"
+
+
+def test_strict_plugins_fails_on_skipped(monkeypatch):
+    """strict_plugins=True raises RuntimeError when a handler is skipped."""
+    import captured.app as app_mod
+
+    tc = FakeTdbClient()
+    monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: tc)
+    monkeypatch.setattr(
+        app_mod, "discover_plugins",
+        _fake_discover_factory(_make_discovery(_HandlerWithUnmetReq())),
+    )
+    monkeypatch.setattr(
+        app_mod, "select_plugins",
+        _fake_select_factory(
+            PluginSelection(
+                active=[],
+                skipped=[("unmet-handler", ["module 'nonexistent' not installed"])],
+            )
+        ),
+    )
+
+    settings = _make_settings(strict_plugins=True)
+
+    # Must fail at startup because strict mode + skipped
+    with pytest.raises(RuntimeError, match="Strict plugin mode"):
+        with TestClient(create_app(settings)):
+            pass
+
+
+def test_strict_plugins_off_allows_skipped(monkeypatch):
+    """strict_plugins=False: skipped handler logs warning, app starts."""
+    import captured.app as app_mod
+
+    tc = FakeTdbClient()
+    monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: tc)
+    monkeypatch.setattr(
+        app_mod, "discover_plugins",
+        _fake_discover_factory(_make_discovery(_HandlerWithUnmetReq())),
+    )
+    monkeypatch.setattr(
+        app_mod, "select_plugins",
+        _fake_select_factory(
+            PluginSelection(
+                active=[],
+                skipped=[("unmet-handler", ["module 'nonexistent' not installed"])],
+            )
+        ),
+    )
+
+    settings = _make_settings(strict_plugins=False)
+
+    # Should start fine (zero handlers)
+    app = create_app(settings)
+    with TestClient(app) as c:
+        resp = c.get("/healthz")
+    assert resp.status_code == 200
+    assert resp.json()["handlers"] == []
+
+
+# ---------------------------------------------------------------------------
+# File upload captured_at round-trips to handler
+# ---------------------------------------------------------------------------
+
+async def test_file_capture_captured_at_roundtrip(monkeypatch, tmp_path):
+    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    _patch_app(monkeypatch, handlers=[CapturedAtHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/file",
+            files={"file": ("test.txt", b"hello", "text/plain")},
+            data={
+                "kind": "note",
+                "captured_at": "2026-07-05T14:00:00Z",
+            },
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 201
+    assert resp.json()["id"] == "captured-at-id"

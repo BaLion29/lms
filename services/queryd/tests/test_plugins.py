@@ -147,29 +147,33 @@ def test_strict_mode_fails_fast_on_skipped(respx_mock):
 
 def test_enable_writes_false_suppresses_plugins(respx_mock):
     """When ENABLE_WRITES=false, write-tool plugins are suppressed even
-    if discovered."""
+    if discovered — but plugin names are still reported in healthz."""
     respx_mock.get(_tdb_exists_route()).respond(200)
 
     with patch("queryd.app.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
             active=[("planning", _planning_plugin)],
         )
-
-        settings = _settings(enable_writes=False)
-        model = FunctionModel(
-            function=lambda messages, info: ModelResponse(
-                parts=[TextPart(content="ok")]
+        with patch("queryd.app.select_plugins") as mock_select:
+            mock_select.return_value = PluginSelection(
+                active=[("planning", _planning_plugin)],
             )
-        )
-        app = create_app(settings, model=model)
 
-        from fastapi.testclient import TestClient
+            settings = _settings(enable_writes=False)
+            model = FunctionModel(
+                function=lambda messages, info: ModelResponse(
+                    parts=[TextPart(content="ok")]
+                )
+            )
+            app = create_app(settings, model=model)
 
-        with TestClient(app) as client:
-            resp = client.get("/healthz")
-        assert resp.status_code == 200
-        # Plugins should be empty (suppressed)
-        assert resp.json()["plugins"] == []
+            from fastapi.testclient import TestClient
+
+            with TestClient(app) as client:
+                resp = client.get("/healthz")
+            assert resp.status_code == 200
+            # Plugins are discovered and reported but tools are suppressed
+            assert resp.json()["plugins"] == ["planning_tools"]
 
 
 # ---------------------------------------------------------------------------
@@ -439,3 +443,78 @@ def test_collect_plugin_tools_cross_plugin_collision():
 
     with pytest.raises(RuntimeError, match="Tool name collision"):
         _collect_plugin_tools([("a", _A()), ("b", _B())], _settings(), MagicMock())
+
+
+# ---------------------------------------------------------------------------
+# strict_plugins enforcement works regardless of enable_writes
+# ---------------------------------------------------------------------------
+
+
+def test_strict_fails_with_writes_disabled(respx_mock):
+    """strict_plugins=True + unmet requirement → fatal even when
+    enable_writes=False."""
+    respx_mock.get(_tdb_exists_route()).respond(200)
+
+    with patch("queryd.app.discover_plugins") as mock_discover:
+        mock_discover.return_value = DiscoveryResult(
+            active=[("fake", _FakePluginMissingModule())],
+        )
+        with patch("queryd.app.select_plugins") as mock_select:
+
+            async def _fake_select(tdb, discovered, *, strict=False, branch="main"):
+                if strict:
+                    raise RuntimeError(
+                        "Strict plugin mode: skipped=['fake'], failed=[]"
+                    )
+                return PluginSelection(
+                    active=[],
+                    skipped=[("fake", ["module 'nonexistent' not installed"])],
+                )
+
+            mock_select.side_effect = _fake_select
+
+            settings = _settings(enable_writes=False, strict_plugins=True)
+            model = FunctionModel(
+                function=lambda messages, info: ModelResponse(
+                    parts=[TextPart(content="ok")]
+                )
+            )
+
+            from fastapi.testclient import TestClient
+
+            with pytest.raises(RuntimeError, match="Strict plugin mode"):
+                with TestClient(create_app(settings, model=model)):
+                    pass
+
+
+def test_nonstrict_writes_disabled_allows_skipped(respx_mock):
+    """enable_writes=False + non-strict: skipped plugins are tolerated,
+    app starts, active plugins reported in healthz."""
+    respx_mock.get(_tdb_exists_route()).respond(200)
+
+    with patch("queryd.app.discover_plugins") as mock_discover:
+        mock_discover.return_value = DiscoveryResult(
+            active=[("planning", _planning_plugin), ("fake", _FakePluginMissingModule())],
+        )
+        with patch("queryd.app.select_plugins") as mock_select:
+            mock_select.return_value = PluginSelection(
+                active=[("planning", _planning_plugin)],
+                skipped=[("fake", ["module 'nonexistent' not installed"])],
+            )
+
+            settings = _settings(enable_writes=False, strict_plugins=False)
+            model = FunctionModel(
+                function=lambda messages, info: ModelResponse(
+                    parts=[TextPart(content="ok")]
+                )
+            )
+            app = create_app(settings, model=model)
+
+            from fastapi.testclient import TestClient
+
+            with TestClient(app) as client:
+                resp = client.get("/healthz")
+            assert resp.status_code == 200
+            # Active plugins are reported even though tools are suppressed
+            # (non-strict, writes-disabled: all discovered plugins reported)
+            assert set(resp.json()["plugins"]) == {"planning_tools", "fake_plugin"}

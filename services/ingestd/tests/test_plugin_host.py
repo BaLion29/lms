@@ -136,39 +136,48 @@ class _SourceA:
     name = "source_a"
     document_type = "InboxNote"
     ready_status = "new"
-    processing_status = "processing"
     done_status = "processed"
     failed_status = "failed"
     requires: list[ModuleRequirement] = []
 
-    def build_extraction_input(self, doc):
+    def text(self, doc):
         return doc.get("content", "")
+
+    def reference_time(self, doc):
+        from datetime import datetime, timezone
+        return datetime(2025, 1, 1, tzinfo=timezone.utc)
 
 
 class _SourceB:
     name = "source_b"
     document_type = "InboxNote"
     ready_status = "new"  # same as _SourceA → collision
-    processing_status = "processing"
     done_status = "processed"
     failed_status = "failed"
     requires: list[ModuleRequirement] = []
 
-    def build_extraction_input(self, doc):
+    def text(self, doc):
         return doc.get("content", "")
+
+    def reference_time(self, doc):
+        from datetime import datetime, timezone
+        return datetime(2025, 1, 1, tzinfo=timezone.utc)
 
 
 class _SourceDifferent:
     name = "source_diff"
     document_type = "InboxAudio"
     ready_status = "transcribed"
-    processing_status = "processing"
     done_status = "processed"
     failed_status = "failed"
     requires: list[ModuleRequirement] = []
 
-    def build_extraction_input(self, doc):
+    def text(self, doc):
         return doc.get("transcription", "")
+
+    def reference_time(self, doc):
+        from datetime import datetime, timezone
+        return datetime(2025, 1, 1, tzinfo=timezone.utc)
 
 
 class TestSourceCollision:
@@ -461,26 +470,32 @@ class _SourceWithRequirement:
     name = "source_with_req"
     document_type = "InboxNote"
     ready_status = "new"
-    processing_status = "processing"
     done_status = "processed"
     failed_status = "failed"
     requires = [ModuleRequirement(name="missing_module", range=">=2.0.0")]
 
-    def build_extraction_input(self, doc):
+    def text(self, doc):
         return doc.get("content", "")
+
+    def reference_time(self, doc):
+        from datetime import datetime, timezone
+        return datetime(2025, 1, 1, tzinfo=timezone.utc)
 
 
 class _SourceNoRequirement:
     name = "source_no_req"
     document_type = "InboxAudio"
     ready_status = "transcribed"
-    processing_status = "processing"
     done_status = "processed"
     failed_status = "failed"
     requires: list[ModuleRequirement] = []
 
-    def build_extraction_input(self, doc):
+    def text(self, doc):
         return doc.get("transcription", "")
+
+    def reference_time(self, doc):
+        from datetime import datetime, timezone
+        return datetime(2025, 1, 1, tzinfo=timezone.utc)
 
 
 class TestSourceRequirementSkipping:
@@ -517,6 +532,69 @@ class TestSourceRequirementSkipping:
 
             assert "with_req" in skipped_names
             assert "no_req" in active_names
+            assert len(result.active) == 1
+        finally:
+            plug_mod.check_requirements = _orig_check
+
+
+# ---------------------------------------------------------------------------
+# 8. strict_plugins — skipped plugin + strict → startup fails; non-strict starts
+# ---------------------------------------------------------------------------
+
+
+class TestStrictPlugins:
+    @pytest.mark.asyncio
+    async def test_strict_source_skipped_raises(self, monkeypatch):
+        """strict=True: skipped source plugin raises RuntimeError via select_plugins."""
+        tdb = AsyncMock()
+        tdb.get_documents = AsyncMock(return_value=[])
+
+        discovered = DiscoveryResult(
+            active=[("with_req", _SourceWithRequirement())]
+        )
+
+        import lms_core.plugins as plug_mod
+        _orig_check = plug_mod.check_requirements
+
+        async def _check(tdb, reqs, branch="main"):
+            violations: list[str] = []
+            for req in reqs:
+                violations.append(f"module '{req.name}' not installed")
+            return violations
+
+        plug_mod.check_requirements = _check
+        try:
+            with pytest.raises(RuntimeError, match="Strict plugin mode"):
+                await select_plugins(tdb, discovered, strict=True)
+        finally:
+            plug_mod.check_requirements = _orig_check
+
+    @pytest.mark.asyncio
+    async def test_nonstrict_source_skipped_allows_start(self, monkeypatch):
+        """strict=False: skipped source is just skipped, no exception."""
+        tdb = AsyncMock()
+        tdb.get_documents = AsyncMock(return_value=[])
+
+        discovered = DiscoveryResult(
+            active=[
+                ("with_req", _SourceWithRequirement()),
+                ("no_req", _SourceNoRequirement()),
+            ]
+        )
+
+        import lms_core.plugins as plug_mod
+        _orig_check = plug_mod.check_requirements
+
+        async def _check(tdb, reqs, branch="main"):
+            violations: list[str] = []
+            for req in reqs:
+                violations.append(f"module '{req.name}' not installed")
+            return violations
+
+        plug_mod.check_requirements = _check
+        try:
+            result = await select_plugins(tdb, discovered, strict=False)
+            assert len(result.skipped) == 1
             assert len(result.active) == 1
         finally:
             plug_mod.check_requirements = _orig_check

@@ -1,47 +1,92 @@
 """Built-in ingestd source plugins — InboxNote and InboxAudio.
 
 Each source knows the TerminusDB document type, its pollable ready_status,
-the statuses for processing/done/failed, and how to extract the text that
-will be fed into the extraction agent.
+the statuses for done/failed, how to extract the text that will be fed into
+the extraction agent, and how to get a reference datetime for relative-date
+resolution.
 
 Registered via the ``lms.ingestd.sources`` entry point.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
+import structlog
+
+from lms_core.conventions import utc_now
 from lms_core.plugins import IngestSourcePlugin, ModuleRequirement
+
+logger = structlog.get_logger(__name__)
 
 
 class InboxNoteSource:
     """Pull-source for InboxNote documents (status="new" → text from content)."""
 
     name: str = "inbox_note"
+    requires: list[ModuleRequirement] = []
     document_type: str = "InboxNote"
     ready_status: str = "new"
-    processing_status: str = "new"  # we flip to "new" during processing (unchanged)
     done_status: str = "processed"
     failed_status: str = "failed"
-    requires: list[ModuleRequirement] = []
 
-    def build_extraction_input(self, doc: dict[str, Any]) -> str:
+    def text(self, doc: dict[str, Any]) -> str:
         return doc["content"]
+
+    def reference_time(self, doc: dict[str, Any]) -> datetime:
+        created_at = doc.get("created_at", "")
+        if not created_at:
+            logger.warning(
+                "reference_datetime_missing",
+                iri=doc.get("@id", ""),
+                field="created_at",
+            )
+            return utc_now()
+        try:
+            return datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            logger.warning(
+                "reference_datetime_unparseable",
+                iri=doc.get("@id", ""),
+                field="created_at",
+                value=created_at,
+            )
+            return utc_now()
 
 
 class InboxAudioSource:
     """Pull-source for InboxAudio documents (status="transcribed" → text from transcription)."""
 
     name: str = "inbox_audio"
+    requires: list[ModuleRequirement] = []
     document_type: str = "InboxAudio"
     ready_status: str = "transcribed"
-    processing_status: str = "transcribed"  # we flip to "transcribed" during processing (unchanged)
     done_status: str = "processed"
     failed_status: str = "failed"
-    requires: list[ModuleRequirement] = []
 
-    def build_extraction_input(self, doc: dict[str, Any]) -> str:
+    def text(self, doc: dict[str, Any]) -> str:
         return doc["transcription"]
+
+    def reference_time(self, doc: dict[str, Any]) -> datetime:
+        recorded_at = doc.get("recorded_at", "")
+        if not recorded_at:
+            logger.warning(
+                "reference_datetime_missing",
+                iri=doc.get("@id", ""),
+                field="recorded_at",
+            )
+            return utc_now()
+        try:
+            return datetime.fromisoformat(recorded_at.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            logger.warning(
+                "reference_datetime_unparseable",
+                iri=doc.get("@id", ""),
+                field="recorded_at",
+                value=recorded_at,
+            )
+            return utc_now()
 
 
 # Module-level instances for entry-point discovery

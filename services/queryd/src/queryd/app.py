@@ -246,12 +246,17 @@ async def _lifespan(
             failed=len(discovered.failed),
         )
 
-        if not settings.enable_writes:
-            log.info(
-                "all write-tool plugins suppressed (ENABLE_WRITES=false)",
-                discovered=len(discovered.active),
+        # Broken entry points are always fatal in strict mode
+        if discovered.failed and settings.strict_plugins:
+            failed_names = [n for n, _ in discovered.failed]
+            raise RuntimeError(
+                f"Strict plugin mode: failed={failed_names}"
             )
-        else:
+
+        # Run selection (requirement checking + strict enforcement)
+        # whenever plugins are relevant: strict enforcement always,
+        # or when writes are enabled and we need to register tools.
+        if settings.strict_plugins or settings.enable_writes:
             selection = await select_plugins(
                 tdb,
                 discovered,
@@ -267,13 +272,35 @@ async def _lifespan(
                 )
 
             if selection.active:
-                p_tools, active_plugins = _collect_plugin_tools(
-                    selection.active, settings, tdb
-                )
-                plugin_tools = p_tools
-                log.info("active write-tool plugins", plugins=active_plugins)
+                if settings.enable_writes:
+                    p_tools, active_plugins = _collect_plugin_tools(
+                        selection.active, settings, tdb
+                    )
+                    plugin_tools = p_tools
+                    log.info("active write-tool plugins", plugins=active_plugins)
+                else:
+                    active_plugins = [
+                        getattr(obj, "name", ep_name)
+                        for ep_name, obj in selection.active
+                    ]
+                    log.info(
+                        "write-tool plugins suppressed (ENABLE_WRITES=false)",
+                        count=len(active_plugins),
+                    )
             else:
                 log.info("no active write-tool plugins")
+        else:
+            # Neither strict nor writes enabled — report discovered
+            # plugins as the active set but skip TDB requirement check.
+            if discovered.active:
+                active_plugins = [
+                    getattr(obj, "name", ep_name)
+                    for ep_name, obj in discovered.active
+                ]
+            log.info(
+                "write-tool plugins suppressed (ENABLE_WRITES=false)",
+                count=len(discovered.active),
+            )
 
     app.state.active_plugins = active_plugins
 

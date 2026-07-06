@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,6 +51,8 @@ class TestBlobStore:
         assert ref.sha256 == (
             "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
         )
+        assert ref.size == len(data)
+        assert ref.mime is None  # no suggested_name
         assert ref.deduplicated is False
         assert ref.path.exists()
         assert ref.path.read_bytes() == data
@@ -83,6 +86,43 @@ class TestBlobStore:
 
         ref3 = store.put(b"no ext", ext="")
         assert ref3.path.suffix == ""
+
+    def test_suggested_name_derives_ext_and_mime(self, store: BlobStore) -> None:
+        ref = store.put(b"hello", suggested_name="report.pdf")
+        assert ref.path.suffix == ".pdf"
+        assert ref.mime == "application/pdf"
+
+    def test_suggested_name_no_ext(self, store: BlobStore) -> None:
+        ref = store.put(b"hello", suggested_name="README")
+        assert ref.path.suffix == ""
+
+    def test_suggested_name_takes_precedence_over_ext(self, store: BlobStore) -> None:
+        ref = store.put(b"hello", suggested_name="notes.txt", ext="pdf")
+        assert ref.path.suffix == ".txt"
+
+    def test_unsafe_suggested_name_falls_back_extensionless(self, store: BlobStore) -> None:
+        ref = store.put(b"payload", suggested_name="evil.t<x>t")
+        assert ref.path.suffix == ""
+
+    def test_unsafe_suggested_name_falls_back_to_ext(self, store: BlobStore) -> None:
+        ref = store.put(b"payload", suggested_name="evil.t<x>t", ext=".txt")
+        assert ref.path.suffix == ".txt"
+
+    def test_stream_input(self, store: BlobStore) -> None:
+        import io
+        stream = io.BytesIO(b"stream data")
+        ref = store.put(stream, suggested_name="data.bin")
+        assert ref.sha256 == hashlib.sha256(b"stream data").hexdigest()
+        assert ref.size == 11
+        assert ref.deduplicated is False
+
+    def test_suggested_name_mime_text(self, store: BlobStore) -> None:
+        ref = store.put(b"text", suggested_name="notes.txt")
+        assert ref.mime == "text/plain"
+
+    def test_suggested_name_mime_html(self, store: BlobStore) -> None:
+        ref = store.put(b"<html></html>", suggested_name="page.html")
+        assert ref.mime == "text/html"
 
     def test_get_path_finds_blob(self, store: BlobStore) -> None:
         ref = store.put(b"find me")

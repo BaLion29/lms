@@ -6,6 +6,7 @@ import json
 import secrets
 import tempfile
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,7 @@ class NoteRequest(BaseModel):
     text: str
     kind: str = "note"
     metadata: dict[str, Any] = {}
+    captured_at: datetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -116,9 +118,11 @@ async def _lifespan(app: FastAPI, settings: Settings):
             selection = await select_plugins(
                 tdb,
                 discovered,
-                strict=False,
+                strict=settings.strict_plugins,
                 branch=settings.tdb_branch,
             )
+        except RuntimeError:
+            raise
         except Exception:
             log.warning(
                 "plugin selection failed — TerminusDB unreachable; "
@@ -207,7 +211,7 @@ def _probe_blob_root_writable(root: Path) -> bool:
     except Exception:
         return False
 
-def _dispatch(payload: CapturePayload, app: FastAPI) -> str:
+async def _dispatch(payload: CapturePayload, app: FastAPI) -> str:
     """Resolve the handler for *payload.kind* and invoke it.
     Returns the document id returned by the handler.  Raises
     ``HTTPException`` for unknown kinds or handler errors.
@@ -225,7 +229,7 @@ def _dispatch(payload: CapturePayload, app: FastAPI) -> str:
             },
         )
 
-    blob_store = app.state.blob_store if hasattr(app.state, "blob_store") else None
+    blob_store = app.state.blob_store
     ctx = CaptureContext(
         tdb=app.state.tdb,
         blob_store=blob_store,
@@ -233,7 +237,9 @@ def _dispatch(payload: CapturePayload, app: FastAPI) -> str:
     )
 
     try:
-        return handler.handle(payload, ctx)
+        return await handler.handle(payload, ctx)
+    except HTTPException:
+        raise
     except Exception:
         log.exception("capture handler raised", handler=handler.name, kind=payload.kind)
         raise HTTPException(status_code=500, detail="capture processing failed")
@@ -321,8 +327,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             kind=body.kind,
             text=body.text,
             metadata=body.metadata,
+            captured_at=body.captured_at,
         )
-        doc_id = _dispatch(payload, app)
+        doc_id = await _dispatch(payload, app)
         return JSONResponse(
             status_code=201,
             content={"id": doc_id, "kind": body.kind},
@@ -337,6 +344,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         file: UploadFile = File(...),
         kind: str = Form(default="file"),
         metadata: str = Form(default="{}"),
+        captured_at: str | None = Form(default=None),
     ):
         blob_store: BlobStore | None = app.state.blob_store
         if blob_store is None:
@@ -359,6 +367,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="metadata must be a JSON object",
             )
 
+        # Parse captured_at (ISO datetime, optional)
+        captured_at_dt: datetime | None = None
+        if captured_at:
+            try:
+                captured_at_dt = datetime.fromisoformat(
+                    captured_at.replace("Z", "+00:00")
+                )
+                if captured_at_dt.tzinfo is None:
+                    raise ValueError("timezone required")
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status_code=422,
+                    detail="captured_at must be an ISO 8601 datetime with timezone",
+                )
+
         # Read file bytes (with size cap)
         data = await file.read()
         max_bytes = app.state.settings.max_upload_bytes
@@ -368,29 +391,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail=f"upload exceeds maximum size of {max_bytes} bytes",
             )
 
-        filename = file.filename
-
-        # Derive extension from filename; fall back to extensionless on unsafe
-        suffix = Path(filename).suffix if filename else ""
-        ext = suffix if suffix and len(suffix) > 1 else ""
-
-        # Store blob (with fallback on unsafe extension)
-        try:
-            blob_ref = blob_store.put(data, ext=ext)
-        except ValueError:
-            blob_ref = blob_store.put(data, ext="")
+        # Store blob — BlobStore derives ext/mime from suggested_name
+        blob_ref = blob_store.put(data, suggested_name=file.filename)
 
         payload = CapturePayload(
             kind=kind,
             blob_sha256=blob_ref.sha256,
-            filename=filename or "unnamed",
+            filename=file.filename or "unnamed",
             content_type=file.content_type or "application/octet-stream",
             metadata=meta,
+            captured_at=captured_at_dt,
         )
-        doc_id = _dispatch(payload, app)
+        doc_id = await _dispatch(payload, app)
         return JSONResponse(
             status_code=201,
-            content={"id": doc_id, "kind": kind, "sha256": blob_ref.sha256},
+            content={
+                "id": doc_id,
+                "kind": kind,
+                "sha256": blob_ref.sha256,
+                "size": blob_ref.size,
+            },
         )
 
     return app

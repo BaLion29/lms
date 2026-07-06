@@ -16,3 +16,4 @@ class Settings(TdbSettings):
     poll_interval_seconds: int = 60
     max_llm_retries: int = 3
     dry_run: bool = False
+    strict_plugins: bool = False

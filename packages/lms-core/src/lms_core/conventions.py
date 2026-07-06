@@ -40,6 +40,12 @@ class BlobRef:
     path: Path
     """Filesystem path where the blob is stored."""
 
+    size: int
+    """Number of bytes in the blob content."""
+
+    mime: str | None
+    """MIME type guessed from the suggested filename, or ``None``."""
+
     deduplicated: bool
     """``True`` when an identical blob already existed (no write performed)."""
 
@@ -65,31 +71,76 @@ class BlobStore:
 
     # -- public API ----------------------------------------------------------
 
-    def put(self, data: bytes, ext: str = "") -> BlobRef:
+    def put(
+        self,
+        data: bytes | Any,  # BinaryIO accepted at runtime (alpha limitation: read fully)
+        *,
+        suggested_name: str | None = None,
+        ext: str = "",
+    ) -> BlobRef:
         """Store *data* and return a :class:`BlobRef`.
 
-        *ext* is normalised: if non-empty and lacking a leading dot, one is
-        prepended (e.g. ``"pdf"`` → ``".pdf"``).  Pass ``""`` for extension-less
-        blobs.
+        *data* may be ``bytes`` or any ``BinaryIO`` (which is read fully).
+        This is a documented alpha limitation; future versions will stream.
+
+        *suggested_name* is an optional filename (e.g. ``"report.pdf"``).
+        Its suffix is used to derive the extension (falls back to *ext* when
+        *suggested_name* is ``None`` or its suffix is unsafe).  The MIME
+        type is guessed from *suggested_name* when provided.
 
         If a blob with the same SHA-256 digest already exists anywhere under
         ``self.root`` the write is skipped and ``BlobRef.deduplicated`` is
         ``True``.
         """
-        sha256 = hashlib.sha256(data).hexdigest()
-        ext = _normalise_ext(ext)
+        import mimetypes
+
+        # Read data: accept bytes or BinaryIO
+        raw: bytes
+        if isinstance(data, bytes):
+            raw = data
+        else:
+            raw = data.read()
+
+        sha256 = hashlib.sha256(raw).hexdigest()
+
+        # Determine extension: suggested_name suffix takes precedence
+        file_ext = ext
+        if suggested_name is not None:
+            suffix = Path(suggested_name).suffix
+            if suffix and len(suffix) > 1:
+                try:
+                    file_ext = suffix
+                    _normalise_ext(file_ext)  # validate
+                except ValueError:
+                    file_ext = _normalise_ext(ext)  # unsafe suffix → fall back to caller-supplied ext
+            else:
+                file_ext = ext if ext else ""
+        elif ext:
+            file_ext = _normalise_ext(ext)
+
+        # Guess MIME type from suggested_name
+        mime: str | None = None
+        if suggested_name:
+            guessed, _ = mimetypes.guess_type(suggested_name)
+            mime = guessed
 
         # Check for an existing blob with the same digest (any yyyy/mm).
         existing = self.get_path(sha256)
         if existing is not None:
-            return BlobRef(sha256=sha256, path=existing, deduplicated=True)
+            return BlobRef(
+                sha256=sha256,
+                path=existing,
+                size=len(raw),
+                mime=mime,
+                deduplicated=True,
+            )
 
         # Compute target path based on the current UTC date.
         now = utc_now()
         yyyy = now.strftime("%Y")
         mm = now.strftime("%m")
         dir_path = self.root / yyyy / mm / sha256[:2]
-        target = dir_path / f"{sha256}{ext}"
+        target = dir_path / f"{sha256}{file_ext}"
 
         dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -98,7 +149,7 @@ class BlobStore:
             dir=dir_path, delete=False, suffix=".tmp"
         )
         try:
-            tmp.write(data)
+            tmp.write(raw)
             tmp.close()
             os.replace(tmp.name, target)
         except BaseException:
@@ -106,7 +157,13 @@ class BlobStore:
             Path(tmp.name).unlink(missing_ok=True)
             raise
 
-        return BlobRef(sha256=sha256, path=target, deduplicated=False)
+        return BlobRef(
+            sha256=sha256,
+            path=target,
+            size=len(raw),
+            mime=mime,
+            deduplicated=False,
+        )
 
     def get_path(self, sha256: str) -> Path | None:
         """Return the path to an existing blob, or ``None`` if not found.

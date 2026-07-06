@@ -40,27 +40,6 @@ from lms_core.tdb import TdbClient, TdbError, short_iri
 logger = structlog.get_logger(__name__)
 
 
-def _parse_reference_datetime(dt_str: str, field_name: str, doc_iri: str) -> datetime:
-    """Parse a reference datetime string, falling back to now(UTC) with a warning."""
-    if not dt_str:
-        logger.warning(
-            "reference_datetime_missing",
-            iri=doc_iri,
-            field=field_name,
-        )
-        return datetime.now(timezone.utc)
-    try:
-        return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        logger.warning(
-            "reference_datetime_unparseable",
-            iri=doc_iri,
-            field=field_name,
-            value=dt_str,
-        )
-        return datetime.now(timezone.utc)
-
-
 class Pipeline:
     """Main extraction pipeline: fetch inbox docs, run extraction, insert results.
 
@@ -263,9 +242,8 @@ class Pipeline:
             return
 
         # 2. Text + reference datetime from source plugin
-        text = src.build_extraction_input(doc)
-        ref_dt_str, ref_dt_field = self._ref_datetime_info(doc, src)
-        reference_dt = _parse_reference_datetime(ref_dt_str, ref_dt_field, doc_iri)
+        text = src.text(doc)
+        reference_dt = src.reference_time(doc)
 
         # 3. Extraction retry loop
         error_feedback: str | None = None
@@ -364,24 +342,6 @@ class Pipeline:
 
         # 4. Flip status to done
         await self._flip_status(doc, src.done_status)
-
-    @staticmethod
-    def _ref_datetime_info(
-        doc: dict[str, Any], src: Any
-    ) -> tuple[str, str]:
-        """Return (dt_str, field_name) for the reference datetime."""
-        dt_name = src.document_type
-        if dt_name == "InboxNote":
-            return doc.get("created_at", ""), "created_at"
-        elif dt_name == "InboxAudio":
-            return doc.get("recorded_at", ""), "recorded_at"
-        else:
-            # Generic fallback — try common fields
-            for field in ("created_at", "recorded_at", "updated_at"):
-                val = doc.get(field)
-                if val:
-                    return val, field
-            return "", "unknown"
 
     async def _flip_status(self, doc: dict[str, Any], status: str) -> None:
         """Update *doc* status in-place and persist via replace_document."""

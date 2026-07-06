@@ -17,6 +17,7 @@ class Settings(TdbSettings):
 
     # Operational
     listen_addr: str = "0.0.0.0:8088"
+    strict_plugins: bool = False
 
     # Upload limits
     max_upload_bytes: int = Field(default=50_000_000, gt=0)

@@ -191,6 +191,7 @@ class CapturePayload:
         filename: Original filename, if applicable.
         content_type: MIME type of the blob content.
         metadata: Arbitrary extra key-value pairs.
+        captured_at: Optional timestamp when the capture was created.
     """
 
     kind: str
@@ -199,6 +200,7 @@ class CapturePayload:
     filename: str | None = None
     content_type: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    captured_at: datetime | None = None
 
 
 @dataclass
@@ -210,11 +212,19 @@ class CaptureContext:
         blob_store: Optional :class:`~lms_core.conventions.BlobStore` for
             retrieving blob content by digest.
         logger: A ``logging.Logger``-like object.
+        now: Callable returning ``datetime`` (default: ``utc_now``).
     """
 
     tdb: Any
     blob_store: BlobStore | None
     logger: Any
+    now: Callable[[], datetime] | None = None
+
+    def __post_init__(self) -> None:
+        if self.now is None:
+            from lms_core.conventions import utc_now as _utc_now
+
+            self.now = _utc_now
 
 
 @runtime_checkable
@@ -230,8 +240,11 @@ class CaptureHandler(Protocol):
     kinds: tuple[str, ...]
     requires: list[ModuleRequirement]
 
-    def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
-        """Process a capture and return the created document id."""
+    async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
+        """Process a capture and return the created document id.
+
+        ctx provides tdb, blob store, now().
+        """
         ...
 
 
@@ -240,20 +253,24 @@ class IngestSourcePlugin(Protocol):
     """Protocol for ingestd *pull-source* plugins.
 
     The ingestd host owns polling and status-state transitions.  Plugin
-    authors only need to provide the document-type metadata and a way to
-    extract the text that will be fed to the extraction agent.
+    authors only need to provide the document-type metadata, a way to
+    extract the text that will be fed to the extraction agent, and a
+    reference datetime for resolving relative dates.
     """
 
     name: str
+    requires: list[ModuleRequirement]
     document_type: str
     ready_status: str
-    processing_status: str
     done_status: str
     failed_status: str
-    requires: list[ModuleRequirement]
 
-    def build_extraction_input(self, doc: dict) -> str:
+    def text(self, doc: dict) -> str:
         """Return the text that is handed to the extraction agent."""
+        ...
+
+    def reference_time(self, doc: dict) -> datetime:
+        """Anchor for resolving relative dates (created_at / recorded_at)."""
         ...
 
 

@@ -272,43 +272,50 @@ class TestIngestSourcePluginProtocol:
     """A minimal class should satisfy the IngestSourcePlugin Protocol."""
 
     def test_structural_usage(self) -> None:
+        from datetime import datetime, timezone
+
         class RssIngestSource:
             name = "rss_source"
+            requires: list[ModuleRequirement] = []
             document_type = "RssFeedItem"
             ready_status = "ready"
-            processing_status = "processing"
             done_status = "done"
             failed_status = "failed"
-            requires: list[ModuleRequirement] = []
 
-            def build_extraction_input(self, doc: dict) -> str:
+            def text(self, doc: dict) -> str:
                 return doc.get("body", "")
+
+            def reference_time(self, doc: dict) -> datetime:
+                return datetime(2025, 1, 1, tzinfo=timezone.utc)
 
         source = RssIngestSource()
         # Verify all expected attributes are present
         assert source.name == "rss_source"
         assert source.document_type == "RssFeedItem"
         assert source.ready_status == "ready"
-        assert source.processing_status == "processing"
         assert source.done_status == "done"
         assert source.failed_status == "failed"
         assert source.requires == []
 
         doc = {"body": "extracted text"}
-        assert source.build_extraction_input(doc) == "extracted text"
+        assert source.text(doc) == "extracted text"
 
     def test_requires_with_module_requirements(self) -> None:
+        from datetime import datetime, timezone
+
         class MySource:
             name = "my_source"
+            requires = [ModuleRequirement(name="inbox", range=">=1.0.0")]
             document_type = "MyDoc"
             ready_status = "new"
-            processing_status = "in_progress"
             done_status = "completed"
             failed_status = "error"
-            requires = [ModuleRequirement(name="inbox", range=">=1.0.0")]
 
-            def build_extraction_input(self, doc: dict) -> str:
+            def text(self, doc: dict) -> str:
                 return str(doc)
+
+            def reference_time(self, doc: dict) -> datetime:
+                return datetime(2025, 1, 1, tzinfo=timezone.utc)
 
         source = MySource()
         assert len(source.requires) == 1

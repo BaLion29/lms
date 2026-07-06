@@ -74,6 +74,7 @@ async def _discover_extractor_plugins_async(
     tdb: TdbClient,
     branch: str,
     logger,
+    strict: bool = False,
 ):
     """Discover extractor plugins, check requirements, build ExtractionContext.
 
@@ -96,7 +97,7 @@ async def _discover_extractor_plugins_async(
             f"Extractor plugin entry points failed to load: {names}"
         )
 
-    selection = await select_plugins(tdb, discovered, strict=False, branch=branch)
+    selection = await select_plugins(tdb, discovered, strict=strict, branch=branch)
 
     for name, violations in selection.skipped:
         logger.warning(
@@ -127,6 +128,7 @@ async def _discover_source_plugins_async(
     tdb: TdbClient,
     branch: str,
     logger,
+    strict: bool = False,
 ) -> list:
     """Discover source plugins, check requirements, return active ones."""
     discovered = discover_plugins(_SOURCE_GROUP)
@@ -144,7 +146,7 @@ async def _discover_source_plugins_async(
             f"Source plugin entry points failed to load: {names}"
         )
 
-    selection = await select_plugins(tdb, discovered, strict=False, branch=branch)
+    selection = await select_plugins(tdb, discovered, strict=strict, branch=branch)
 
     for name, violations in selection.skipped:
         logger.warning(
@@ -217,7 +219,7 @@ async def async_main(
     # ── Discover extractor plugins ──────────────────────────────────
     try:
         extraction_ctx = await _discover_extractor_plugins_async(
-            tdb, branch, logger
+            tdb, branch, logger, strict=settings.strict_plugins
         )
     except (RuntimeError, ValueError):
         logger.exception("extractor_plugin_discovery_failed")
@@ -226,7 +228,7 @@ async def async_main(
     # ── Discover source plugins ─────────────────────────────────────
     try:
         source_plugins = await _discover_source_plugins_async(
-            tdb, branch, logger
+            tdb, branch, logger, strict=settings.strict_plugins
         )
     except RuntimeError:
         logger.exception("source_plugin_discovery_failed")
@@ -236,6 +238,7 @@ async def async_main(
         "plugin_startup_complete",
         extractor_active=len(extraction_ctx.kind_to_plugin),
         source_count=len(source_plugins),
+        source_names=[getattr(s, "name", "?") for s in source_plugins],
     )
 
     pipeline = Pipeline(
