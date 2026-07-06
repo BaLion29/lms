@@ -72,6 +72,47 @@ def _make_core(base: Path, version: str = "1.0.0") -> Path:
 
 class TestDiffExitCodes:
 
+    def test_plan_missing_tdb_args_exit_2(self, tmp_path: Path):
+        """plan without any TDB args → exit 2."""
+        mod_dir = tmp_path / "mods"
+        _make_core(mod_dir)
+        cmd = [sys.executable, "-m", "lms_schema.cli", "plan", "--modules-dir", str(mod_dir)]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        assert result.returncode == 2, result.stderr
+
+    def test_plan_partial_tdb_args_exit_2(self, tmp_path: Path):
+        """plan with some but not all TDB args → exit 2."""
+        mod_dir = tmp_path / "mods"
+        _make_core(mod_dir)
+        cmd = [sys.executable, "-m", "lms_schema.cli", "plan",
+               "--modules-dir", str(mod_dir),
+               "--tdb-url", "http://localhost:6363"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        assert result.returncode == 2, result.stderr
+
+    def test_apply_missing_tdb_args_exit_2(self, tmp_path: Path):
+        """apply without any TDB args → exit 2."""
+        mod_dir = tmp_path / "mods"
+        _make_core(mod_dir)
+        cmd = [sys.executable, "-m", "lms_schema.cli", "apply", "--modules-dir", str(mod_dir)]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        assert result.returncode == 2, result.stderr
+
+    def test_plan_env_fallback(self, tmp_path: Path, monkeypatch):
+        """plan with password via env var validates (still fails on connect but not on arg parse)."""
+        mod_dir = tmp_path / "mods"
+        _make_core(mod_dir)
+        monkeypatch.setenv("LMS_SCHEMA_TDB_PASSWORD", "test")
+        cmd = [sys.executable, "-m", "lms_schema.cli", "plan",
+               "--modules-dir", str(mod_dir),
+               "--tdb-url", "http://localhost:1",
+               "--tdb-org", "admin",
+               "--tdb-db", "test",
+               "--tdb-user", "admin"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        # Should not be exit 2 (arg parse failure), but will fail on connect
+        assert result.returncode != 2 or "missing required" not in result.stderr.lower()
+
     def test_no_changes_exit_0(self, tmp_path: Path):
         """No changes → exit 0."""
         mod_dir = tmp_path / "current"

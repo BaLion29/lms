@@ -318,6 +318,28 @@ class TdbClient:
         return response.is_success
 
     # ------------------------------------------------------------------
+    # Branch head retrieval
+    # ------------------------------------------------------------------
+
+    async def get_branch_head(self, branch: str) -> str:
+        """Return the head commit identifier for *branch*.
+
+        Uses the log endpoint (GET /api/log/{org}/{db}/local/branch/{branch})
+        and returns the ``identifier`` field of the first (newest) commit.
+        """
+        response = await self._client.get(
+            f"/api/log/{self.org}/{self.db}/local/branch/{branch}?count=1",
+        )
+        await self._raise_on_error(response)
+        data: list[dict[str, Any]] = response.json()
+        if not data:
+            raise TdbError(404, f"No commits found for branch '{branch}'")
+        identifier = data[0].get("identifier")
+        if not identifier:
+            raise TdbError(500, f"No identifier in head commit for branch '{branch}'")
+        return str(identifier)
+
+    # ------------------------------------------------------------------
     # Promote / merge
     # ------------------------------------------------------------------
 

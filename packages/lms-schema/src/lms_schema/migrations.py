@@ -1,10 +1,35 @@
-"""Migration file listing and validation for schema modules.
+"""Migration file listing, validation, and runner for schema modules.
 
 Migrations live under ``schema/modules/<name>/migrations/`` as
-``NNNN_description.py`` files.  This module provides listing and
-validation — the actual runner comes later.
+``NNNN_description.py`` files.
 
 Gaps in NNNN numbering are permitted (e.g., 0001 → 0005 is fine).
+
+=== IMPORTANT: Migration idempotency ===
+
+Migrations are data migrations that run BEFORE the new schema is pushed.
+If a migration fails, the apply command stops and does NOT write the
+corresponding SchemaMigration record.  A crash or failure after a
+migration has already completed but before its SchemaMigration record is
+written will cause the migration to be seen as "pending" again on the
+next run.
+
+THEREFORE: EVERY MIGRATION MUST BE IDEMPOTENT.
+
+A re-run of a migration that has already been partially or fully applied
+must succeed and produce the same end state.  Use existence checks,
+upserts, or no-op-on-duplicate patterns in migration code.
+
+=== Two-phase releases for breaking changes ===
+
+Because data migrations run BEFORE the new schema is pushed, a migration
+cannot use types or fields that only exist in the new schema.  Breaking
+changes that introduce new required fields need TWO releases:
+
+  1. First release: make the field Optional (additive in the schema),
+     write a migration to backfill existing documents with the new field.
+  2. Second release: remove the Optional wrapper (which is breaking but
+     no migration needed since all documents already have the field).
 """
 
 from __future__ import annotations

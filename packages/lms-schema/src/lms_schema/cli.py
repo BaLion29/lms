@@ -443,6 +443,254 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# TDB arg validation helper
+# ---------------------------------------------------------------------------
+
+
+def _validate_tdb_args(args: argparse.Namespace) -> str:
+    """Validate TDB connection args (all-or-nothing + env fallback for password).
+
+    Returns the resolved password. Exits with code 2 on validation failure.
+    """
+    import os
+
+    tdb_password = args.tdb_password or os.environ.get("LMS_SCHEMA_TDB_PASSWORD", "")
+    tdb_args_provided = any([
+        args.tdb_url, args.tdb_org, args.tdb_db, args.tdb_user, args.tdb_password,
+    ])
+
+    if not tdb_args_provided:
+        print(
+            "Error: TDB connection arguments required. Provide --tdb-url, --tdb-org, "
+            "--tdb-db, --tdb-user, and --tdb-password (or LMS_SCHEMA_TDB_PASSWORD env var).",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    missing = []
+    if not args.tdb_url:
+        missing.append("--tdb-url")
+    if not args.tdb_org:
+        missing.append("--tdb-org")
+    if not args.tdb_db:
+        missing.append("--tdb-db")
+    if not args.tdb_user:
+        missing.append("--tdb-user")
+    if not tdb_password:
+        missing.append("--tdb-password (or LMS_SCHEMA_TDB_PASSWORD env var)")
+    if missing:
+        print(
+            f"Error: missing required TDB arguments: {', '.join(missing)}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    return tdb_password
+
+
+# ---------------------------------------------------------------------------
+# plan
+# ---------------------------------------------------------------------------
+
+
+async def _plan_branch(args: argparse.Namespace, tdb_password: str):
+    from lms_core.tdb import TdbClient
+    from .applier import plan_branch, _compose_for_branch
+
+    modules_dir = Path(args.modules_dir)
+    if not modules_dir.is_dir():
+        print(f"Error: --modules-dir '{modules_dir}' is not a directory", file=sys.stderr)
+        sys.exit(2)
+
+    compose_result = _compose_for_branch(modules_dir)
+
+    async with TdbClient(
+        base_url=args.tdb_url,
+        org=args.tdb_org,
+        db=args.tdb_db,
+        user=args.tdb_user,
+        password=tdb_password,
+    ) as client:
+        return await plan_branch(client, args.branch, compose_result, modules_dir)
+
+
+def _cmd_plan(args: argparse.Namespace) -> int:
+    import traceback
+
+    from .applier import _format_plan
+
+    tdb_password = _validate_tdb_args(args)
+
+    try:
+        plan = asyncio.run(_plan_branch(args, tdb_password))
+    except Exception as exc:
+        from lms_core.tdb import TdbError
+        if isinstance(exc, TdbError):
+            print(f"Error connecting to TerminusDB: {exc}", file=sys.stderr)
+        else:
+            traceback.print_exc()
+            print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+    print(_format_plan(plan))
+
+    if plan.has_errors:
+        return 2
+    if plan.has_actions:
+        return 1
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# apply
+# ---------------------------------------------------------------------------
+
+
+def _cmd_apply(args: argparse.Namespace) -> int:
+    import traceback
+
+    tdb_password = _validate_tdb_args(args)
+
+    try:
+        asyncio.run(_apply_branch(args, tdb_password))
+    except Exception as exc:
+        from lms_core.tdb import TdbError
+        if isinstance(exc, TdbError):
+            print(f"Error: {exc}", file=sys.stderr)
+        else:
+            traceback.print_exc()
+            print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+    return 0
+
+
+async def _apply_branch(args: argparse.Namespace, tdb_password: str) -> None:
+    from lms_core.tdb import TdbClient
+    from .applier import apply_plan, _compose_for_branch
+
+    modules_dir = Path(args.modules_dir)
+    if not modules_dir.is_dir():
+        print(f"Error: --modules-dir '{modules_dir}' is not a directory", file=sys.stderr)
+        sys.exit(2)
+
+    compose_result = _compose_for_branch(modules_dir)
+
+    async with TdbClient(
+        base_url=args.tdb_url,
+        org=args.tdb_org,
+        db=args.tdb_db,
+        user=args.tdb_user,
+        password=tdb_password,
+    ) as client:
+        # Ensure branch exists; if not, create from main
+        if not await client.branch_exists(args.branch):
+            print(f"Branch '{args.branch}' does not exist — creating from main.")
+            await client.create_branch(args.branch, origin="main")
+
+        await apply_plan(client, args.branch, compose_result, modules_dir)
+
+
+# ---------------------------------------------------------------------------
+# validate
+# ---------------------------------------------------------------------------
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    import traceback
+
+    tdb_password = _validate_tdb_args(args)
+
+    try:
+        ok = asyncio.run(_validate_branch(args, tdb_password))
+    except Exception as exc:
+        from lms_core.tdb import TdbError
+        if isinstance(exc, TdbError):
+            print(f"Error: {exc}", file=sys.stderr)
+        else:
+            traceback.print_exc()
+            print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+    return 0 if ok else 2
+
+
+async def _validate_branch(args: argparse.Namespace, tdb_password: str) -> bool:
+    from lms_core.tdb import TdbClient
+    from .applier import validate_branch, _compose_for_branch
+
+    modules_dir = Path(args.modules_dir)
+    if not modules_dir.is_dir():
+        print(f"Error: --modules-dir '{modules_dir}' is not a directory", file=sys.stderr)
+        sys.exit(2)
+
+    compose_result = _compose_for_branch(modules_dir)
+
+    async with TdbClient(
+        base_url=args.tdb_url,
+        org=args.tdb_org,
+        db=args.tdb_db,
+        user=args.tdb_user,
+        password=tdb_password,
+    ) as client:
+        ok, errors = await validate_branch(client, args.branch, compose_result)
+
+    if errors:
+        print("Validation errors:")
+        for e in errors:
+            print(f"  ✗ {e}")
+    if ok:
+        print("✓ Validation passed.")
+    return ok
+
+
+# ---------------------------------------------------------------------------
+# promote
+# ---------------------------------------------------------------------------
+
+
+def _cmd_promote(args: argparse.Namespace) -> int:
+    import traceback
+
+    tdb_password = _validate_tdb_args(args)
+
+    try:
+        msg = asyncio.run(_promote_branch(args, tdb_password))
+    except Exception as exc:
+        from lms_core.tdb import TdbError
+        if isinstance(exc, TdbError):
+            print(f"Error: {exc}", file=sys.stderr)
+        else:
+            traceback.print_exc()
+            print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+    print(msg)
+    return 0
+
+
+async def _promote_branch(args: argparse.Namespace, tdb_password: str) -> str:
+    from lms_core.tdb import TdbClient
+    from .applier import promote_branch, _compose_for_branch
+
+    modules_dir = Path(args.modules_dir)
+    if not modules_dir.is_dir():
+        print(f"Error: --modules-dir '{modules_dir}' is not a directory", file=sys.stderr)
+        sys.exit(2)
+
+    compose_result = _compose_for_branch(modules_dir)
+
+    async with TdbClient(
+        base_url=args.tdb_url,
+        org=args.tdb_org,
+        db=args.tdb_db,
+        user=args.tdb_user,
+        password=tdb_password,
+    ) as client:
+        return await promote_branch(client, args.branch, compose_result)
+
+
+# ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
 
@@ -520,6 +768,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="Downgrade live-only classes from breaking to warnings",
     )
 
+    # Helper to add common TDB + modules-dir arguments to a subparser
+    def _add_tdb_args(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--modules-dir",
+            default="schema/modules",
+            help="Directory containing module sub-directories (default: schema/modules)",
+        )
+        p.add_argument("--tdb-url", default=None)
+        p.add_argument("--tdb-org", default=None)
+        p.add_argument("--tdb-db", default=None)
+        p.add_argument("--tdb-user", default=None)
+        p.add_argument(
+            "--tdb-password",
+            default=None,
+            help="TerminusDB password (falls back to LMS_SCHEMA_TDB_PASSWORD env var)",
+        )
+        p.add_argument("--branch", default="main")
+
+    # plan
+    p_plan = sub.add_parser("plan", help="Show pending actions (dry-run)")
+    _add_tdb_args(p_plan)
+
+    # apply
+    p_apply = sub.add_parser("apply", help="Apply schema, migrations, and registry updates")
+    _add_tdb_args(p_apply)
+
+    # validate
+    p_validate = sub.add_parser("validate", help="Validate schema and registry on a branch")
+    _add_tdb_args(p_validate)
+
+    # promote
+    p_promote = sub.add_parser("promote", help="Promote a branch to main")
+    _add_tdb_args(p_promote)
+
     return parser
 
 
@@ -533,6 +815,14 @@ def main() -> None:
         sys.exit(_cmd_codegen(args))
     elif args.command == "diff":
         sys.exit(_cmd_diff(args))
+    elif args.command == "plan":
+        sys.exit(_cmd_plan(args))
+    elif args.command == "apply":
+        sys.exit(_cmd_apply(args))
+    elif args.command == "validate":
+        sys.exit(_cmd_validate(args))
+    elif args.command == "promote":
+        sys.exit(_cmd_promote(args))
     else:
         parser.print_help()
         sys.exit(1)

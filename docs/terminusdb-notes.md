@@ -84,7 +84,15 @@ Empirically verified against a local `terminusdb/terminusdb-server:v12.0.6` inst
 
 ---
 
-## 6. Branch-scoped GraphQL
+## 6. Branch head retrieval
+
+- **Endpoint**: `GET /api/log/{org}/{db}/local/branch/{branch}`
+- Returns a JSON array of commits, newest first.
+- The first entry's `identifier` field is the branch head commit identifier.
+- Use as commit descriptor: `{org}/{db}/local/commit/{identifier}`.
+- Also works without `?count=N` — returns all commits; first entry is always the head.
+
+## 7. Branch-scoped GraphQL
 
 - **Path form**: `POST /api/graphql/{org}/{db}/local/branch/{branch}` with the standard
   GraphQL JSON body (`{"query": "..."}`).
@@ -93,3 +101,15 @@ Empirically verified against a local `terminusdb/terminusdb-server:v12.0.6` inst
 - **❌ Not working**: `/api/graphql/admin/db/branch/feature` (returns 403 "Bad descriptor
   path").  Query parameter `?branch=...` is silently ignored.
 - **Default (no branch in path)**: returns main-branch data.
+
+---
+
+## 8. GraphQL smoke test query shape
+
+- **Working query**: `POST /api/graphql/{org}/{db}/local/branch/{branch}`
+  ```json
+  {"query": "{ ClassName(limit:1) { _id } }"}
+  ```
+- Returns `{"data": {"ClassName": [...]}}` on success.
+- Works for every concrete (non-abstract) class, even if no instances exist.
+- Abstract classes return `"Cannot query field"` error — this is expected; skip them.

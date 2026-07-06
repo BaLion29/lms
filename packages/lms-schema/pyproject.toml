@@ -33,3 +33,6 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "integration: integration tests that require a running dev instance",
+]

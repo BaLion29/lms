@@ -641,6 +641,34 @@ async def test_reset_branch_to_feature(client, respx_mock):
 
 
 # ---------------------------------------------------------------------------
+# get_branch_head
+# ---------------------------------------------------------------------------
+
+
+async def test_get_branch_head(client, respx_mock):
+    route = respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"identifier": "abc123", "author": "system", "message": "commit"},
+        ],
+    )
+
+    head = await client.get_branch_head("main")
+    assert head == "abc123"
+    assert route.called
+
+
+async def test_get_branch_head_empty_raises(client, respx_mock):
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(json=[])
+
+    with pytest.raises(Exception):
+        await client.get_branch_head("main")
+
+
+# ---------------------------------------------------------------------------
 # graphql with branch
 # ---------------------------------------------------------------------------
 
