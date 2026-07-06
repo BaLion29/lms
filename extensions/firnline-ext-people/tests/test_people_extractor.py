@@ -24,10 +24,7 @@ class TestBuildContextBlock:
             locations_display=[("Rotondohütte", "Location/hut1")],
         )
         block = _build_context_block(index)
-        expected = (
-            "Known people: Anna Meier <Person/abc>\n"
-            "Known locations: Rotondohütte <Location/hut1>"
-        )
+        expected = "Known people: Anna Meier <Person/abc>\nKnown locations: Rotondohütte <Location/hut1>"
         assert block == expected
 
     def test_multiple_entries_comma_separated(self):
@@ -41,10 +38,7 @@ class TestBuildContextBlock:
             locations_display=[],
         )
         block = _build_context_block(index)
-        assert block == (
-            "Known people: Anna Meier <Person/abc>, Bob Müller <Person/def>\n"
-            "Known locations: (none)"
-        )
+        assert block == ("Known people: Anna Meier <Person/abc>, Bob Müller <Person/def>\nKnown locations: (none)")
 
     def test_empty_index_shows_none(self):
         index = EntityIndex()
@@ -79,19 +73,14 @@ class TestPluginMetadata:
             locations={},
             locations_display=[],
         )
-        result = asyncio.run(
-            PeopleLinkingPlugin().linking_context(None, index=index, branch="")
-        )
+        result = asyncio.run(PeopleLinkingPlugin().linking_context(None, index=index, branch=""))
         assert "Known people: Bob <Person/1>" in result
         assert "Known locations: (none)" in result
 
     def test_build_documents_returns_empty(self):
         import asyncio
         from firnline_core.plugins import BuildContext
+
         ctx = BuildContext(tdb=None, inbox_iri="test")
-        result = asyncio.run(
-            PeopleLinkingPlugin().build_documents(
-                type("P", (), {"kind": "fake", "name": "x"})(), ctx
-            )
-        )
+        result = asyncio.run(PeopleLinkingPlugin().build_documents(type("P", (), {"kind": "fake", "name": "x"})(), ctx))
         assert result == []

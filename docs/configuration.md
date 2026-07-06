@@ -7,16 +7,16 @@ edit as needed.
 ## Shared TerminusDB settings
 
 Every service inherits these from `firnline_core.settings.TdbSettings`, using
-its own prefix (`CAPTURED_`, `INGESTD_`, `QUERYD_`):
+its own prefix (`CAPTURED_`, `INGESTD_`, `QUERYD_`, `TRIGGERD_`):
 
 | Variable | Default | Required | Consumed by |
 |---|---|---|---|
-| `{PREFIX}_TDB_URL` | `http://localhost:6363` | yes | captured, ingestd, queryd |
-| `{PREFIX}_TDB_ORG` | `admin` | no | captured, ingestd, queryd |
-| `{PREFIX}_TDB_DB` | — | yes | captured, ingestd, queryd |
-| `{PREFIX}_TDB_BRANCH` | `main` | no | captured, ingestd, queryd |
-| `{PREFIX}_TDB_USER` | `admin` | no | captured, ingestd, queryd |
-| `{PREFIX}_TDB_PASSWORD` | — | yes | captured, ingestd, queryd |
+| `{PREFIX}_TDB_URL` | `http://localhost:6363` | yes | captured, ingestd, queryd, triggerd |
+| `{PREFIX}_TDB_ORG` | `admin` | no | captured, ingestd, queryd, triggerd |
+| `{PREFIX}_TDB_DB` | — | yes | captured, ingestd, queryd, triggerd |
+| `{PREFIX}_TDB_BRANCH` | `main` | no | captured, ingestd, queryd, triggerd |
+| `{PREFIX}_TDB_USER` | `admin` | no | captured, ingestd, queryd, triggerd |
+| `{PREFIX}_TDB_PASSWORD` | — | yes | captured, ingestd, queryd, triggerd |
 
 In `compose.yaml`, these are populated from the shared `TDB_*` variables
 (e.g. `CAPTURED_TDB_URL: ${TDB_URL:?}`).
@@ -85,6 +85,26 @@ Prefixed `INGESTD_`.
 | `INGESTD_MAX_LLM_RETRIES` | `3` | Max retries on schema-rejection per inbox item |
 | `INGESTD_DRY_RUN` | `false` | Run extraction without writing to database |
 | `INGESTD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
+| `INGESTD_LIVENESS_FILE` | `/tmp/ingestd-alive` | Path touched on each successful cycle for healthchecks |
+
+## triggerd
+
+Prefixed `TRIGGERD_`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `TRIGGERD_TDB_URL` | `http://localhost:6363` | TerminusDB base URL |
+| `TRIGGERD_TDB_ORG` | `admin` | TerminusDB organisation |
+| `TRIGGERD_TDB_DB` | `firnline` | TerminusDB database name |
+| `TRIGGERD_TDB_BRANCH` | `main` | TerminusDB branch |
+| `TRIGGERD_TDB_USER` | `admin` | TerminusDB username |
+| `TRIGGERD_TDB_PASSWORD` | — | TerminusDB password |
+| `TRIGGERD_POLL_INTERVAL_SECONDS` | `60` | Seconds between evaluation cycles |
+| `TRIGGERD_LOOKBACK_SECONDS` | `900` | How far back to look for Trigger changes |
+| `TRIGGERD_DEFAULT_TIMEZONE` | `Europe/Zurich` | Fallback timezone for date parsing |
+| `TRIGGERD_DRY_RUN` | `false` | Evaluate but skip writes |
+| `TRIGGERD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
+| `TRIGGERD_LIVENESS_FILE` | `/tmp/triggerd-alive` | Path touched on each successful cycle for healthchecks |
 
 ## queryd
 

@@ -1,7 +1,7 @@
 [project]
 name = "firnline-ext-reminders"
 version = "0.1.0a1"
-description = "Firnline reminders extension — Reminder/Trigger schema modules, queryd write tools, and ingest extractors"
+description = "Firnline reminders extension — Reminder schema module, queryd write tools, and ingest extractors"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
 ]
@@ -15,7 +15,6 @@ dependencies = [
 
 [project.entry-points."firnline.schema_modules"]
 reminders = "firnline_ext_reminders.reminders_module"
-triggers = "firnline_ext_reminders.triggers_module"
 
 [project.entry-points."firnline.queryd.tools"]
 reminder_tools = "firnline_ext_reminders.tools:plugin"

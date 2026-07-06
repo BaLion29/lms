@@ -58,7 +58,17 @@
     "@inherits": "Trigger",
     "@type": "Class",
     "dtstart": "xsd:dateTime",
-    "rrule": "xsd:string"
+    "rrule": "xsd:string",
+    "timezone": {
+      "@class": "xsd:string",
+      "@type": "Optional"
+    }
+  },
+  {
+    "@id": "OneShotTrigger",
+    "@inherits": "Trigger",
+    "@type": "Class",
+    "fire_at": "xsd:dateTime"
   },
   {
     "@id": "CompositeMode",
@@ -78,5 +88,41 @@
       "completed",
       "status_changed"
     ]
+  },
+  {
+    "@id": "FiringStatus",
+    "@type": "Enum",
+    "@value": [
+      "pending",
+      "notified",
+      "acknowledged",
+      "snoozed",
+      "expired"
+    ]
+  },
+  {
+    "@id": "TriggerFiring",
+    "@type": "Class",
+    "@key": {
+      "@type": "Lexical",
+      "@fields": ["trigger", "occurrence_key"]
+    },
+    "trigger": "Trigger",
+    "occurrence_key": "xsd:string",
+    "scheduled_for": "xsd:dateTime",
+    "fired_at": "xsd:dateTime",
+    "status": "FiringStatus",
+    "subject": {
+      "@class": "xsd:string",
+      "@type": "Optional"
+    },
+    "acknowledged_at": {
+      "@class": "xsd:dateTime",
+      "@type": "Optional"
+    },
+    "snoozed_until": {
+      "@class": "xsd:dateTime",
+      "@type": "Optional"
+    }
   }
 ]

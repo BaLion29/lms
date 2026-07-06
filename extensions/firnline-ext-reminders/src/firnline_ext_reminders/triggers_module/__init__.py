@@ -1,1 +1,0 @@
-"""Triggers schema module."""

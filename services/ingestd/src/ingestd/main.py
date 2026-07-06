@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import pathlib
 import signal
 import sys
 
@@ -93,9 +94,7 @@ async def _discover_extractor_plugins_async(
     # Broken entry points ARE fatal
     if discovered.failed:
         names = [n for n, _ in discovered.failed]
-        raise RuntimeError(
-            f"Extractor plugin entry points failed to load: {names}"
-        )
+        raise RuntimeError(f"Extractor plugin entry points failed to load: {names}")
 
     selection = await select_plugins(tdb, discovered, strict=strict, branch=branch)
 
@@ -142,9 +141,7 @@ async def _discover_source_plugins_async(
     # Broken entry points ARE fatal for sources
     if discovered.failed:
         names = [n for n, _ in discovered.failed]
-        raise RuntimeError(
-            f"Source plugin entry points failed to load: {names}"
-        )
+        raise RuntimeError(f"Source plugin entry points failed to load: {names}")
 
     selection = await select_plugins(tdb, discovered, strict=strict, branch=branch)
 
@@ -218,18 +215,14 @@ async def async_main(
 
     # ── Discover extractor plugins ──────────────────────────────────
     try:
-        extraction_ctx = await _discover_extractor_plugins_async(
-            tdb, branch, logger, strict=settings.strict_plugins
-        )
+        extraction_ctx = await _discover_extractor_plugins_async(tdb, branch, logger, strict=settings.strict_plugins)
     except (RuntimeError, ValueError):
         logger.exception("extractor_plugin_discovery_failed")
         sys.exit(1)
 
     # ── Discover source plugins ─────────────────────────────────────
     try:
-        source_plugins = await _discover_source_plugins_async(
-            tdb, branch, logger, strict=settings.strict_plugins
-        )
+        source_plugins = await _discover_source_plugins_async(tdb, branch, logger, strict=settings.strict_plugins)
     except RuntimeError:
         logger.exception("source_plugin_discovery_failed")
         sys.exit(1)
@@ -250,9 +243,17 @@ async def async_main(
     )
 
     last_cycle_ok = True
+    liveness_path = pathlib.Path(settings.liveness_file)
     try:
         while not should_stop.is_set():
             last_cycle_ok = await run_cycle_safe(pipeline, should_stop)
+            # Touch liveness file only on success so a wedged/failing daemon
+            # becomes unhealthy.  Touching failures must never crash the loop.
+            if last_cycle_ok:
+                try:
+                    liveness_path.touch(exist_ok=True)
+                except OSError:
+                    pass
             if once or should_stop.is_set():
                 break
             # Interruptible sleep
@@ -274,9 +275,7 @@ def main() -> None:
     _configure_logging()
     logger = structlog.get_logger(__name__)
 
-    parser = argparse.ArgumentParser(
-        description="ingestd — LLM-powered inbox extraction service"
-    )
+    parser = argparse.ArgumentParser(description="ingestd — LLM-powered inbox extraction service")
     parser.add_argument(
         "--once",
         action="store_true",

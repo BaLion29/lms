@@ -1,1 +1,1 @@
-"""Firnline reminders extension — Reminder/Trigger schema modules and queryd write tools."""
+"""Firnline reminders extension — Reminder schema module and queryd write tools."""

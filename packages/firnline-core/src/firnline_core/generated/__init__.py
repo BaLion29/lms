@@ -45,8 +45,11 @@ from .triggers import (
     ContextTrigger,
     EventKind,
     EventTrigger,
+    FiringStatus,
+    OneShotTrigger,
     RelativeTrigger,
     ScheduleTrigger,
+    TriggerFiring,
 )
 
 __all__ = [
@@ -61,11 +64,13 @@ __all__ = [
     "EventStatus",
     "EventTrigger",
     "ExternalRef",
+    "FiringStatus",
     "InboxAudio",
     "InboxAudioStatus",
     "InboxNote",
     "InboxNoteStatus",
     "Location",
+    "OneShotTrigger",
     "Person",
     "RelativeTrigger",
     "Reminder",
@@ -77,4 +82,5 @@ __all__ = [
     "Task",
     "TaskSpec",
     "TaskStatus",
+    "TriggerFiring",
 ]

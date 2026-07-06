@@ -18,6 +18,7 @@ from firnline_schema.composer import (
     _extract_refs,
     fragment_checksum,
 )
+from firnline_schema.discovery import ModuleSource
 
 
 # ---------------------------------------------------------------------------
@@ -111,10 +112,20 @@ def test_determinism(tmp_path: Path) -> None:
 def test_cycle_detection(tmp_path: Path) -> None:
     _make_core(tmp_path)
 
-    _make_module(tmp_path, "a", exports=["A"], depends_on=[{"name": "b", "range": ">=1.0.0"}],
-                 classes=[{"@id": "A", "@type": "Class"}])
-    _make_module(tmp_path, "b", exports=["B"], depends_on=[{"name": "a", "range": ">=1.0.0"}],
-                 classes=[{"@id": "B", "@type": "Class"}])
+    _make_module(
+        tmp_path,
+        "a",
+        exports=["A"],
+        depends_on=[{"name": "b", "range": ">=1.0.0"}],
+        classes=[{"@id": "A", "@type": "Class"}],
+    )
+    _make_module(
+        tmp_path,
+        "b",
+        exports=["B"],
+        depends_on=[{"name": "a", "range": ">=1.0.0"}],
+        classes=[{"@id": "B", "@type": "Class"}],
+    )
 
     with pytest.raises(CycleError) as exc:
         compose(tmp_path, include_entry_points=False)
@@ -151,10 +162,8 @@ def test_dep_range_mismatch(tmp_path: Path) -> None:
 def test_duplicate_id(tmp_path: Path) -> None:
     _make_core(tmp_path)
 
-    _make_module(tmp_path, "m1", exports=["Foo"],
-                 classes=[{"@id": "Foo", "@type": "Class"}])
-    _make_module(tmp_path, "m2", exports=["Bar"],
-                 classes=[{"@id": "Foo", "@type": "Class"}])
+    _make_module(tmp_path, "m1", exports=["Foo"], classes=[{"@id": "Foo", "@type": "Class"}])
+    _make_module(tmp_path, "m2", exports=["Bar"], classes=[{"@id": "Foo", "@type": "Class"}])
 
     with pytest.raises(DuplicateIdError) as exc:
         compose(tmp_path, include_entry_points=False)
@@ -278,10 +287,8 @@ def test_topo_deterministic_alphabetical(tmp_path: Path) -> None:
     _make_core(tmp_path)
 
     # a and b both depend only on core → both ready at start, a should come first
-    _make_module(tmp_path, "a", exports=["A"],
-                 classes=[{"@id": "A", "@type": "Class"}])
-    _make_module(tmp_path, "b", exports=["B"],
-                 classes=[{"@id": "B", "@type": "Class"}])
+    _make_module(tmp_path, "a", exports=["A"], classes=[{"@id": "A", "@type": "Class"}])
+    _make_module(tmp_path, "b", exports=["B"], classes=[{"@id": "B", "@type": "Class"}])
 
     result = compose(tmp_path, include_entry_points=False)
     names = [m.name for m in result.modules]
@@ -306,10 +313,9 @@ def _normalize(schema_array: list[dict]) -> tuple[dict, dict[str, dict]]:
     Asserts exactly one @context object is present on each side.
     """
     import json as _json
+
     contexts: list[dict] = [obj for obj in schema_array if obj.get("@type") == "@context"]
-    assert len(contexts) == 1, (
-        f"Expected exactly one @context object, found {len(contexts)}"
-    )
+    assert len(contexts) == 1, f"Expected exactly one @context object, found {len(contexts)}"
     context = contexts[0]
     classes: dict[str, dict] = {}
     for obj in schema_array:
@@ -348,14 +354,11 @@ def test_equivalence_with_monolithic() -> None:
     only_in_monolithic = set(mono_classes.keys()) - set(comp_classes.keys())
 
     # No classes should exist in monolithic that are missing from composed
-    assert not only_in_monolithic, (
-        f"Classes in monolithic but not in composed: {only_in_monolithic}"
-    )
+    assert not only_in_monolithic, f"Classes in monolithic but not in composed: {only_in_monolithic}"
 
     # Extra classes in composed must be exactly the allowed registry classes
     assert only_in_composed == _ALLOWED_EXTRAS, (
-        f"Unexpected extra classes in composed: {only_in_composed} "
-        f"(allowed extras: {_ALLOWED_EXTRAS})"
+        f"Unexpected extra classes in composed: {only_in_composed} (allowed extras: {_ALLOWED_EXTRAS})"
     )
 
     # Each shared class must be byte-exact (via canonical JSON)
@@ -364,7 +367,8 @@ def test_equivalence_with_monolithic() -> None:
         assert comp_cls == mono_cls, f"Mismatch for class '{cid}'"
 
     # Extension modules must be present with pkg: source prefix
-    extension_modules = {"inbox", "places", "routines", "people", "planning", "reminders", "triggers"}
+    extension_modules = {"inbox", "places", "routines", "people", "planning", "reminders"}
+    repo_modules = {"core", "triggers"}
     module_names = {m.name for m in result.modules}
     for ext_name in extension_modules:
         assert ext_name in module_names, (
@@ -375,6 +379,12 @@ def test_equivalence_with_monolithic() -> None:
         assert ext_info.source is not None and ext_info.source.startswith("pkg:"), (
             f"Extension module '{ext_name}' has source {ext_info.source!r}, "
             f"expected a 'pkg:' prefix (installable extension)."
+        )
+    for repo_name in repo_modules:
+        assert repo_name in module_names, f"Expected repo module '{repo_name}' is missing from composed modules."
+        repo_info = next(m for m in result.modules if m.name == repo_name)
+        assert repo_info.source is not None and repo_info.source.startswith("repo:"), (
+            f"Repo module '{repo_name}' has source {repo_info.source!r}, expected a 'repo:' prefix."
         )
 
 
@@ -388,7 +398,8 @@ def test_exports_must_be_defined(tmp_path: Path) -> None:
     _make_core(tmp_path)
 
     _make_module(
-        tmp_path, "m1",
+        tmp_path,
+        "m1",
         exports=["Ghost"],  # not defined
         classes=[{"@id": "Real", "@type": "Class"}],
     )
@@ -404,7 +415,8 @@ def test_enum_can_be_exported(tmp_path: Path) -> None:
     _make_core(tmp_path)
 
     _make_module(
-        tmp_path, "m1",
+        tmp_path,
+        "m1",
         exports=["MyEnum"],
         classes=[{"@id": "MyEnum", "@type": "Enum", "@value": ["a", "b"]}],
     )
@@ -419,7 +431,8 @@ def test_valid_exports_no_error(tmp_path: Path) -> None:
     _make_core(tmp_path)
 
     _make_module(
-        tmp_path, "m1",
+        tmp_path,
+        "m1",
         exports=["Foo"],
         classes=[{"@id": "Foo", "@type": "Class"}],
     )
@@ -500,16 +513,23 @@ def test_core_context_in_schema_json_rejected(tmp_path: Path) -> None:
     mod_dir = tmp_path / "core"
     mod_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
-        "name": "core", "version": "1.0.0", "depends_on": [],
-        "exports": [], "description": "core",
+        "name": "core",
+        "version": "1.0.0",
+        "depends_on": [],
+        "exports": [],
+        "description": "core",
     }
     (mod_dir / "manifest.json").write_text(json.dumps(manifest))
     (mod_dir / "context.json").write_text(json.dumps(_core_context()))
     # Put a @context entry in schema.json — this should be rejected
-    (mod_dir / "schema.json").write_text(json.dumps([
-        {"@abstract": [], "@id": "Source", "@type": "Class"},
-        {"@type": "@context"},
-    ]))
+    (mod_dir / "schema.json").write_text(
+        json.dumps(
+            [
+                {"@abstract": [], "@id": "Source", "@type": "Class"},
+                {"@type": "@context"},
+            ]
+        )
+    )
 
     with pytest.raises(L1Error) as exc:
         compose(tmp_path, include_entry_points=False)
@@ -527,7 +547,8 @@ def test_abstract_marker_outside_core_allowed(tmp_path: Path) -> None:
     _make_core(tmp_path)
 
     _make_module(
-        tmp_path, "m1",
+        tmp_path,
+        "m1",
         exports=["Bad"],
         classes=[{"@abstract": False, "@id": "Bad", "@type": "Class"}],
     )
@@ -535,3 +556,56 @@ def test_abstract_marker_outside_core_allowed(tmp_path: Path) -> None:
     result = compose(tmp_path, include_entry_points=False)
     names = [m.name for m in result.modules]
     assert "m1" in names
+
+
+# ---------------------------------------------------------------------------
+# Triggers relocation: repo-discovered module
+# ---------------------------------------------------------------------------
+
+
+def test_triggers_discovered_from_repo() -> None:
+    """compose() over schema/modules (no entry points) discovers triggers from repo source."""
+    result = compose(MODULES_DIR, include_entry_points=False)
+    names = [m.name for m in result.modules]
+    assert names.count("triggers") == 1
+
+    triggers_info = next(m for m in result.modules if m.name == "triggers")
+    assert triggers_info.source == "repo:triggers"
+
+    # Verify triggers classes are in the composed schema
+    ids = {c.get("@id") for c in result.composed_schema if "@id" in c}
+    assert "Trigger" in ids
+    assert "ScheduleTrigger" in ids
+    assert "RelativeTrigger" in ids
+
+
+def test_routines_without_reminders_resolves_triggers() -> None:
+    """Compose with repo modules + routines/planning/places (no reminders) resolves triggers dep."""
+    _EXT_DIR = Path(__file__).parents[3] / "extensions"
+
+    entry_point_modules: dict[str, ModuleSource] = {
+        "places": ModuleSource(
+            name="places",
+            path=_EXT_DIR / "firnline-ext-places" / "src" / "firnline_ext_places",
+            origin="pkg:test-places",
+        ),
+        "planning": ModuleSource(
+            name="planning",
+            path=_EXT_DIR / "firnline-ext-planning" / "src" / "firnline_ext_planning",
+            origin="pkg:test-planning",
+        ),
+        "routines": ModuleSource(
+            name="routines",
+            path=_EXT_DIR / "firnline-ext-routines" / "src" / "firnline_ext_routines",
+            origin="pkg:test-routines",
+        ),
+    }
+
+    result = compose(MODULES_DIR, include_entry_points=True, entry_point_modules=entry_point_modules)
+
+    names = {m.name for m in result.modules}
+    assert "triggers" in names
+    assert "routines" in names
+    assert "planning" in names
+    assert "places" in names
+    assert "reminders" not in names

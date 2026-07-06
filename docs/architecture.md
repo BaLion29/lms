@@ -44,6 +44,12 @@
       → insert → flip status     read tools + guarded writes
       per-item commit            LLM via LiteLLM
       LLM via LiteLLM
+         │
+         ▼
+      TRIGGERD
+      poll → evaluate → insert
+      TriggerFiring records
+      per-cycle commit
 ```
 
 ## Components
@@ -54,6 +60,7 @@
 | **captured** | Ingestion API — accepts notes and file uploads; dispatches to pluggable handler plugins. | 8088 |
 | **ingestd** | Polling worker — picks up inbox items, runs extractor plugins via LLM, writes typed documents. | — |
 | **queryd** | Conversational agent API — read tools, GraphQL, and flag-gated write-tool plugins. | 8087 |
+| **triggerd** | Polling worker — evaluates Trigger documents, materializes TriggerFiring records. | — |
 | **bootstrap** | One-shot container (profile `bootstrap`) — creates database, composes & applies schema, installs extensions into shared overlay volume. | — |
 
 An **external LiteLLM proxy** is required for LLM access — it is NOT part of
@@ -72,6 +79,11 @@ the compose stack.
    each turn. The agent has read tools (`graphql_query`, `get_document`,
    `get_schema_details`, `today`) and, when `ENABLE_WRITES=true`, registered
    write-tool plugins.
+4. **Trigger** — `triggerd` polls for Trigger documents, runs evaluator plugins
+   to compute occurrence instants within each cycle's lookback window, and
+   materializes `TriggerFiring` records with `status=pending`.  Firing
+   statuses are the queue for downstream consumers (reminder delivery,
+   notification routing).  The database is the only integration point.
 
 ## Schema Module System
 
@@ -88,8 +100,9 @@ containing:
 The `core` module (kernel) stays in `schema/modules/core/` and owns:
 `@context`, the contentless markers (`Source`, `Context`, `Remindable`),
 registry classes (`SchemaModule`, `SchemaMigration`), and `ExternalRef`.
-All domain modules (inbox, planning, people, places, triggers, reminders,
-routines) live in extensions.
+All domain modules (inbox, planning, people, places, reminders,
+routines) live in extensions while core and triggers are first-party in
+`schema/modules/`.
 
 Modules are discovered from two sources: the `schema/modules/` directory
 tree, and installed packages via the `firnline.schema_modules` entry-point
@@ -120,6 +133,7 @@ Five entry-point groups, discovered via `importlib.metadata.entry_points`:
 | `firnline.ingestd.extractors` | `ExtractorPlugin` | ingestd | Provide proposal models, prompt snippets, linking context, document builders |
 | `firnline.queryd.tools` | `ToolPlugin` | queryd | Register Pydantic AI write-tool objects |
 | `firnline.captured.handlers` | `CaptureHandler` | captured | Handle capture requests by kind (e.g. "note", "file") |
+| `firnline.triggerd.evaluators` | `TriggerEvaluator` | triggerd | Evaluate trigger types, propose occurrence instants |
 
 All three host services follow the same startup behaviour: discover plugins →
 `check_requirements` against the `SchemaModule` registry → skip plugins with
@@ -155,19 +169,21 @@ firnline/
 ├── compose.yaml                # deployment (external TDB)
 ├── compose.bundled-tdb.yaml    # overlay adding TerminusDB container
 ├── schema/modules/core/        # kernel schema module (manifest, schema, context, migrations)
+├── schema/modules/triggers/    # trigger schema module
 ├── packages/
 │   ├── firnline-core/          # shared library (tdb client, models, plugins, conventions)
 │   └── firnline-schema/        # schema CLI (compose, diff, apply, validate, promote, codegen)
 ├── services/
 │   ├── captured/               # capture ingress (FastAPI)
 │   ├── ingestd/                # AI ingestion polling worker
-│   └── queryd/                 # conversational agent (FastAPI)
+│   ├── queryd/                 # conversational agent (FastAPI)
+│   └── triggerd/               # trigger evaluation polling worker
 ├── extensions/
 │   ├── firnline-ext-inbox/     # inbox schema + sources + capture handlers
 │   ├── firnline-ext-people/    # people schema + extractor
 │   ├── firnline-ext-places/    # places/Location schema
 │   ├── firnline-ext-planning/  # planning schema + extractor + queryd tools
-│   ├── firnline-ext-reminders/ # reminders + triggers schemas + extractor + tools
+│   ├── firnline-ext-reminders/ # reminders schema + extractor + tools
 │   └── firnline-ext-routines/  # routines schema
 └── docker/entrypoint.sh        # extension overlay management in containers
 ```

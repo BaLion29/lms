@@ -1,0 +1,45 @@
+[project]
+name = "triggerd"
+version = "0.1.0a1"
+description = "Firnline trigger evaluation daemon — polls Trigger documents and materializes TriggerFiring records"
+authors = [
+    { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
+]
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "firnline-core",
+    "pydantic>=2",
+    "pydantic-settings",
+    "structlog",
+    "python-dateutil",
+]
+
+[tool.uv.sources]
+firnline-core = { workspace = true }
+
+[project.scripts]
+triggerd = "triggerd.main:main"
+
+[project.entry-points."firnline.triggerd.evaluators"]
+oneshot = "triggerd.evaluators:oneshot_plugin"
+schedule = "triggerd.evaluators:schedule_plugin"
+relative = "triggerd.evaluators:relative_plugin"
+composite = "triggerd.evaluators:composite_plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/triggerd"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

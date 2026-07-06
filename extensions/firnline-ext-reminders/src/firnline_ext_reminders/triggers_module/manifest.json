@@ -1,7 +1,0 @@
-{
-  "name": "triggers",
-  "version": "1.0.0",
-  "depends_on": [{"name": "core", "range": ">=2.0.0 <3.0.0"}],
-  "exports": ["Trigger", "ScheduleTrigger", "RelativeTrigger", "ContextTrigger", "EventTrigger", "CompositeTrigger", "CompositeMode", "EventKind"],
-  "description": "Trigger abstract and concrete trigger types"
-}

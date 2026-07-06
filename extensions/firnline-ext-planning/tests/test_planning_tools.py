@@ -56,9 +56,7 @@ class _FakeDeps:
 def _make_ctx(tdb: TdbClient | None = None) -> RunContext:
     """Build a minimal RunContext for testing."""
     if tdb is None:
-        tdb = TdbClient(
-            base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw"
-        )
+        tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw")
     deps = _FakeDeps(tdb)
     fake_model = MagicMock()
     fake_usage = MagicMock()
@@ -300,9 +298,7 @@ async def test_update_task_multiple_fields(respx_mock):
 
     due = datetime(2026, 8, 1, 12, 0, 0, tzinfo=timezone.utc)
     ctx = _make_ctx()
-    result = await update_task(
-        ctx, "Task/abc", name="Updated", description=None, priority=5, due_date=due
-    )
+    result = await update_task(ctx, "Task/abc", name="Updated", description=None, priority=5, due_date=due)
 
     assert result["ok"] is True
     req = put_route.calls.last.request

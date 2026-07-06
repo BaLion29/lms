@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from pydantic_ai import RunContext
 
@@ -11,6 +13,7 @@ from firnline_core.tdb import TdbClient
 from firnline_ext_reminders.tools import (
     create_reminder,
     plugin as reminder_plugin,
+    _remindable_cache,
 )
 
 # ---------------------------------------------------------------------------
@@ -23,10 +26,24 @@ ORG = "admin"
 
 DOC_PATH = f"{TDB_URL}/api/document/{ORG}/{TDB_DB}/local/branch/main"
 
+# A minimal schema where Task and Event inherit Remindable (valid refers_to
+# targets for create_reminder) while InboxNote does not.
+SCHEMA_REMINDABLE = [
+    {"@id": "Task", "@inherits": ["Remindable"]},
+    {"@id": "Event", "@inherits": ["Remindable"]},
+    {"@id": "InboxNote", "@inherits": ["Document"]},
+]
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    """Module-level _remindable_cache leaks between tests — clear it."""
+    _remindable_cache.clear()
 
 
 class _FakeSettings:
@@ -47,9 +64,7 @@ class _FakeDeps:
 
 def _make_ctx(tdb: TdbClient | None = None) -> RunContext:
     if tdb is None:
-        tdb = TdbClient(
-            base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw"
-        )
+        tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw")
     deps = _FakeDeps(tdb)
     fake_model = MagicMock()
     fake_usage = MagicMock()
@@ -105,7 +120,9 @@ async def test_create_reminder_with_valid_refers_to(respx_mock):
         json=["terminusdb:///data/Reminder/r2"],
     )
 
-    ctx = _make_ctx()
+    tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw")
+    tdb.get_schema = AsyncMock(return_value=SCHEMA_REMINDABLE)
+    ctx = _make_ctx(tdb)
     result = await create_reminder(ctx, "Follow up", refers_to_iri="Task/abc")
 
     assert result == {"ok": True, "iri": "Reminder/r2"}
@@ -136,9 +153,12 @@ async def test_create_reminder_refers_to_wrong_type(respx_mock):
     respx_mock.get(DOC_PATH).respond(json=target)
     post_route = respx_mock.post(DOC_PATH).respond(json=[])
 
-    ctx = _make_ctx()
+    tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw")
+    tdb.get_schema = AsyncMock(return_value=SCHEMA_REMINDABLE)
+    ctx = _make_ctx(tdb)
     result = await create_reminder(ctx, "Nope", refers_to_iri="InboxNote/x")
 
     assert result["ok"] is False
-    assert "expected Task or Event" in result["error"]
+    assert "InboxNote" in result["error"]
+    assert "Remindable" in result["error"]
     assert not post_route.called

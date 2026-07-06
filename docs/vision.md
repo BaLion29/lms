@@ -198,8 +198,8 @@ with a warning instead of crashing the service.
 
 ## Future Directions (not yet implemented)
 
-- **Reminder engine (`reminderd`)** — trigger evaluation, firing, nag/snooze
-  lifecycle via ntfy.
+- **Reminder engine** — trigger evaluation + firing materialization now implemented
+  by `triggerd`; nag/snooze/escalation lifecycle + ntfy delivery still future.
 - **Routine engine** — Routines spawning Tasks/Activities from their steps.
 - **Branch review tooling** — comfortable per-commit review + promote flow for
   staging-branch mode.

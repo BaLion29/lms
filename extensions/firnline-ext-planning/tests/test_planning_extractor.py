@@ -102,5 +102,6 @@ class TestPluginMetadata:
 
     def test_linking_context_returns_empty(self):
         import asyncio
+
         result = asyncio.run(PlanningPlugin().linking_context(None, index=None, branch=""))
         assert result == ""

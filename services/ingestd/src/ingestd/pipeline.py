@@ -135,9 +135,7 @@ class Pipeline:
             logger.info("processing_inbox_doc", iri=doc_iri, source=src.name)
 
             try:
-                await self._process_one(
-                    doc, src, index, context_block, already_derived
-                )
+                await self._process_one(doc, src, index, context_block, already_derived)
             except Exception:
                 logger.error(
                     "unexpected_error",
@@ -165,9 +163,7 @@ class Pipeline:
 
         for plugin in self._extractor_plugins:
             try:
-                lc = await plugin.linking_context(
-                    self.tdb, index=index, branch=self.settings.tdb_branch
-                )
+                lc = await plugin.linking_context(self.tdb, index=index, branch=self.settings.tdb_branch)
                 if lc and lc.strip():
                     parts.append(lc)
             except Exception:
@@ -275,10 +271,8 @@ class Pipeline:
             # Build documents via plugin dispatch
             now = datetime.now(timezone.utc)
 
-            all_docs, new_locations, pending_loc_events = (
-                await self._build_documents_via_plugins(
-                    result.proposals, doc_iri, index, now
-                )
+            all_docs, new_locations, pending_loc_events = await self._build_documents_via_plugins(
+                result.proposals, doc_iri, index, now
             )
 
             if self.settings.dry_run:
@@ -334,9 +328,7 @@ class Pipeline:
             try:
                 await self._flip_status(doc, src.failed_status)
             except Exception:
-                logger.exception(
-                    "failed_to_flip_status_on_retry_exhaustion", iri=doc_iri
-                )
+                logger.exception("failed_to_flip_status_on_retry_exhaustion", iri=doc_iri)
             return
 
         # 4. Flip status to done
@@ -400,6 +392,7 @@ class Pipeline:
                 inbox_iri=doc_iri,
                 now=lambda: now,
                 create_or_link=create_or_link,
+                branch=self.settings.tdb_branch,
             )
             try:
                 docs = await plugin.build_documents(prop, ctx)
@@ -413,22 +406,14 @@ class Pipeline:
                 continue
 
             # Track new locations for events
-            if (
-                kind == "event"
-                and hasattr(prop, "location_name")
-                and prop.location_name
-            ):
+            if kind == "event" and hasattr(prop, "location_name") and prop.location_name:
                 for d in docs:
                     if d.get("@type") == "Event" and not d.get("location"):
                         name_cf = prop.location_name.casefold()
                         if name_cf not in new_location_names:
                             new_location_names.add(name_cf)
-                            new_locations.append(
-                                Location(name=prop.location_name)
-                            )
-                        pending_loc_events.append(
-                            (d, prop.location_name)
-                        )
+                            new_locations.append(Location(name=prop.location_name))
+                        pending_loc_events.append((d, prop.location_name))
 
             all_docs.extend(docs)
 

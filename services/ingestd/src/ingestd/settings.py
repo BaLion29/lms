@@ -17,3 +17,4 @@ class Settings(TdbSettings):
     max_llm_retries: int = 3
     dry_run: bool = False
     strict_plugins: bool = False
+    liveness_file: str = "/tmp/ingestd-alive"

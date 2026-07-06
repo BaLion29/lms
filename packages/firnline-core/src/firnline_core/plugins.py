@@ -6,6 +6,7 @@ ranges, verified at startup against the in-database registry.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Protocol, runtime_checkable
@@ -55,13 +56,9 @@ async def check_requirements(
       raises ``TdbError`` (e.g. legacy database without the class).
     """
     try:
-        docs: list[dict[str, Any]] = await tdb.get_documents(
-            "SchemaModule", branch=branch
-        )
+        docs: list[dict[str, Any]] = await tdb.get_documents("SchemaModule", branch=branch)
     except TdbError as exc:
-        return [
-            f"schema module registry not available: {exc.status} {exc.body}"
-        ]
+        return [f"schema module registry not available: {exc.status} {exc.body}"]
 
     violations: list[str] = []
     installed: dict[str, Version] = {}
@@ -72,18 +69,14 @@ async def check_requirements(
             try:
                 installed[name] = Version.parse(version_str)
             except Exception:
-                violations.append(
-                    f"module '{name}' has unparseable version '{version_str}'"
-                )
+                violations.append(f"module '{name}' has unparseable version '{version_str}'")
 
     for req in reqs:
         # Check malformed range
         try:
             rng = Range(req.range)
         except Exception:
-            violations.append(
-                f"module '{req.name}' has malformed range '{req.range}'"
-            )
+            violations.append(f"module '{req.name}' has malformed range '{req.range}'")
             continue
 
         # Check module installed
@@ -94,9 +87,7 @@ async def check_requirements(
 
         # Check version in range
         if not rng.contains(v):
-            violations.append(
-                f"module '{req.name}' {v} does not satisfy '{req.range}'"
-            )
+            violations.append(f"module '{req.name}' {v} does not satisfy '{req.range}'")
 
     return violations
 
@@ -135,6 +126,7 @@ class BuildContext:
         now: Callable returning ``datetime`` (default: ``datetime.now``).
         create_or_link: Async callable ``(type_name, name, doc_factory) -> IRI``
             that looks up an existing entity by name or inserts via *doc_factory*.
+        branch: The TDB branch for side-inserts (default: ``"main"``).
     """
 
     def __init__(
@@ -144,11 +136,13 @@ class BuildContext:
         *,
         now: Callable[[], datetime] | None = None,
         create_or_link: Any = None,
+        branch: str = "main",
     ) -> None:
         self.tdb = tdb
         self.inbox_iri = inbox_iri
         self._now = now if now is not None else datetime.now
         self.create_or_link = create_or_link
+        self.branch = branch
 
     def now(self) -> datetime:
         return self._now()
@@ -172,9 +166,7 @@ class ExtractorPlugin(Protocol):
 
     async def linking_context(self, tdb: Any, *, index: Any, branch: str) -> str: ...
 
-    async def build_documents(
-        self, proposal: BaseModel, ctx: BuildContext
-    ) -> list[dict[str, Any]]: ...
+    async def build_documents(self, proposal: BaseModel, ctx: BuildContext) -> list[dict[str, Any]]: ...
 
 
 @runtime_checkable
@@ -295,6 +287,58 @@ class IngestSourcePlugin(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# Trigger evaluator protocol (triggerd)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class EvalContext:
+    """Convention carrier passed to :meth:`TriggerEvaluator.occurrences`.
+
+    Fields:
+        tdb: A TerminusDB client (``Any`` — avoids a service dep in firnline-core).
+        default_tz: Default ``zoneinfo.ZoneInfo`` for expanding schedule rules.
+        now: Callable returning a tz-aware UTC ``datetime``.
+        resolve_anchor: Async callable ``(anchor_iri_or_doc) -> datetime | None``
+            that resolves a Remindable document/IRI to a temporal instant.
+        get_occurrences: Async callable
+            ``(trigger_dict, window_start, window_end, visited) -> list[datetime]``
+            for CompositeTrigger recursion into operand sub-triggers.
+    """
+
+    tdb: Any
+    default_tz: Any
+    now: Callable[[], datetime]
+    resolve_anchor: Callable[..., Awaitable[datetime | None]]
+    get_occurrences: Callable[..., Awaitable[list[datetime]]]
+
+
+@runtime_checkable
+class TriggerEvaluator(Protocol):
+    """Protocol for triggerd evaluator plugins.
+
+    Each evaluator handles one or more ``@type`` entries (``trigger_types``)
+    and returns scheduled fire instants for the half-open interval
+    ``(window_start, window_end]``.
+    """
+
+    name: str
+    requires: list[ModuleRequirement]
+    trigger_types: tuple[str, ...]
+
+    async def occurrences(
+        self,
+        trigger: dict[str, Any],
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        ctx: EvalContext,
+    ) -> list[datetime]:
+        """Return scheduled instants (tz-aware UTC) due within ``(window_start, window_end]``."""
+        ...
+
+
+# ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
 
@@ -381,8 +425,6 @@ async def select_plugins(
     if strict and (selection.skipped or discovered.failed):
         skipped_names = [n for n, _ in selection.skipped]
         failed_names = [n for n, _ in discovered.failed]
-        raise RuntimeError(
-            f"Strict plugin mode: skipped={skipped_names}, failed={failed_names}"
-        )
+        raise RuntimeError(f"Strict plugin mode: skipped={skipped_names}, failed={failed_names}")
 
     return selection

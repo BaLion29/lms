@@ -100,8 +100,8 @@ check "firnline-schema --help exits 0" \
     _uv run firnline-schema --help
 
 # ── 11. Import smoke ───────────────────────────────────────────────────────
-check "import firnline_core, firnline_schema, captured, ingestd, queryd" \
-    _uv run python -c "import firnline_core, firnline_schema; from captured.main import main; from ingestd.main import main; from queryd.main import main"
+check "import firnline_core, firnline_schema, captured, ingestd, queryd, triggerd" \
+    _uv run python -c "import firnline_core, firnline_schema; from captured.main import main; from ingestd.main import main; from queryd.main import main; from triggerd.main import main"
 
 # ── 12. Schema compose smoke (temp dir, no DB required) ────────────────────
 check "firnline-schema compose (temp dir)" \

@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Triggers schema module relocated from `firnline-ext-reminders` to first-party
+  `schema/modules/triggers/`.
+- Triggers module 1.1.0: added `OneShotTrigger`, `TriggerFiring`, `FiringStatus`,
+  `ScheduleTrigger.timezone`.
+- New `triggerd` service — polling daemon that evaluates Trigger documents via
+  pluggable evaluator plugins and materializes `TriggerFiring` records.
+- New entry-point group `firnline.triggerd.evaluators` with `TriggerEvaluator`
+  protocol.
+- Reminders extractor now proposes `fire_at` → creates `Reminder` +
+  `OneShotTrigger`.
+- Liveness-file healthchecks for `ingestd` and `triggerd`
+  (`INGESTD_LIVENESS_FILE` / `TRIGGERD_LIVENESS_FILE`).
+- `triggerd` Docker image, compose service block, `.env.example` entries, and
+  documentation coverage.
+
+### Fixed
+
+- Extension test files renamed to prevent shadowing in root `pytest` runs.
 
 ## [0.1.0-alpha] - 2026-07-06
 

@@ -46,8 +46,10 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `services/captured/` | Capture-ingress daemon (`POST /v1/capture/note`, `/v1/capture/file`) |
 | `services/ingestd/` | AI ingestion polling worker (LLM extraction + entity linking) |
 | `services/queryd/` | Conversational agent API (`POST /v1/chat`) |
+| `services/triggerd/` | Trigger evaluation daemon (poll → evaluate → insert TriggerFiring) |
 | `extensions/` | Six first-party extensions (inbox, people, places, planning, reminders, routines) |
 | `schema/modules/core/` | Kernel schema module (markers, registry, conventions) |
+| `schema/modules/triggers/` | Kernel schema module (abstract Trigger and concrete trigger types) |
 | `docker/` | Entrypoint script for extension overlay management |
 | `compose.yaml` | Docker Compose deployment (external TerminusDB) |
 | `compose.bundled-tdb.yaml` | Overlay adding a bundled TerminusDB v12 container |

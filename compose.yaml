@@ -151,12 +151,59 @@ services:
       INGESTD_POLL_INTERVAL_SECONDS: ${INGESTD_POLL_INTERVAL_SECONDS:-60}
       INGESTD_MAX_LLM_RETRIES: ${INGESTD_MAX_LLM_RETRIES:-3}
       INGESTD_DRY_RUN: ${INGESTD_DRY_RUN:-false}
+      INGESTD_LIVENESS_FILE: ${INGESTD_LIVENESS_FILE:-/tmp/ingestd-alive}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
       - firnline_ext_venv:/opt/firnline-ext-venv:ro
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      # Liveness file touched on each successful cycle.  find exits 0 even
+      # when it matches nothing, so pipe to grep -q . to fail on stale/absent.
+      test:
+        - CMD-SHELL
+        - "find /tmp/ingestd-alive -mmin -5 2>/dev/null | grep -q ."
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  # ── triggerd — trigger evaluation daemon ────────────────────────────────
+  triggerd:
+    build:
+      context: .
+      dockerfile: services/triggerd/Dockerfile
+    image: firnline/triggerd:local
+    environment:
+      TRIGGERD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
+      TRIGGERD_TDB_ORG: ${TDB_ORG:-admin}
+      TRIGGERD_TDB_DB: ${TDB_DB:-firnline}
+      TRIGGERD_TDB_BRANCH: ${TDB_BRANCH:-main}
+      TRIGGERD_TDB_USER: ${TDB_USER:-admin}
+      TRIGGERD_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      TRIGGERD_POLL_INTERVAL_SECONDS: ${TRIGGERD_POLL_INTERVAL_SECONDS:-60}
+      TRIGGERD_LOOKBACK_SECONDS: ${TRIGGERD_LOOKBACK_SECONDS:-900}
+      TRIGGERD_DEFAULT_TIMEZONE: ${TRIGGERD_DEFAULT_TIMEZONE:-Europe/Zurich}
+      TRIGGERD_DRY_RUN: ${TRIGGERD_DRY_RUN:-false}
+      TRIGGERD_STRICT_PLUGINS: ${TRIGGERD_STRICT_PLUGINS:-false}
+      TRIGGERD_LIVENESS_FILE: ${TRIGGERD_LIVENESS_FILE:-/tmp/triggerd-alive}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      # Liveness file touched on each successful cycle.  find exits 0 even
+      # when it matches nothing, so pipe to grep -q . to fail on stale/absent.
+      test:
+        - CMD-SHELL
+        - "find /tmp/triggerd-alive -mmin -5 2>/dev/null | grep -q ."
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
 
   # ── queryd — conversational agent API ──────────────────────────────────
   queryd:

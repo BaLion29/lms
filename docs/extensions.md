@@ -52,6 +52,9 @@ planning_tools = "firnline_ext_planning.tools:plugin"
 
 [project.entry-points."firnline.captured.handlers"]
 inbox_note = "firnline_ext_inbox.capture:inbox_note_handler"
+
+[project.entry-points."firnline.triggerd.evaluators"]
+oneshot = "firnline_ext_reminders.evaluators:oneshot_plugin"
 ```
 
 ### `firnline.schema_modules`
@@ -140,6 +143,44 @@ class CaptureHandler(Protocol):
 `content_type`, `metadata`, `captured_at`. `CaptureContext` provides `tdb`,
 `blob_store`, `logger`, `now()`. The handler returns the created document id.
 If two handlers claim the same `kind`, it's a startup error.
+
+### `firnline.triggerd.evaluators` — TriggerEvaluator
+
+```python
+class TriggerEvaluator(Protocol):
+    name: str
+    requires: list[ModuleRequirement]
+    trigger_types: tuple[str, ...]   # e.g. ("OneShotTrigger", "ScheduleTrigger")
+
+    async def occurrences(
+        self,
+        trigger: dict,
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        ctx: EvalContext,
+    ) -> list[datetime]: ...
+```
+
+Each evaluator declares which Trigger `@type` strings it handles via
+`trigger_types`.  Duplicate `@type` registrations across active evaluators
+are a startup error.
+
+`occurrences` receives the raw trigger document dict and the half-open
+evaluation window `(window_start, window_end]`.  It must return a list of
+timezone-aware UTC `datetime` objects representing the exact instants the
+trigger fires — zero-length if the trigger does not fire within the
+window.  The engine handles deduplication and insertion.
+
+`EvalContext` fields available to evaluators:
+
+- **`tdb`** — the TerminusDB client (for resolving operands, anchors, etc.)
+- **`default_tz`** — the service-configured default timezone (`ZoneInfo`)
+- **`now`** — callable returning the current UTC datetime
+- **`resolve_anchor(anchor_ref)`** — async, resolves an anchor reference to a datetime
+- **`get_occurrences(trigger_dict, window_start, window_end, visited)`** —
+  async, dispatches a sub-trigger through the same evaluation pipeline
+  (used by composite evaluators)
 
 ## Schema Module Format
 

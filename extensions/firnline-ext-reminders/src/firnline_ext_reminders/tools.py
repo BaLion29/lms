@@ -94,10 +94,7 @@ async def create_reminder(
         if remindable_types and target.get("@type") not in remindable_types:
             return {
                 "ok": False,
-                "error": (
-                    f"refers_to {siri} has type {target.get('@type')}, "
-                    f"expected a type inheriting Remindable"
-                ),
+                "error": (f"refers_to {siri} has type {target.get('@type')}, expected a type inheriting Remindable"),
             }
         refers_to = siri
 
@@ -136,9 +133,7 @@ class ReminderToolsPlugin:
     """Queryd write-tool plugin for reminder operations."""
 
     name: str = "reminder_tools"
-    requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="reminders", range=">=1.0.0 <2.0.0")
-    ]
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="reminders", range=">=1.0.0 <2.0.0")]
 
     def tools(self, deps: Any) -> list[Tool]:
         """Return pydantic-ai Tool objects for reminder write operations."""

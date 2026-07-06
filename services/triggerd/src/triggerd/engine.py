@@ -1,0 +1,476 @@
+"""Trigger evaluation engine — evaluates Trigger documents and materializes TriggerFiring records."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from typing import Any
+from zoneinfo import ZoneInfo
+
+import structlog
+
+from firnline_core.base import _format_datetime
+from firnline_core.generated.triggers import FiringStatus, TriggerFiring
+from firnline_core.plugins import EvalContext
+from firnline_core.tdb import TdbError, short_iri
+from triggerd.evaluators import _parse_iso_datetime, resolve_anchor
+
+logger = structlog.get_logger(__name__)
+
+_UTC = timezone.utc
+
+
+class Engine:
+    """Deterministic trigger evaluation engine.
+
+    Each cycle:
+    1. Determines the evaluation window (now - lookback → now).
+    2. Enumerates concrete (non-abstract) Trigger subclasses via schema scan.
+    3. Fetches Trigger documents, filters by enabled/validity.
+    4. Dispatches each trigger to its evaluator plugin.
+    5. Resolves a ``subject`` (the Reminder/Routine that references each trigger).
+    6. Materializes ``TriggerFiring`` records (idempotent via lexical key).
+    """
+
+    def __init__(
+        self,
+        tdb: Any,
+        settings: Any,
+        evaluators: list[object],
+        *,
+        now: Any = None,
+        logger: Any = None,
+    ) -> None:
+        self.tdb = tdb
+        self.settings = settings
+        self.evaluators = evaluators
+        self.log = logger or structlog.get_logger(__name__)
+        self._now = now if now is not None else self._utc_now
+
+        # trigger_type → evaluator dispatch map
+        self._dispatch: dict[str, object] = {}
+        for ev in evaluators:
+            for ttype in ev.trigger_types:
+                self._dispatch[ttype] = ev
+
+        # Per-branch schema cache: branch → set of concrete trigger class names
+        self._concrete_trigger_types_cache: dict[str, set[str]] = {}
+
+        # Per-cycle state
+        self._ctx: EvalContext | None = None
+
+    @staticmethod
+    def _utc_now() -> datetime:
+        return datetime.now(tz=timezone.utc)
+
+    # ------------------------------------------------------------------
+    # EvalContext construction (once per cycle)
+    # ------------------------------------------------------------------
+
+    async def _build_ctx(self) -> EvalContext:
+        """Build an :class:`EvalContext` wired with late-binding closures.
+
+        Closures are defined first so they exist before *ctx* construction.
+        The ``_resolve_anchor`` closure references *ctx* which is bound on
+        the next line (the name is resolved at call time, not definition time).
+        """
+        tz = ZoneInfo(self.settings.default_timezone)
+
+        # Closures defined first so they exist before ctx construction.
+        async def _resolve_anchor(anchor_ref: str | dict[str, Any]) -> datetime | None:
+            return await resolve_anchor(ctx, anchor_ref)  # noqa: F821 — ctx bound below
+
+        async def _get_occurrences(
+            trigger_dict: dict[str, Any],
+            window_start: datetime,
+            window_end: datetime,
+            visited: set[str],
+        ) -> list[datetime]:
+            return await self._dispatch_occurrences(trigger_dict, window_start, window_end, visited)
+
+        ctx = EvalContext(
+            tdb=self.tdb,
+            default_tz=tz,
+            now=self._now,
+            resolve_anchor=_resolve_anchor,
+            get_occurrences=_get_occurrences,
+        )
+        return ctx
+
+    # ------------------------------------------------------------------
+    # Main cycle
+    # ------------------------------------------------------------------
+
+    async def run_cycle(self, should_stop: Any = None) -> None:
+        """Run one full evaluation cycle (see class docstring)."""
+        if should_stop is not None and getattr(should_stop, "is_set", lambda: False)():
+            return
+
+        self._ctx = await self._build_ctx()
+        branch = self.settings.tdb_branch
+
+        window_end = self._now()
+        window_start = window_end - timedelta(seconds=self.settings.lookback_seconds)
+
+        # ── Enumerate concrete trigger classes ──────────────────────────
+        # Full-scan polling via get_documents is acceptable at personal scale;
+        # same known ceiling as get_documents_by_status.
+        concrete_types = await self._get_concrete_trigger_types(branch)
+
+        # ── Fetch and evaluate ──────────────────────────────────────────
+        all_trigger_docs: list[dict[str, Any]] = []
+        for cls_name in concrete_types:
+            try:
+                docs = await self.tdb.get_documents(cls_name, branch=branch)
+            except Exception:
+                self.log.warning("trigger_fetch_failed", class_name=cls_name, exc_info=True)
+                continue
+            all_trigger_docs.extend(docs)
+
+        triggers_scanned = len(all_trigger_docs)
+
+        skipped_by_type: dict[str, int] = {}
+        logged_unsupported: set[str] = set()
+        firings_to_write: list[dict[str, Any]] = []
+        dispatched_count = 0
+        evaluated_count = 0
+        errors_count = 0
+
+        for doc in all_trigger_docs:
+            ttype = doc.get("@type")
+            if not ttype:
+                continue
+
+            evaluator = self._dispatch.get(ttype)
+            if evaluator is None:
+                skipped_by_type[ttype] = skipped_by_type.get(ttype, 0) + 1
+                if ttype not in logged_unsupported:
+                    logged_unsupported.add(ttype)
+                    self.log.warning("trigger_type_unsupported", type=ttype)
+                continue
+
+            # Active filter
+            if not self._is_trigger_active(doc, window_end):
+                continue
+
+            dispatched_count += 1
+
+            # Evaluate
+            try:
+                instants = await evaluator.occurrences(
+                    doc,
+                    window_start=window_start,
+                    window_end=window_end,
+                    ctx=self._ctx,
+                )
+            except Exception:
+                self.log.warning("evaluator_error", trigger=doc.get("@id"), exc_info=True)
+                errors_count += 1
+                continue
+
+            evaluated_count += 1
+
+            for instant in instants:
+                firings_to_write.append({"trigger_doc": doc, "scheduled_instant": instant})
+
+        # ── Resolve subjects (per trigger IRI) ─────────────────────────
+        # Collect unique trigger IRIs that have at least one firing
+        trigger_iris: set[str] = set()
+        for entry in firings_to_write:
+            trigger_iris.add(entry["trigger_doc"]["@id"])
+
+        # Resolve subject per trigger IRI (cache per cycle)
+        subjects: dict[str, str | None] = {}
+        for iri in trigger_iris:
+            subjects[iri] = await self._resolve_subject(iri, branch)
+
+        # ── Build and insert firings ────────────────────────────────────
+        firings_written = 0
+        duplicates_suppressed = 0
+        subjects_resolved = 0
+
+        # Group by trigger @id for batch insert
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for entry in firings_to_write:
+            trigger_iri = entry["trigger_doc"]["@id"]
+            scheduled = entry["scheduled_instant"]
+            occurrence_key = _format_datetime(scheduled)
+
+            subject = subjects.get(trigger_iri)
+            if subject is not None:
+                subjects_resolved += 1
+
+            firing_doc = TriggerFiring(
+                trigger=trigger_iri,
+                occurrence_key=occurrence_key,
+                scheduled_for=scheduled,
+                fired_at=window_end,
+                status=FiringStatus.PENDING,
+                subject=subject,
+            ).to_tdb()
+            grouped.setdefault(trigger_iri, []).append(firing_doc)
+
+        for trigger_iri, firings in grouped.items():
+            short = short_iri(trigger_iri)
+            first_key = firings[0]["occurrence_key"]
+            n = len(firings)
+            if n == 1:
+                msg = f"triggerd: fire {short} @ {first_key}"
+            else:
+                msg = f"triggerd: fire {short} @ {first_key} (+{n - 1} more)"
+
+            if self.settings.dry_run:
+                for fdoc in firings:
+                    self.log.info("firing_dry_run", trigger=trigger_iri, occurrence_key=fdoc["occurrence_key"])
+                continue
+
+            try:
+                await self.tdb.insert_documents(firings, branch=branch, message=msg, author="triggerd")
+            except TdbError as exc:
+                body_str = str(exc.body)
+                is_duplicate = exc.status in (400, 409) and "DocumentIdAlreadyExists" in body_str
+
+                if is_duplicate and n > 1:
+                    # Batch was rejected atomically — one duplicate can poison the
+                    # whole batch.  Fall back to individual inserts so that new
+                    # firings sharing a batch with a duplicate are not lost.
+                    deduped = 0
+                    lost = 0
+                    for i, fdoc in enumerate(firings):
+                        key = fdoc["occurrence_key"]
+                        ind_msg = f"triggerd: fire {short} @ {key}"
+                        try:
+                            await self.tdb.insert_documents([fdoc], branch=branch, message=ind_msg, author="triggerd")
+                        except TdbError as exc2:
+                            if "DocumentIdAlreadyExists" in str(exc2.body):
+                                deduped += 1
+                                self.log.debug(
+                                    "firing_duplicate",
+                                    trigger=trigger_iri,
+                                    occurrence_key=key,
+                                    status=exc2.status,
+                                )
+                            else:
+                                lost += 1
+                                self.log.warning(
+                                    "firing_insert_failed",
+                                    trigger=trigger_iri,
+                                    occurrence_key=key,
+                                    status=exc2.status,
+                                    body=str(exc2.body)[:500],
+                                )
+                        else:
+                            firings_written += 1
+                    duplicates_suppressed += deduped
+                    if lost:
+                        self.log.warning(
+                            "firing_batch_fallback_loss",
+                            trigger=trigger_iri,
+                            lost=lost,
+                            total=n,
+                        )
+                elif is_duplicate:
+                    duplicates_suppressed += n
+                    self.log.debug(
+                        "firing_duplicate",
+                        trigger=trigger_iri,
+                        count=n,
+                        status=exc.status,
+                    )
+                else:
+                    self.log.warning(
+                        "firing_insert_failed",
+                        trigger=trigger_iri,
+                        count=n,
+                        status=exc.status,
+                        body=body_str[:500],
+                    )
+            else:
+                firings_written += n
+
+        # ── Cycle summary ──────────────────────────────────────────────
+        self.log.info(
+            "cycle_complete",
+            triggers_scanned=triggers_scanned,
+            triggers_dispatched=dispatched_count,
+            evaluated=evaluated_count,
+            skipped_by_type=skipped_by_type,
+            firings_written=firings_written,
+            duplicates_suppressed=duplicates_suppressed,
+            subjects_resolved=subjects_resolved,
+            errors=errors_count,
+        )
+
+    # ------------------------------------------------------------------
+    # Dispatch for CompositeTrigger operand recursion
+    # ------------------------------------------------------------------
+
+    async def _dispatch_occurrences(
+        self,
+        trigger_dict: dict[str, Any],
+        window_start: datetime,
+        window_end: datetime,
+        visited: set[str],
+    ) -> list[datetime]:
+        """Dispatch a trigger dict through the evaluator map.
+
+        Used by :class:`CompositeEvaluator` via ``ctx.get_occurrences``.
+        Operands also pass through the ``_is_active`` filter — a disabled
+        or out-of-validity operand yields zero occurrences.
+        """
+        ttype = trigger_dict.get("@type")
+        evaluator = self._dispatch.get(ttype)
+        if evaluator is None:
+            return []
+
+        if not self._is_trigger_active(trigger_dict, window_end):
+            return []
+
+        try:
+            assert self._ctx is not None
+            return await evaluator.occurrences(
+                trigger_dict,
+                window_start=window_start,
+                window_end=window_end,
+                ctx=self._ctx,
+            )
+        except Exception:
+            self.log.warning(
+                "evaluator_error",
+                trigger=trigger_dict.get("@id"),
+                exc_info=True,
+            )
+            return []
+
+    # ------------------------------------------------------------------
+    # Schema scan — concrete Trigger subclasses
+    # ------------------------------------------------------------------
+
+    async def _get_concrete_trigger_types(self, branch: str) -> set[str]:
+        """Return the set of concrete (non-abstract) Trigger subclass names.
+
+        Cached per-branch.  Walks ``@inherits`` transitively.
+        """
+        cached = self._concrete_trigger_types_cache.get(branch)
+        if cached is not None:
+            return cached
+
+        try:
+            raw_schema = await self.tdb.get_schema(branch)
+        except Exception:
+            self.log.warning("schema_fetch_failed", branch=branch, exc_info=True)
+            self._concrete_trigger_types_cache[branch] = set()
+            return set()
+
+        # Build lookup: class @id → definition dict
+        classes: dict[str, dict[str, Any]] = {}
+        for entry in raw_schema:
+            if not isinstance(entry, dict):
+                continue
+            cid = entry.get("@id")
+            if isinstance(cid, str) and entry.get("@type") == "Class":
+                classes[cid] = entry
+
+        def inherits_from_trigger(cls_id: str, chain: set[str] | None = None) -> bool:
+            if chain is None:
+                chain = set()
+            if cls_id in chain:
+                return False
+            chain.add(cls_id)
+            if cls_id == "Trigger":
+                return True
+            cls_def = classes.get(cls_id)
+            if cls_def is None:
+                return False
+            inherits = cls_def.get("@inherits")
+            if isinstance(inherits, str):
+                return inherits_from_trigger(inherits, chain)
+            if isinstance(inherits, list):
+                return any(inherits_from_trigger(p, chain) for p in inherits)
+            return False
+
+        concrete: set[str] = set()
+        for cid, cls_def in classes.items():
+            if cls_def.get("@abstract"):
+                continue
+            if inherits_from_trigger(cid):
+                concrete.add(cid)
+
+        self._concrete_trigger_types_cache[branch] = concrete
+        return concrete
+
+    # ------------------------------------------------------------------
+    # Active filter
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_trigger_active(trigger_doc: dict[str, Any], window_end: datetime) -> bool:
+        """Return True if the trigger is enabled and within its validity window."""
+        if trigger_doc.get("enabled") is False:
+            return False
+
+        valid_from_raw = trigger_doc.get("valid_from")
+        if valid_from_raw is not None:
+            valid_from = _parse_iso_datetime(valid_from_raw)
+            if valid_from > window_end:
+                return False
+
+        valid_until_raw = trigger_doc.get("valid_until")
+        if valid_until_raw is not None:
+            valid_until = _parse_iso_datetime(valid_until_raw)
+            if valid_until < window_end:
+                return False
+
+        return True
+
+    # ------------------------------------------------------------------
+    # Subject resolution
+    # ------------------------------------------------------------------
+
+    async def _resolve_subject(self, trigger_iri: str, branch: str) -> str | None:
+        """Find the single Reminder or Routine that references *trigger_iri*.
+
+        Uses GraphQL with ``filter: {trigger: {eq: $iri}}``.
+        Errors mentioning unknown types/fields (schema missing
+        Reminder/Routine) are tolerated → no subject.
+        """
+        referrer_ids: list[str] = []
+
+        for cls_name in ("Reminder", "Routine"):
+            query = f"query($iri: String) {{ {cls_name}(filter: {{trigger: {{eq: $iri}}}}) {{ _id }} }}"
+            try:
+                result = await self.tdb.graphql(query, variables={"iri": trigger_iri}, branch=branch)
+            except TdbError as exc:
+                # Schema may not include Reminder/Routine — log at DEBUG
+                self.log.debug(
+                    "subject_query_failed",
+                    class_name=cls_name,
+                    trigger=trigger_iri,
+                    status=exc.status,
+                    body=str(exc.body)[:300],
+                )
+                continue
+            except Exception:
+                self.log.debug(
+                    "subject_query_failed",
+                    class_name=cls_name,
+                    trigger=trigger_iri,
+                    exc_info=True,
+                )
+                continue
+
+            items = result.get(cls_name, [])
+            for item in items:
+                rid = item.get("_id")
+                if isinstance(rid, str):
+                    referrer_ids.append(rid)
+
+        if len(referrer_ids) == 1:
+            return referrer_ids[0]
+        if len(referrer_ids) > 1:
+            self.log.warning(
+                "subject_ambiguous",
+                trigger=trigger_iri,
+                count=len(referrer_ids),
+            )
+            return None
+        return None

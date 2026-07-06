@@ -21,6 +21,12 @@ from firnline_core.generated.planning import (
     Task,
     TaskStatus,
 )
+from firnline_core.generated.triggers import (
+    FiringStatus,
+    OneShotTrigger,
+    ScheduleTrigger,
+    TriggerFiring,
+)
 from firnline_core.base import _format_datetime
 
 
@@ -256,3 +262,184 @@ def test_inboxnote_wrong_at_type_raises_validation_error():
     }
     with pytest.raises(ValidationError):
         InboxNote.model_validate(data)
+
+
+# ========================================================================
+# OneShotTrigger round-trip
+# ========================================================================
+
+
+def test_oneshot_trigger_round_trip():
+    """OneShotTrigger inherits Trigger fields and has fire_at."""
+    data = {
+        "@id": "OneShotTrigger/fire1",
+        "@type": "OneShotTrigger",
+        "name": "one-shot-sale",
+        "enabled": True,
+        "created_at": "2026-07-05T14:00:00Z",
+        "updated_at": "2026-07-05T14:00:00Z",
+        "fire_at": "2026-07-06T09:00:00Z",
+    }
+    t = OneShotTrigger.model_validate(data)
+
+    assert t.id_ == "OneShotTrigger/fire1"
+    assert t.type_ == "OneShotTrigger"
+    assert t.name == "one-shot-sale"
+    assert t.enabled is True
+    assert t.fire_at == datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)
+
+    expected = {
+        "@id": "OneShotTrigger/fire1",
+        "@type": "OneShotTrigger",
+        "name": "one-shot-sale",
+        "enabled": True,
+        "created_at": "2026-07-05T14:00:00Z",
+        "updated_at": "2026-07-05T14:00:00Z",
+        "fire_at": "2026-07-06T09:00:00Z",
+    }
+    assert t.to_tdb() == expected
+
+
+def test_oneshot_trigger_excludes_none_optionals():
+    """Optional inherited fields that are None are omitted."""
+    t = OneShotTrigger(
+        name="boom",
+        enabled=True,
+        fire_at=datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC),
+        created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+    )
+    result = t.to_tdb()
+    assert "valid_from" not in result
+    assert "valid_until" not in result
+
+
+# ========================================================================
+# ScheduleTrigger with optional timezone
+# ========================================================================
+
+
+def test_schedule_trigger_with_timezone():
+    """ScheduleTrigger accepts and serialises the optional timezone field."""
+    data = {
+        "@id": "ScheduleTrigger/repeat1",
+        "@type": "ScheduleTrigger",
+        "name": "daily-standup",
+        "enabled": True,
+        "dtstart": "2026-07-06T09:00:00Z",
+        "rrule": "FREQ=DAILY",
+        "timezone": "Europe/Berlin",
+        "created_at": "2026-07-05T14:00:00Z",
+        "updated_at": "2026-07-05T14:00:00Z",
+    }
+    t = ScheduleTrigger.model_validate(data)
+
+    assert t.type_ == "ScheduleTrigger"
+    assert t.timezone == "Europe/Berlin"
+    assert t.rrule == "FREQ=DAILY"
+
+    result = t.to_tdb()
+    assert result["timezone"] == "Europe/Berlin"
+
+
+def test_schedule_trigger_without_timezone():
+    """ScheduleTrigger works without the optional timezone field."""
+    t = ScheduleTrigger(
+        name="daily-standup",
+        enabled=True,
+        dtstart=datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC),
+        rrule="FREQ=DAILY",
+        created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+    )
+    assert t.timezone is None
+
+    result = t.to_tdb()
+    assert "timezone" not in result
+
+
+# ========================================================================
+# TriggerFiring round-trip
+# ========================================================================
+
+
+def test_trigger_firing_round_trip_all_fields():
+    """TriggerFiring with all optional fields set serialises correctly."""
+    data = {
+        "@id": "TriggerFiring/ScheduleTrigger%2Frepeat1/2026-07-06T09:00:00Z",
+        "@type": "TriggerFiring",
+        "trigger": "ScheduleTrigger/repeat1",
+        "occurrence_key": "2026-07-06T09:00:00Z",
+        "scheduled_for": "2026-07-06T09:00:00Z",
+        "fired_at": "2026-07-06T09:00:01Z",
+        "status": "notified",
+        "subject": "Reminder/abc",
+        "acknowledged_at": "2026-07-06T09:05:00Z",
+        "snoozed_until": "2026-07-06T10:00:00Z",
+    }
+    firing = TriggerFiring.model_validate(data)
+
+    assert firing.id_ == "TriggerFiring/ScheduleTrigger%2Frepeat1/2026-07-06T09:00:00Z"
+    assert firing.type_ == "TriggerFiring"
+    assert firing.trigger == "ScheduleTrigger/repeat1"
+    assert firing.occurrence_key == "2026-07-06T09:00:00Z"
+    assert firing.scheduled_for == datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)
+    assert firing.fired_at == datetime(2026, 7, 6, 9, 0, 1, tzinfo=UTC)
+    assert firing.status == FiringStatus.NOTIFIED
+    assert firing.subject == "Reminder/abc"
+    assert firing.acknowledged_at == datetime(2026, 7, 6, 9, 5, 0, tzinfo=UTC)
+    assert firing.snoozed_until == datetime(2026, 7, 6, 10, 0, 0, tzinfo=UTC)
+
+    expected = {
+        "@id": "TriggerFiring/ScheduleTrigger%2Frepeat1/2026-07-06T09:00:00Z",
+        "@type": "TriggerFiring",
+        "trigger": "ScheduleTrigger/repeat1",
+        "occurrence_key": "2026-07-06T09:00:00Z",
+        "scheduled_for": "2026-07-06T09:00:00Z",
+        "fired_at": "2026-07-06T09:00:01Z",
+        "status": "notified",
+        "subject": "Reminder/abc",
+        "acknowledged_at": "2026-07-06T09:05:00Z",
+        "snoozed_until": "2026-07-06T10:00:00Z",
+    }
+    assert firing.to_tdb() == expected
+
+
+def test_trigger_firing_minimal_excludes_none():
+    """TriggerFiring with optional fields unset excludes them from output."""
+    firing = TriggerFiring(
+        trigger="ScheduleTrigger/repeat1",
+        occurrence_key="2026-07-06T09:00:00Z",
+        scheduled_for=datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC),
+        fired_at=datetime(2026, 7, 6, 9, 0, 1, tzinfo=UTC),
+        status=FiringStatus.PENDING,
+    )
+    result = firing.to_tdb()
+
+    assert result == {
+        "@type": "TriggerFiring",
+        "trigger": "ScheduleTrigger/repeat1",
+        "occurrence_key": "2026-07-06T09:00:00Z",
+        "scheduled_for": "2026-07-06T09:00:00Z",
+        "fired_at": "2026-07-06T09:00:01Z",
+        "status": "pending",
+    }
+
+    for key in ("subject", "acknowledged_at", "snoozed_until"):
+        assert key not in result, f"{key!r} must be absent"
+
+
+def test_trigger_firing_all_statuses():
+    """All FiringStatus enum values can be used."""
+    for value in ("pending", "notified", "acknowledged", "snoozed", "expired"):
+        data = {
+            "@type": "TriggerFiring",
+            "trigger": "ScheduleTrigger/r1",
+            "occurrence_key": "2026-07-06T09:00:00Z",
+            "scheduled_for": "2026-07-06T09:00:00Z",
+            "fired_at": "2026-07-06T09:00:01Z",
+            "status": value,
+        }
+        firing = TriggerFiring.model_validate(data)
+        assert firing.status.value == value
+        assert firing.to_tdb()["status"] == value
