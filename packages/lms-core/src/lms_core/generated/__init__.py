@@ -6,6 +6,7 @@
 # ---------------------------------------------------------------------------
 
 from .core import (
+    ExternalRef,
     SchemaMigration,
     SchemaModule,
 )
@@ -17,29 +18,35 @@ from .inbox import (
 )
 from .people import (
     Contact,
-    Location,
     Person,
 )
+from .places import (
+    Location,
+)
 from .planning import (
-    CompositeMode,
-    CompositeTrigger,
-    ContextTrigger,
     Event,
-    EventKind,
     EventStatus,
-    EventTrigger,
-    RelativeTrigger,
-    Reminder,
-    ScheduleTrigger,
     Task,
     TaskSpec,
     TaskStatus,
+)
+from .reminders import (
+    Reminder,
 )
 from .routines import (
     Activity,
     ActivitySpec,
     Routine,
     RoutineStep,
+)
+from .triggers import (
+    CompositeMode,
+    CompositeTrigger,
+    ContextTrigger,
+    EventKind,
+    EventTrigger,
+    RelativeTrigger,
+    ScheduleTrigger,
 )
 
 __all__ = [
@@ -53,6 +60,7 @@ __all__ = [
     "EventKind",
     "EventStatus",
     "EventTrigger",
+    "ExternalRef",
     "InboxAudio",
     "InboxAudioStatus",
     "InboxNote",

@@ -15,12 +15,13 @@ Companion to `GOAL.md`. This document describes **how** the system is built. It 
 
 ### The six design laws (enforced in code, not just prose)
 
-- **L1** — Only the `core` module defines abstract classes (`Source`, `Context`, `Remindable`, `Trigger`), the `@context` block, and the registry classes (`SchemaModule`, `SchemaMigration`).
+- **L1** — `core` owns the `@context`, the registry classes (`SchemaModule`, `SchemaMigration`), and the contentless universal markers (`Source`, `Context`, `Remindable`). Other modules **may** define abstract classes (e.g. `triggers` owns `Trigger`); referencing abstracts across modules follows the normal exports rule (L2).
 - **L2** — A module's schema may reference only: its own classes, `core` abstracts, and classes listed in the `exports` of modules it names in `depends_on`. The composer walks every class reference and errors on violations.
 - **L3** — The composed schema (what TerminusDB sees) is a build artifact (`build/composed.schema.json`), never hand-edited.
 - **L4** — Generated Python models are build artifacts too — regenerated, never edited; a CI check fails on codegen drift.
 - **L5** — Services and plugins declare module requirements as semver ranges, verified at startup against the in-database registry.
 - **L6** — Writes into the SSOT happen only through typed paths: ingestd's pipeline or queryd's registered write tools. GraphQL is read-only (guarded in code).
+- **L7** — First-party extensions (`extensions/**`) must use only public kernel contracts: entry points, protocols from `lms_core.plugins`, and the `lms_core` public API. CI enforces that `extensions/**` never imports from service internals.
 
 ---
 
@@ -72,11 +73,14 @@ lms/
 ├── compose.dev.yaml            # terminusdb + queryd (+ ingestd) for local dev
 ├── schema/
 │   └── modules/
-│       ├── core/               # manifest.json · schema.json   (abstracts, @context, registry)
+│       ├── core/               # manifest.json · schema.json · context.json   (markers, @context, registry, ExternalRef)
 │       ├── inbox/              # manifest.json · schema.json · migrations/
-│       ├── planning/           # Task, TaskSpec, Event, Reminder (+ enums)
-│       ├── people/             # Person, Contact, Location
-│       └── routines/           # Routine, RoutineStep, Activity, ActivitySpec
+│       ├── people/             # Person, Contact
+│       ├── places/             # Location
+│       ├── planning/           # Task, TaskSpec, Event (+ enums)
+│       ├── reminders/          # Reminder
+│       ├── routines/           # Routine, RoutineStep, Activity, ActivitySpec
+│       └── triggers/           # Trigger (abstract) + concrete trigger types + enums
 ├── build/                      # composed.schema.json · modules.lock.json (artifacts)
 ├── packages/
 │   ├── lms-schema/             # composer · differ · migrator · codegen (library + CLI)
@@ -217,16 +221,18 @@ Status of the original gap list against the live schema, rerouted through the mo
 | # | Change | Module → bump | Status |
 | --- | --- | --- | --- |
 | 1 | `InboxAudio.transcription` → Optional (doesn't exist at `status=new`) | inbox → **2.0** (required→optional is breaking) + trivial migration | **Open** — currently worked around by the capture pipeline writing an empty string |
-| 2 | `ReminderStatus` enum (`pending/triggered/snoozed/dismissed`) + `status` on Reminder | planning → 2.0 | **Open** — blocks reminderd |
-| 3 | Reminder: `snoozed_until`, `nag_interval_minutes`, `last_notified_at` (all Optional) | planning → same change set as #2 | **Open** — blocks reminderd |
+| 2 | `ReminderStatus` enum (`pending/triggered/snoozed/dismissed`) + `status` on Reminder | reminders → 2.0 | **Open** — blocks reminderd |
+| 3 | Reminder: `snoozed_until`, `nag_interval_minutes`, `last_notified_at` (all Optional) | reminders → same change set as #2 | **Open** — blocks reminderd |
 | 4 | ~~`Proposal` staging class~~ | — | **Superseded** (§9.1) |
 | 5 | `dropped` in `TaskStatus` + Optional `completed_at` on Task | planning → 1.x (additive) | **Open** — required by the guilt-free-dropping principle; cheap, do with the next planning touch |
 | 6 | `Location` class | people | **Done** (name, aliases, coordinates, address) |
 | 7 | Work-claiming (`claimed_at` or intermediate statuses) | inbox → 1.x | **Deferred** — v1 runs one strictly sequential worker; becomes relevant only with concurrent workers |
 | 8 | Conventions: duration in minutes, priority 1 = highest, UTC storage / Europe/Zurich display | — | **Adopted** — encoded in §5 and in both services' prompts/models |
-| 9 | `SchemaModule` + `SchemaMigration` registry classes | core → 1.1 (additive) | **In progress** — part of the modularization rollout (§11 step 2–3) |
+| 9 | `SchemaModule` + `SchemaMigration` registry classes | core | **Done** (part of modularization rollout) |
 
-New since the original document (already live in the schema): the full **Trigger family** (Schedule/Relative/Context/Event/Composite with enable + validity windows), **Routine/RoutineStep/Activity** (schema-only; no service drives them yet), **Contact** as a `Person` subdocument.
+New since the original document (already live in the schema): the full **Trigger family** (Schedule/Relative/Context/Event/Composite with enable + validity windows), **Routine/RoutineStep/Activity** (schema-only; no service drives them yet), **Contact** as a `Person` subdocument, **ExternalRef** (@subdocument convention for synced external systems).
+
+Module re-cut (alpha-spec §4): `triggers` (abstract Trigger + concrete types + enums, split from core/planning), `places` (Location, split from people), `reminders` (Reminder, split from planning). Core now owns only contentless markers (Source/Context/Remindable) + registry + ExternalRef. Planning shrinks to Task/Event/specs/enums. Routines depends on planning + triggers.
 
 Evolution process: edit the module fragment (+ migration if breaking) → `compose` → `diff` (guardrails) → `apply` on a dev branch → `validate` → tests → `apply`/`promote` against production per §11.
 

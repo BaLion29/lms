@@ -15,21 +15,15 @@
     "@type": "Class"
   },
   {
-    "@abstract": [],
-    "@id": "Trigger",
+    "@id": "ExternalRef",
     "@type": "Class",
-    "created_at": "xsd:dateTime",
-    "enabled": "xsd:boolean",
-    "name": "xsd:string",
-    "updated_at": "xsd:dateTime",
-    "valid_from": {
-      "@class": "xsd:dateTime",
-      "@type": "Optional"
-    },
-    "valid_until": {
-      "@class": "xsd:dateTime",
-      "@type": "Optional"
-    }
+    "@subdocument": [],
+    "@key": {"@type": "Random"},
+    "system": "xsd:string",
+    "external_id": "xsd:string",
+    "url": {"@class": "xsd:string", "@type": "Optional"},
+    "version": {"@class": "xsd:string", "@type": "Optional"},
+    "last_synced_at": {"@class": "xsd:dateTime", "@type": "Optional"}
   },
   {
     "@id": "SchemaModule",

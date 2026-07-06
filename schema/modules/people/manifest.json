@@ -1,7 +1,7 @@
 {
   "name": "people",
-  "version": "1.0.0",
-  "depends_on": [],
-  "exports": ["Person", "Location"],
-  "description": "People, contacts and locations"
+  "version": "1.1.0",
+  "depends_on": [{"name": "places", "range": ">=1.0.0 <2.0.0"}],
+  "exports": ["Person", "Contact"],
+  "description": "People and contacts"
 }

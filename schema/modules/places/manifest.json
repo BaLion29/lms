@@ -1,0 +1,7 @@
+{
+  "name": "places",
+  "version": "1.0.0",
+  "depends_on": [{"name": "core", "range": ">=2.0.0 <3.0.0"}],
+  "exports": ["Location"],
+  "description": "Physical locations with address and coordinates"
+}

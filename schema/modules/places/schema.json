@@ -1,0 +1,20 @@
+[
+  {
+    "@id": "Location",
+    "@inherits": "Context",
+    "@type": "Class",
+    "address": {
+      "@class": "xsd:string",
+      "@type": "Optional"
+    },
+    "aliases": {
+      "@class": "xsd:string",
+      "@type": "Set"
+    },
+    "coordinates": {
+      "@class": "xdd:coordinate",
+      "@type": "Optional"
+    },
+    "name": "xsd:string"
+  }
+]

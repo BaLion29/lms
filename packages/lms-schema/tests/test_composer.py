@@ -166,7 +166,8 @@ def test_duplicate_id(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_non_core_abstract_rejected(tmp_path: Path) -> None:
+def test_non_core_abstract_allowed(tmp_path: Path) -> None:
+    """Non-core modules may define abstract classes (revised L1)."""
     _make_core(tmp_path)
 
     _make_module(
@@ -176,9 +177,10 @@ def test_non_core_abstract_rejected(tmp_path: Path) -> None:
         classes=[{"@abstract": [], "@id": "Bad", "@type": "Class"}],
     )
 
-    with pytest.raises(L1Error) as exc:
-        compose(tmp_path)
-    assert "abstract" in str(exc.value).lower()
+    result = compose(tmp_path)
+    # Must not raise L1Error — abstracts in non-core modules are now allowed
+    names = [m.name for m in result.modules]
+    assert "m1" in names
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +324,7 @@ def _normalize(schema_array: list[dict]) -> tuple[dict, dict[str, dict]]:
 
 # Allowed extra classes in composed schema that the monolithic schema
 # does not contain (registry classes added in core 1.1.0).
-_ALLOWED_EXTRAS = {"SchemaModule", "SchemaMigration"}
+_ALLOWED_EXTRAS = {"SchemaModule", "SchemaMigration", "ExternalRef"}
 
 
 def test_equivalence_with_monolithic() -> None:
@@ -506,8 +508,8 @@ def test_core_context_in_schema_json_rejected(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_abstract_false_still_abstract(tmp_path: Path) -> None:
-    """'@abstract': false must still be treated as an abstract marker (key presence)."""
+def test_abstract_marker_outside_core_allowed(tmp_path: Path) -> None:
+    """Abstract markers (key presence) allowed outside core under revised L1."""
     _make_core(tmp_path)
 
     _make_module(
@@ -516,6 +518,6 @@ def test_abstract_false_still_abstract(tmp_path: Path) -> None:
         classes=[{"@abstract": False, "@id": "Bad", "@type": "Class"}],
     )
 
-    with pytest.raises(L1Error) as exc:
-        compose(tmp_path)
-    assert "abstract" in str(exc.value).lower()
+    result = compose(tmp_path)
+    names = [m.name for m in result.modules]
+    assert "m1" in names

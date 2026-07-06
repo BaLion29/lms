@@ -20,33 +20,6 @@
     "updated_at": "xsd:dateTime"
   },
   {
-    "@id": "Reminder",
-    "@type": "Class",
-    "created_at": "xsd:dateTime",
-    "derived_from": {
-      "@class": "Source",
-      "@type": "Optional"
-    },
-    "description": {
-      "@class": "xsd:string",
-      "@type": "Optional"
-    },
-    "name": "xsd:string",
-    "priority": {
-      "@class": "xsd:integer",
-      "@type": "Optional"
-    },
-    "refers_to": {
-      "@class": "Remindable",
-      "@type": "Optional"
-    },
-    "trigger": {
-      "@class": "Trigger",
-      "@type": "Optional"
-    },
-    "updated_at": "xsd:dateTime"
-  },
-  {
     "@id": "Event",
     "@inherits": [
       "Remindable",
@@ -125,69 +98,6 @@
       "planned",
       "closed",
       "cancelled"
-    ]
-  },
-  {
-    "@id": "CompositeTrigger",
-    "@inherits": "Trigger",
-    "@type": "Class",
-    "mode": "CompositeMode",
-    "operands": {
-      "@class": "Trigger",
-      "@type": "Set"
-    }
-  },
-  {
-    "@id": "ContextTrigger",
-    "@inherits": "Trigger",
-    "@type": "Class",
-    "context": "Context"
-  },
-  {
-    "@id": "EventTrigger",
-    "@inherits": "Trigger",
-    "@type": "Class",
-    "event": "EventKind",
-    "subject": {
-      "@class": "Source",
-      "@type": "Optional"
-    },
-    "subject_class": {
-      "@class": "xsd:string",
-      "@type": "Optional"
-    }
-  },
-  {
-    "@id": "RelativeTrigger",
-    "@inherits": "Trigger",
-    "@type": "Class",
-    "anchor": "Remindable",
-    "offset": "xsd:duration"
-  },
-  {
-    "@id": "ScheduleTrigger",
-    "@inherits": "Trigger",
-    "@type": "Class",
-    "dtstart": "xsd:dateTime",
-    "rrule": "xsd:string"
-  },
-  {
-    "@id": "CompositeMode",
-    "@type": "Enum",
-    "@value": [
-      "and",
-      "or",
-      "not"
-    ]
-  },
-  {
-    "@id": "EventKind",
-    "@type": "Enum",
-    "@value": [
-      "created",
-      "updated",
-      "completed",
-      "status_changed"
     ]
   }
 ]

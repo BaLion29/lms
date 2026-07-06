@@ -13,7 +13,8 @@ from lms_core.generated.inbox import (
     InboxNote,
     InboxNoteStatus,
 )
-from lms_core.generated.people import Contact, Location, Person
+from lms_core.generated.people import Contact, Person
+from lms_core.generated.places import Location
 from lms_core.generated.planning import (
     Event,
     EventStatus,

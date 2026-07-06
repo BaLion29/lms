@@ -1,0 +1,82 @@
+[
+  {
+    "@abstract": [],
+    "@id": "Trigger",
+    "@type": "Class",
+    "created_at": "xsd:dateTime",
+    "enabled": "xsd:boolean",
+    "name": "xsd:string",
+    "updated_at": "xsd:dateTime",
+    "valid_from": {
+      "@class": "xsd:dateTime",
+      "@type": "Optional"
+    },
+    "valid_until": {
+      "@class": "xsd:dateTime",
+      "@type": "Optional"
+    }
+  },
+  {
+    "@id": "CompositeTrigger",
+    "@inherits": "Trigger",
+    "@type": "Class",
+    "mode": "CompositeMode",
+    "operands": {
+      "@class": "Trigger",
+      "@type": "Set"
+    }
+  },
+  {
+    "@id": "ContextTrigger",
+    "@inherits": "Trigger",
+    "@type": "Class",
+    "context": "Context"
+  },
+  {
+    "@id": "EventTrigger",
+    "@inherits": "Trigger",
+    "@type": "Class",
+    "event": "EventKind",
+    "subject": {
+      "@class": "Source",
+      "@type": "Optional"
+    },
+    "subject_class": {
+      "@class": "xsd:string",
+      "@type": "Optional"
+    }
+  },
+  {
+    "@id": "RelativeTrigger",
+    "@inherits": "Trigger",
+    "@type": "Class",
+    "anchor": "Remindable",
+    "offset": "xsd:duration"
+  },
+  {
+    "@id": "ScheduleTrigger",
+    "@inherits": "Trigger",
+    "@type": "Class",
+    "dtstart": "xsd:dateTime",
+    "rrule": "xsd:string"
+  },
+  {
+    "@id": "CompositeMode",
+    "@type": "Enum",
+    "@value": [
+      "and",
+      "or",
+      "not"
+    ]
+  },
+  {
+    "@id": "EventKind",
+    "@type": "Enum",
+    "@value": [
+      "created",
+      "updated",
+      "completed",
+      "status_changed"
+    ]
+  }
+]

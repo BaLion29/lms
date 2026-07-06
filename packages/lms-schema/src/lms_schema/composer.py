@@ -52,7 +52,7 @@ class CycleError(ComposerError):
 
 
 class L1Error(ComposerError):
-    """L1 law violation — only core defines abstracts / @context."""
+    """L1 law violation — only @context is core-exclusive."""
 
 
 class L2Error(ComposerError):
@@ -362,16 +362,13 @@ def _validate_l1(
     modules: dict[str, Manifest],
     all_classes: dict[str, list[dict[str, Any]]],
 ) -> None:
-    """L1: Only core may define @abstract classes.  No module may embed @context."""
+    """L1: core owns @context, registry classes, and contentless universal markers.
+
+    Other modules MAY define abstract classes (the spec permits it for e.g.
+    the triggers module owning the abstract ``Trigger`` class).
+    """
     for name, classes in all_classes.items():
-        is_core = (name == "core")
         for cls in classes:
-            # @abstract: only core may define abstract classes
-            if not is_core and "@abstract" in cls:
-                raise L1Error(
-                    f"Module '{name}' defines abstract class '{cls.get('@id')}'. "
-                    "Only 'core' may define abstract classes (L1)."
-                )
             # @context: forbidden in ALL modules (core's context lives in context.json)
             if cls.get("@type") == "@context":
                 raise L1Error(

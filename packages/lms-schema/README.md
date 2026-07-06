@@ -49,7 +49,9 @@ hard error listing all failures — extensions are never silently ignored.
 
 ## Rules
 
-- **Abstract classes** may only be defined by the `core` module (L1).
+- **Abstract classes** may be defined by any module.  Core owns the
+  contentless universal markers (`Source`, `Context`, `Remindable`), the
+  registry classes, and `ExternalRef` (L1).
 - **`@context`** must live exclusively in `core/context.json` — never in any
   module's `schema.json` (L1).
 - **Exports** must reference `@id`s that are actually defined in the module's

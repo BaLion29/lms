@@ -25,6 +25,16 @@ for its schema modules.  Service packages (`lms-core`, `lms-schema`, `ingestd`,
   `validate` (GraphQL smoke tests + registry/lock cross-check), `promote`
   (safe fast-forward of main with ancestry verification).
 
+### Changed
+
+- **Schema module re-cut per alpha spec §4**: core 2.0.0 adds `ExternalRef`
+  subdocument, loses `Trigger`; new modules triggers 1.0.0, places 1.0.0,
+  reminders 1.0.0; planning 2.0.0 drops `Reminder` and triggers; people 1.1.0
+  drops `Location` to places; routines 1.1.0 depends on planning+triggers.
+- Applying the re-cut requires one additive schema push (`ExternalRef`) and
+  registry rewrites; guardrails (`diff`) are dev-time — `apply` does not
+  re-run them.
+
 ### Placeholder
 
 Steps 3–5 of the migration rollout will get their own entries when shipped:

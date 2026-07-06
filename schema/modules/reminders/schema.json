@@ -1,0 +1,29 @@
+[
+  {
+    "@id": "Reminder",
+    "@type": "Class",
+    "created_at": "xsd:dateTime",
+    "derived_from": {
+      "@class": "Source",
+      "@type": "Optional"
+    },
+    "description": {
+      "@class": "xsd:string",
+      "@type": "Optional"
+    },
+    "name": "xsd:string",
+    "priority": {
+      "@class": "xsd:integer",
+      "@type": "Optional"
+    },
+    "refers_to": {
+      "@class": "Remindable",
+      "@type": "Optional"
+    },
+    "trigger": {
+      "@class": "Trigger",
+      "@type": "Optional"
+    },
+    "updated_at": "xsd:dateTime"
+  }
+]
