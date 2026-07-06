@@ -15,9 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from lms_core.conventions import blob_root_from_env
-from lms_core.tdb import TdbClient, TdbError
-from lms_core.plugins import discover_plugins, select_plugins
+from firnline_core.conventions import blob_root_from_env
+from firnline_core.tdb import TdbClient, TdbError
+from firnline_core.plugins import discover_plugins, select_plugins
 from pydantic_ai import Tool
 from pydantic_ai.exceptions import (
     ModelAPIError,
@@ -148,7 +148,7 @@ def _rebuild_briefings(app: FastAPI, intro: dict) -> None:
 # Plugin helper
 # ---------------------------------------------------------------------------
 
-_PLUGIN_GROUP = "lms.queryd.tools"
+_PLUGIN_GROUP = "firnline.queryd.tools"
 
 
 def _collect_plugin_tools(
@@ -377,7 +377,7 @@ def create_app(
     *plugin_tools* is a **test seam**: when provided, these ``Tool``
     objects are used as write-tool plugins instead of discovering them
     via entry points.  When ``None`` (default, production),
-    ``discover_plugins("lms.queryd.tools")`` is used.
+    ``discover_plugins("firnline.queryd.tools")`` is used.
     """
     _configure_logging()
 

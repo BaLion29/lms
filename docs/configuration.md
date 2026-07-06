@@ -1,0 +1,141 @@
+# Configuration
+
+All configuration is done via environment variables. There are no config files.
+The `.env.example` in the repo root lists every variable; copy it to `.env` and
+edit as needed.
+
+## Shared TerminusDB settings
+
+Every service inherits these from `firnline_core.settings.TdbSettings`, using
+its own prefix (`CAPTURED_`, `INGESTD_`, `QUERYD_`):
+
+| Variable | Default | Required | Consumed by |
+|---|---|---|---|
+| `{PREFIX}_TDB_URL` | `http://localhost:6363` | yes | captured, ingestd, queryd |
+| `{PREFIX}_TDB_ORG` | `admin` | no | captured, ingestd, queryd |
+| `{PREFIX}_TDB_DB` | — | yes | captured, ingestd, queryd |
+| `{PREFIX}_TDB_BRANCH` | `main` | no | captured, ingestd, queryd |
+| `{PREFIX}_TDB_USER` | `admin` | no | captured, ingestd, queryd |
+| `{PREFIX}_TDB_PASSWORD` | — | yes | captured, ingestd, queryd |
+
+In `compose.yaml`, these are populated from the shared `TDB_*` variables
+(e.g. `CAPTURED_TDB_URL: ${TDB_URL:?}`).
+
+## LLM settings (shared across services)
+
+| Variable | Default | Required | Consumed by |
+|---|---|---|---|
+| `FIRNLINE_LLM_BASE_URL` | `http://host.docker.internal:4000` | yes | ingestd, queryd |
+| `FIRNLINE_LLM_API_KEY` | (empty) | no | ingestd, queryd |
+| `FIRNLINE_LLM_MODEL` | `gpt-4.1-mini` | no | ingestd, queryd |
+
+In `compose.yaml`, these are mapped to `INGESTD_LLM_BASE_URL` /
+`QUERYD_LLM_BASE_URL` etc. When running services directly on the host, set
+the prefixed versions instead.
+
+## Auth tokens
+
+| Variable | Default | Required | Consumed by |
+|---|---|---|---|
+| `CAPTURED_API_TOKEN` | (empty) | yes | captured |
+| `QUERYD_API_TOKEN` | (empty) | yes | queryd |
+
+Generate with `openssl rand -hex 32`.
+
+## captured
+
+Prefixed `CAPTURED_`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `CAPTURED_TDB_URL` | `http://localhost:6363` | TerminusDB base URL |
+| `CAPTURED_TDB_ORG` | `admin` | TerminusDB organisation |
+| `CAPTURED_TDB_DB` | `firnline` | TerminusDB database name |
+| `CAPTURED_TDB_BRANCH` | `main` | TerminusDB branch |
+| `CAPTURED_TDB_USER` | `admin` | TerminusDB username |
+| `CAPTURED_TDB_PASSWORD` | — | TerminusDB password |
+| `CAPTURED_API_TOKEN` | — | Bearer token for capture endpoints |
+| `CAPTURED_LISTEN_ADDR` | `0.0.0.0:8088` | Host:port to bind |
+| `CAPTURED_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
+| `CAPTURED_MAX_UPLOAD_BYTES` | `50000000` (50 MB) | Max file upload size for `/v1/capture/file` |
+| `FIRNLINE_BLOB_ROOT` | — | Root directory for blob storage (captured) |
+
+The compose file additionally uses:
+
+| Variable | Default | Description |
+|---|---|---|
+| `CAPTURED_HOST_PORT` | `8088` | Host port mapped to the container's 8088 |
+
+## ingestd
+
+Prefixed `INGESTD_`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `INGESTD_TDB_URL` | `http://localhost:6363` | TerminusDB base URL |
+| `INGESTD_TDB_ORG` | `admin` | TerminusDB organisation |
+| `INGESTD_TDB_DB` | `firnline` | TerminusDB database name |
+| `INGESTD_TDB_BRANCH` | `main` | TerminusDB branch |
+| `INGESTD_TDB_USER` | `admin` | TerminusDB username |
+| `INGESTD_TDB_PASSWORD` | — | TerminusDB password |
+| `INGESTD_LLM_BASE_URL` | `""` | LLM API base URL |
+| `INGESTD_LLM_API_KEY` | `""` | LLM API key |
+| `INGESTD_LLM_MODEL` | `""` | LLM model name |
+| `INGESTD_POLL_INTERVAL_SECONDS` | `60` | Seconds between poll cycles |
+| `INGESTD_MAX_LLM_RETRIES` | `3` | Max retries on schema-rejection per inbox item |
+| `INGESTD_DRY_RUN` | `false` | Run extraction without writing to database |
+| `INGESTD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
+
+## queryd
+
+Prefixed `QUERYD_`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `QUERYD_TDB_URL` | `http://localhost:6363` | TerminusDB base URL |
+| `QUERYD_TDB_ORG` | `admin` | TerminusDB organisation |
+| `QUERYD_TDB_DB` | `firnline` | TerminusDB database name |
+| `QUERYD_TDB_BRANCH` | `main` | TerminusDB branch |
+| `QUERYD_TDB_USER` | `admin` | TerminusDB username |
+| `QUERYD_TDB_PASSWORD` | — | TerminusDB password |
+| `QUERYD_API_TOKEN` | — | Bearer token for `/v1/chat` |
+| `QUERYD_LLM_BASE_URL` | — | LLM API base URL |
+| `QUERYD_LLM_API_KEY` | — | LLM API key |
+| `QUERYD_LLM_MODEL` | — | LLM model name |
+| `QUERYD_ENABLE_WRITES` | `false` | Gate write-tool plugins |
+| `QUERYD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
+| `QUERYD_MAX_TOOL_ITERATIONS` | `8` | Max tool calls per request |
+| `QUERYD_REQUEST_TIMEOUT_SECONDS` | `60` | Total request timeout |
+| `QUERYD_LISTEN_ADDR` | `0.0.0.0:8087` | Host:port to bind |
+| `QUERYD_CORS_ORIGINS` | `[]` | Comma-separated CORS origins |
+
+The compose file additionally uses:
+
+| Variable | Default | Description |
+|---|---|---|
+| `QUERYD_HOST_PORT` | `8087` | Host port mapped to the container's 8087 |
+
+## Extension management
+
+| Variable | Default | Description |
+|---|---|---|
+| `FIRNLINE_EXTENSIONS` | (empty) | Comma-separated extension specifiers (PyPI, Git URL, or wheel filename) |
+| `FIRNLINE_EXTENSIONS_PURGE` | `false` | Set `true` to wipe the overlay before reinstalling |
+| `FIRNLINE_EXTENSIONS_INSTALL` | `false` | Set `true` in the bootstrap container to trigger installation |
+
+Accepted specifier formats in `FIRNLINE_EXTENSIONS`:
+
+- **PyPI name**: `firnline_ext_inbox>=0.1.0`
+- **Git URL**: `git+https://github.com/user/firnline-ext-foo.git`
+- **Wheel filename**: `firnline_ext_inbox-0.1.0a1-py3-none-any.whl` (resolved against `/extensions/` in the image)
+
+First-party extension wheels are baked into service images at build time.
+
+## Bundled TerminusDB overlay
+
+| Variable | Default | Description |
+|---|---|---|
+| `TDB_HOST_PORT` | `6363` | Host port mapped to bundled TerminusDB's 6363 |
+
+> When using the bundled TDB overlay, set `TDB_URL=http://terminusdb:6363` in
+> `.env` — the container name is hardcoded in `compose.bundled-tdb.yaml`.

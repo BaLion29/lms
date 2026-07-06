@@ -1,7 +1,8 @@
 [project]
-name = "lms-workspace"
-version = "0.0.0"
+name = "firnline-workspace"
+version = "0.1.0a1"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 
 [tool.uv.workspace]
 members = ["packages/*", "services/*", "extensions/*"]

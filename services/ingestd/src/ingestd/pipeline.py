@@ -22,7 +22,7 @@ from ingestd.linking import (
     match_person,
 )
 from ingestd.settings import Settings
-from lms_core.models import (
+from firnline_core.models import (
     Contact,
     Event,
     EventStatus,
@@ -33,8 +33,8 @@ from lms_core.models import (
     TaskStatus,
     _format_datetime,
 )
-from lms_core.plugins import BuildContext
-from lms_core.tdb import TdbClient, TdbError, short_iri
+from firnline_core.plugins import BuildContext
+from firnline_core.tdb import TdbClient, TdbError, short_iri
 
 logger = structlog.get_logger(__name__)
 

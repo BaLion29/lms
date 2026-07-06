@@ -85,8 +85,8 @@ def test_healthz_down_connection_error(respx_mock: respx.MockRouter):
 
 
 def test_healthz_blob_root_unset(monkeypatch):
-    """blob_root_writable is null when LMS_BLOB_ROOT is unset."""
-    monkeypatch.delenv("LMS_BLOB_ROOT", raising=False)
+    """blob_root_writable is null when FIRNLINE_BLOB_ROOT is unset."""
+    monkeypatch.delenv("FIRNLINE_BLOB_ROOT", raising=False)
     with _client() as client:
         resp = client.get("/healthz")
     data = resp.json()
@@ -94,8 +94,8 @@ def test_healthz_blob_root_unset(monkeypatch):
 
 
 def test_healthz_blob_root_writable(monkeypatch, tmp_path):
-    """blob_root_writable is true when LMS_BLOB_ROOT points to a writable dir."""
-    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    """blob_root_writable is true when FIRNLINE_BLOB_ROOT points to a writable dir."""
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     with _client() as client:
         resp = client.get("/healthz")
     data = resp.json()
@@ -104,7 +104,7 @@ def test_healthz_blob_root_writable(monkeypatch, tmp_path):
 
 def test_healthz_blob_root_unwritable(monkeypatch, respx_mock):
     """blob_root_writable is false on OSError; status unchanged when TDB is up."""
-    monkeypatch.setenv("LMS_BLOB_ROOT", "/tmp/some-blob-root")
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", "/tmp/some-blob-root")
 
     def _raise_oserror(*args, **kwargs):
         raise OSError("permission denied")

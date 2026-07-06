@@ -12,7 +12,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock /app/
 
 # Copy the two workspace members needed for this service.
-COPY packages/lms-core/ /app/packages/lms-core/
+COPY packages/firnline-core/ /app/packages/firnline-core/
 COPY services/queryd/ /app/services/queryd/
 
 WORKDIR /app/services/queryd
@@ -41,14 +41,14 @@ RUN useradd -m -u 1000 queryd
 # Copy the application venv + source from builder, owned by the runtime user.
 COPY --from=builder --chown=queryd:queryd /app /app
 
-# Baked-in first-party extension wheels (LMS_EXTENSIONS picks from here).
+# Baked-in first-party extension wheels (FIRNLINE_EXTENSIONS picks from here).
 COPY --from=builder --chown=queryd:queryd /app/wheels/ /extensions/
 
 # Put the workspace venv on PATH so the queryd console script is found directly.
 # PYTHONPATH makes the extension overlay visible to importlib.metadata.
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/opt/lms-ext-venv/lib
+    PYTHONPATH=/opt/firnline-ext-venv/lib
 
 # Shared extension-installer entrypoint
 COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
@@ -64,6 +64,6 @@ USER queryd
 
 # The entrypoint script handles extension installation, then execs CMD.
 # NOTE: With ENTRYPOINT + CMD, additional docker-run args REPLACE CMD.
-# To pass extra args:  docker run lms/queryd queryd <extra-args>
+# To pass extra args:  docker run firnline/queryd queryd <extra-args>
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["queryd"]

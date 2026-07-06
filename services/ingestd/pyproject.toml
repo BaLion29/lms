@@ -1,13 +1,14 @@
 [project]
 name = "ingestd"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.1.0a1"
+description = "AI ingestion polling worker: extracts structured entities from captured inbox items via LLM extractors"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
 ]
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
-    "lms-core",
+    "firnline-core",
     "pydantic>=2",
     "pydantic-settings",
     "pydantic-ai-slim[openai]",
@@ -16,11 +17,11 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-lms-core = { workspace = true }
-lms-ext-inbox = { workspace = true }
-lms-ext-planning = { workspace = true }
-lms-ext-reminders = { workspace = true }
-lms-ext-people = { workspace = true }
+firnline-core = { workspace = true }
+firnline-ext-inbox = { workspace = true }
+firnline-ext-planning = { workspace = true }
+firnline-ext-reminders = { workspace = true }
+firnline-ext-people = { workspace = true }
 
 [project.scripts]
 ingestd = "ingestd.main:main"
@@ -34,10 +35,10 @@ packages = ["src/ingestd"]
 
 [dependency-groups]
 dev = [
-    "lms-ext-inbox",
-    "lms-ext-planning",
-    "lms-ext-reminders",
-    "lms-ext-people",
+    "firnline-ext-inbox",
+    "firnline-ext-planning",
+    "firnline-ext-reminders",
+    "firnline-ext-people",
     "pytest",
     "pytest-asyncio",
     "respx",

@@ -1,5 +1,5 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# LMS — docker compose deployment
+# Firnline — docker compose deployment
 #
 # Default (external TerminusDB — TDB_URL required):
 #   1. cp .env.example .env && vim .env         # set TDB_URL + secrets
@@ -16,8 +16,8 @@
 #   docker compose --profile bootstrap run --rm bootstrap
 #
 # Extension toggling:
-#   Set LMS_EXTENSIONS in .env.  The bootstrap service installs them into
-#   the lms_ext_venv volume.  All other services mount it read-only.
+#   Set FIRNLINE_EXTENSIONS in .env.  The bootstrap service installs them into
+#   the firnline_ext_venv volume.  All other services mount it read-only.
 #   First-party wheels are baked into the images at build time.
 #
 # Requires Docker Compose >= 2.24.
@@ -30,25 +30,25 @@ services:
       - bootstrap
     build:
       context: .
-      dockerfile: packages/lms-schema/Dockerfile
-    image: lms/lms-schema:local
+      dockerfile: packages/firnline-schema/Dockerfile
+    image: firnline/firnline-schema:local
     environment:
       TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
-      LMS_EXTENSIONS: ${LMS_EXTENSIONS:-}
-      LMS_EXTENSIONS_PURGE: ${LMS_EXTENSIONS_PURGE:-false}
-      LMS_SCHEMA_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+      FIRNLINE_EXTENSIONS_PURGE: ${FIRNLINE_EXTENSIONS_PURGE:-false}
+      FIRNLINE_SCHEMA_TDB_PASSWORD: ${TDB_PASSWORD:?}
       TDB_ORG: ${TDB_ORG:-admin}
-      TDB_DB: ${TDB_DB:-lms}
+      TDB_DB: ${TDB_DB:-firnline}
       TDB_USER: ${TDB_USER:-admin}
       TDB_BRANCH: ${TDB_BRANCH:-main}
     volumes:
-      - lms_ext_venv:/opt/lms-ext-venv             # writeable — installs wheels here
+      - firnline_ext_venv:/opt/firnline-ext-venv             # writeable — installs wheels here
       - ./schema:/work/schema:ro
       - ./build:/work/build
     restart: "no"
     # 1. Create the database if it does not exist (TerminusDB requires it
     #    before any schema push; uses a Python heredoc — no extra deps besides
-    #    lms-core (httpx) which is already installed in this image).
+    #    firnline-core (httpx) which is already installed in this image).
     # 2. Compose schema modules.
     # 3. Apply schema + migrations (creates branch if needed; idempotent).
     # 4. Validate the result.
@@ -61,16 +61,16 @@ services:
       - |
         set -eu
         echo "=== Ensure database exists ==="
-        python << "PYEOF"
+        python << PYEOF
         import asyncio, sys
-        from lms_core.tdb import TdbClient
+        from firnline_core.tdb import TdbClient
         async def main():
             async with TdbClient(
                 base_url="$${TDB_URL}",
                 org="$${TDB_ORG:-admin}",
-                db="$${TDB_DB:-lms}",
+                db="$${TDB_DB:-firnline}",
                 user="$${TDB_USER:-admin}",
-                password="$${LMS_SCHEMA_TDB_PASSWORD}",
+                password="$${FIRNLINE_SCHEMA_TDB_PASSWORD}",
             ) as c:
                 if await c.db_exists():
                     print("Database already exists.")
@@ -80,19 +80,19 @@ services:
         asyncio.run(main())
         PYEOF
         echo "=== Compose schema ==="
-        lms-schema compose --modules-dir /work/schema/modules --out-dir /work/build
+        firnline-schema compose --modules-dir /work/schema/modules --out-dir /work/build
         echo "=== Apply schema ==="
-        lms-schema apply --modules-dir /work/schema/modules \
+        firnline-schema apply --modules-dir /work/schema/modules \
           --tdb-url $${TDB_URL} \
           --tdb-org $${TDB_ORG:-admin} \
-          --tdb-db $${TDB_DB:-lms} \
+          --tdb-db $${TDB_DB:-firnline} \
           --tdb-user $${TDB_USER:-admin} \
           --branch $${TDB_BRANCH:-main}
         echo "=== Validate ==="
-        lms-schema validate --modules-dir /work/schema/modules \
+        firnline-schema validate --modules-dir /work/schema/modules \
           --tdb-url $${TDB_URL} \
           --tdb-org $${TDB_ORG:-admin} \
-          --tdb-db $${TDB_DB:-lms} \
+          --tdb-db $${TDB_DB:-firnline} \
           --tdb-user $${TDB_USER:-admin} \
           --branch $${TDB_BRANCH:-main}
         echo "=== Bootstrap complete ==="
@@ -102,22 +102,22 @@ services:
     build:
       context: .
       dockerfile: services/captured/Dockerfile
-    image: lms/captured:local
+    image: firnline/captured:local
     ports:
       - "${CAPTURED_HOST_PORT:-8088}:8088"
     environment:
       CAPTURED_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
       CAPTURED_TDB_ORG: ${TDB_ORG:-admin}
-      CAPTURED_TDB_DB: ${TDB_DB:-lms}
+      CAPTURED_TDB_DB: ${TDB_DB:-firnline}
       CAPTURED_TDB_BRANCH: ${TDB_BRANCH:-main}
       CAPTURED_TDB_USER: ${TDB_USER:-admin}
       CAPTURED_TDB_PASSWORD: ${TDB_PASSWORD:?}
       CAPTURED_API_TOKEN: ${CAPTURED_API_TOKEN:?err CAPTURED_API_TOKEN must be set}
-      LMS_BLOB_ROOT: /var/lib/lms/blobs
-      LMS_EXTENSIONS: ${LMS_EXTENSIONS:-}
+      FIRNLINE_BLOB_ROOT: /var/lib/firnline/blobs
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
-      - lms_ext_venv:/opt/lms-ext-venv:ro
-      - blobs:/var/lib/lms/blobs
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
+      - blobs:/var/lib/firnline/blobs
     restart: unless-stopped
     healthcheck:
       # Healthz returns 200 (healthy) or 503 (degraded).
@@ -137,23 +137,23 @@ services:
     build:
       context: .
       dockerfile: services/ingestd/Dockerfile
-    image: lms/ingestd:local
+    image: firnline/ingestd:local
     environment:
       INGESTD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
       INGESTD_TDB_ORG: ${TDB_ORG:-admin}
-      INGESTD_TDB_DB: ${TDB_DB:-lms}
+      INGESTD_TDB_DB: ${TDB_DB:-firnline}
       INGESTD_TDB_BRANCH: ${TDB_BRANCH:-main}
       INGESTD_TDB_USER: ${TDB_USER:-admin}
       INGESTD_TDB_PASSWORD: ${TDB_PASSWORD:?}
-      INGESTD_LLM_BASE_URL: ${LMS_LLM_BASE_URL:?err LMS_LLM_BASE_URL must be set}
-      INGESTD_LLM_API_KEY: ${LMS_LLM_API_KEY:-}
-      INGESTD_LLM_MODEL: ${LMS_LLM_MODEL:-}
+      INGESTD_LLM_BASE_URL: ${FIRNLINE_LLM_BASE_URL:?err FIRNLINE_LLM_BASE_URL must be set}
+      INGESTD_LLM_API_KEY: ${FIRNLINE_LLM_API_KEY:-}
+      INGESTD_LLM_MODEL: ${FIRNLINE_LLM_MODEL:-}
       INGESTD_POLL_INTERVAL_SECONDS: ${INGESTD_POLL_INTERVAL_SECONDS:-60}
       INGESTD_MAX_LLM_RETRIES: ${INGESTD_MAX_LLM_RETRIES:-3}
       INGESTD_DRY_RUN: ${INGESTD_DRY_RUN:-false}
-      LMS_EXTENSIONS: ${LMS_EXTENSIONS:-}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
-      - lms_ext_venv:/opt/lms-ext-venv:ro
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -163,24 +163,24 @@ services:
     build:
       context: .
       dockerfile: services/queryd/Dockerfile
-    image: lms/queryd:local
+    image: firnline/queryd:local
     ports:
       - "${QUERYD_HOST_PORT:-8087}:8087"
     environment:
       QUERYD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
       QUERYD_TDB_ORG: ${TDB_ORG:-admin}
-      QUERYD_TDB_DB: ${TDB_DB:-lms}
+      QUERYD_TDB_DB: ${TDB_DB:-firnline}
       QUERYD_TDB_BRANCH: ${TDB_BRANCH:-main}
       QUERYD_TDB_USER: ${TDB_USER:-admin}
       QUERYD_TDB_PASSWORD: ${TDB_PASSWORD:?}
       QUERYD_API_TOKEN: ${QUERYD_API_TOKEN:?err QUERYD_API_TOKEN must be set}
-      QUERYD_LLM_BASE_URL: ${LMS_LLM_BASE_URL:?err LMS_LLM_BASE_URL must be set}
-      QUERYD_LLM_API_KEY: ${LMS_LLM_API_KEY:-}
-      QUERYD_LLM_MODEL: ${LMS_LLM_MODEL:-}
+      QUERYD_LLM_BASE_URL: ${FIRNLINE_LLM_BASE_URL:?err FIRNLINE_LLM_BASE_URL must be set}
+      QUERYD_LLM_API_KEY: ${FIRNLINE_LLM_API_KEY:-}
+      QUERYD_LLM_MODEL: ${FIRNLINE_LLM_MODEL:-}
       QUERYD_ENABLE_WRITES: ${QUERYD_ENABLE_WRITES:-false}
-      LMS_EXTENSIONS: ${LMS_EXTENSIONS:-}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
-      - lms_ext_venv:/opt/lms-ext-venv:ro
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -197,5 +197,5 @@ services:
 
 # ── Volumes ───────────────────────────────────────────────────────────────
 volumes:
-  lms_ext_venv:
+  firnline_ext_venv:
   blobs:

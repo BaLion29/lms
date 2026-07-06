@@ -27,7 +27,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from queryd.app import create_app
 from queryd.settings import Settings
 from queryd.tools import ToolTraceEntry
-from lms_ext_planning.tools import plugin as _planning_plugin
+from firnline_ext_planning.tools import plugin as _planning_plugin
 
 # ---------------------------------------------------------------------------
 # Constants

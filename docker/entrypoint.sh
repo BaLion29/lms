@@ -1,45 +1,45 @@
 #!/bin/sh
 # ---------------------------------------------------------------------------
-# lms-ext entrypoint — installs extensions into an overlay directory,
+# firnline-ext entrypoint — installs extensions into an overlay directory,
 # then execs the real entrypoint (CMD).
 #
 # Design:
-#   - Bootstrap container: LMS_EXTENSIONS_INSTALL=true, installs wheels into
-#     /opt/lms-ext-venv/lib (--target), shared volume mounts this overlay.
-#   - Service containers: LMS_EXTENSIONS_INSTALL=false (default), mounts the
+#   - Bootstrap container: FIRNLINE_EXTENSIONS_INSTALL=true, installs wheels into
+#     /opt/firnline-ext-venv/lib (--target), shared volume mounts this overlay.
+#   - Service containers: FIRNLINE_EXTENSIONS_INSTALL=false (default), mounts the
 #     same overlay read-only, only logs what is configured.
 #
 # Overlay mechanism:
-#   pip install --target /opt/lms-ext-venv/lib puts .dist-info directly into
-#   the target.  With PYTHONPATH=/opt/lms-ext-venv/lib, importlib.metadata
+#   pip install --target /opt/firnline-ext-venv/lib puts .dist-info directly into
+#   the target.  With PYTHONPATH=/opt/firnline-ext-venv/lib, importlib.metadata
 #   discovers entry points from those distributions.
 #
-# Dependencies: extensions' dependencies (lms-core, structlog, …) are already
-# present in the main /app/.venv.  We pass --no-deps because lms-core is a
+# Dependencies: extensions' dependencies (firnline-core, structlog, …) are already
+# present in the main /app/.venv.  We pass --no-deps because firnline-core is a
 # workspace-local package that does not exist on PyPI.
 # ---------------------------------------------------------------------------
 set -eu
 
 # --- constants ----------------------------------------------------------
-OVERLAY_DIR="/opt/lms-ext-venv"
+OVERLAY_DIR="/opt/firnline-ext-venv"
 OVERLAY_LIB="${OVERLAY_DIR}/lib"
 LOCKFILE="${OVERLAY_DIR}/.lock"
-LOG_PFX="[lms-ext]"
+LOG_PFX="[firnline-ext]"
 
 # Use system Python's pip (the uv-built venv at /app/.venv/bin may lack pip).
 # On python:3.12-slim-bookworm /usr/local/bin/python3 is the system python.
 SYS_PYTHON="/usr/local/bin/python3"
 
 # --- mode flags ---------------------------------------------------------
-INSTALL_MODE="${LMS_EXTENSIONS_INSTALL:-false}"
-PURGE_MODE="${LMS_EXTENSIONS_PURGE:-false}"
-EXTENSIONS="${LMS_EXTENSIONS:-}"
+INSTALL_MODE="${FIRNLINE_EXTENSIONS_INSTALL:-false}"
+PURGE_MODE="${FIRNLINE_EXTENSIONS_PURGE:-false}"
+EXTENSIONS="${FIRNLINE_EXTENSIONS:-}"
 
 # Trim leading/trailing whitespace
 EXTENSIONS="$(echo "${EXTENSIONS}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
 if [ -z "${EXTENSIONS}" ]; then
-    echo "${LOG_PFX} LMS_EXTENSIONS is empty or unset — nothing to do"
+    echo "${LOG_PFX} FIRNLINE_EXTENSIONS is empty or unset — nothing to do"
     exec "$@"
 fi
 
@@ -49,7 +49,7 @@ echo "${LOG_PFX} configured extensions: ${EXTENSIONS}"
 # Verify-only mode (service containers with read-only overlay mount)
 # -----------------------------------------------------------------------
 if [ "${INSTALL_MODE}" != "true" ]; then
-    echo "${LOG_PFX} install mode disabled (LMS_EXTENSIONS_INSTALL=${INSTALL_MODE})"
+    echo "${LOG_PFX} install mode disabled (FIRNLINE_EXTENSIONS_INSTALL=${INSTALL_MODE})"
     echo "${LOG_PFX} extensions should already be installed in ${OVERLAY_LIB}"
     # Best-effort presence check for each extension
 old_ifs="$IFS"
@@ -139,7 +139,7 @@ install_one() {
 
     echo "${LOG_PFX}   installing: ${install_arg}"
     # --no-deps: dependencies are already in the main /app/.venv.
-    # lms-core is not on PyPI, so full dep resolution would fail.
+    # firnline-core is not on PyPI, so full dep resolution would fail.
     # IMPORTANT: extensions must NOT share top-level module names — last
     # wheel installed wins (pip --target overwrites same-named files).
     ${SYS_PYTHON} -m pip install \

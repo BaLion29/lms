@@ -7,7 +7,7 @@
       "name": "LiteLLM",
       "options": {
         "baseURL": "http://10.0.10.20:4000/v1",
-        "apiKey": "sk-GtBSTZgXiqsaFHPnQq1ucQ"
+        "apiKey": "{env:LITELLM_API_KEY}"
       },
       "models": {
         "extreme-reasoning": { "name": "Extreme (frontier, expensive)" },

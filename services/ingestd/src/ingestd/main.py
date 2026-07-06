@@ -16,8 +16,8 @@ from ingestd.extraction import (
 )
 from ingestd.pipeline import Pipeline
 from ingestd.settings import Settings
-from lms_core.plugins import discover_plugins, select_plugins
-from lms_core.tdb import TdbClient
+from firnline_core.plugins import discover_plugins, select_plugins
+from firnline_core.tdb import TdbClient
 
 
 def validate_llm_settings(settings: Settings) -> None:
@@ -66,8 +66,8 @@ async def run_cycle_safe(pipeline: Pipeline, should_stop: asyncio.Event | None) 
 # Plugin discovery helpers
 # ---------------------------------------------------------------------------
 
-_EXTRACTOR_GROUP = "lms.ingestd.extractors"
-_SOURCE_GROUP = "lms.ingestd.sources"
+_EXTRACTOR_GROUP = "firnline.ingestd.extractors"
+_SOURCE_GROUP = "firnline.ingestd.sources"
 
 
 async def _discover_extractor_plugins_async(

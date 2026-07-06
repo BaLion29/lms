@@ -10,7 +10,7 @@ from pydantic_ai import Tool
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 
-from lms_core.plugins import (
+from firnline_core.plugins import (
     DiscoveryResult,
     ModuleRequirement,
     PluginSelection,
@@ -18,8 +18,8 @@ from lms_core.plugins import (
 
 from queryd.app import create_app, _collect_plugin_tools
 from queryd.settings import Settings
-from lms_ext_planning.tools import plugin as _planning_plugin
-from lms_ext_reminders.tools import plugin as _reminder_plugin
+from firnline_ext_planning.tools import plugin as _planning_plugin
+from firnline_ext_reminders.tools import plugin as _reminder_plugin
 
 # ---------------------------------------------------------------------------
 # Helpers

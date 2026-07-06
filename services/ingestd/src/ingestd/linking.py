@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import structlog
 
-from lms_core.plugins import EntityIndex  # re-exported for backward compat
+from firnline_core.plugins import EntityIndex  # re-exported for backward compat
 
 logger = structlog.get_logger(__name__)
 

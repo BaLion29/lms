@@ -1,4 +1,4 @@
-from lms_core.settings import TdbSettings
+from firnline_core.settings import TdbSettings
 from pydantic_settings import SettingsConfigDict
 
 

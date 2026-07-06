@@ -1,13 +1,14 @@
 [project]
 name = "captured"
-version = "0.1.0"
+version = "0.1.0a1"
 description = "FastAPI capture-ingress daemon"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
 ]
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
-    "lms-core",
+    "firnline-core",
     "fastapi",
     "uvicorn",
     "python-multipart",
@@ -17,7 +18,10 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-lms-core = { workspace = true }
+firnline-core = { workspace = true }
+
+[project.scripts]
+captured = "captured.main:main"
 
 [build-system]
 requires = ["hatchling"]

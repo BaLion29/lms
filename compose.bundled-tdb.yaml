@@ -44,14 +44,14 @@ services:
         echo "=== Ensure database exists ==="
         python << "PYEOF"
         import asyncio, sys
-        from lms_core.tdb import TdbClient
+        from firnline_core.tdb import TdbClient
         async def main():
             async with TdbClient(
                 base_url="http://terminusdb:6363",
                 org="$${TDB_ORG:-admin}",
-                db="$${TDB_DB:-lms}",
+                db="$${TDB_DB:-firnline}",
                 user="$${TDB_USER:-admin}",
-                password="$${LMS_SCHEMA_TDB_PASSWORD}",
+                password="$${FIRNLINE_SCHEMA_TDB_PASSWORD}",
             ) as c:
                 if await c.db_exists():
                     print("Database already exists.")
@@ -61,19 +61,19 @@ services:
         asyncio.run(main())
         PYEOF
         echo "=== Compose schema ==="
-        lms-schema compose --modules-dir /work/schema/modules --out-dir /work/build
+        firnline-schema compose --modules-dir /work/schema/modules --out-dir /work/build
         echo "=== Apply schema ==="
-        lms-schema apply --modules-dir /work/schema/modules \
+        firnline-schema apply --modules-dir /work/schema/modules \
           --tdb-url http://terminusdb:6363 \
           --tdb-org $${TDB_ORG:-admin} \
-          --tdb-db $${TDB_DB:-lms} \
+          --tdb-db $${TDB_DB:-firnline} \
           --tdb-user $${TDB_USER:-admin} \
           --branch $${TDB_BRANCH:-main}
         echo "=== Validate ==="
-        lms-schema validate --modules-dir /work/schema/modules \
+        firnline-schema validate --modules-dir /work/schema/modules \
           --tdb-url http://terminusdb:6363 \
           --tdb-org $${TDB_ORG:-admin} \
-          --tdb-db $${TDB_DB:-lms} \
+          --tdb-db $${TDB_DB:-firnline} \
           --tdb-user $${TDB_USER:-admin} \
           --branch $${TDB_BRANCH:-main}
         echo "=== Bootstrap complete ==="

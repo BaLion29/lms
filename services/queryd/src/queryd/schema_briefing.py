@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lms_core.tdb import TdbClient
+from firnline_core.tdb import TdbClient
 
 # ---------------------------------------------------------------------------
 # GraphQL introspection query

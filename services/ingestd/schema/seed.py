@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 import structlog
 
 from ingestd.settings import Settings
-from lms_core.models import InboxAudio, InboxAudioStatus, InboxNote, InboxNoteStatus
-from lms_core.tdb import TdbClient, short_iri
+from firnline_core.models import InboxAudio, InboxAudioStatus, InboxNote, InboxNoteStatus
+from firnline_core.tdb import TdbClient, short_iri
 
 logger = structlog.get_logger(__name__)
 

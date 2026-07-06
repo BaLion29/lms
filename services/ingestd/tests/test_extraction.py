@@ -22,14 +22,14 @@ from ingestd.extraction import (
     extract,
     parse_extraction,
 )
-from lms_ext_planning.extract import (
+from firnline_ext_planning.extract import (
     EventProposal,
     PersonProposal,
     TaskProposal,
     PlanningPlugin,
 )
-from lms_ext_reminders.extract import ReminderProposal, ReminderExtractPlugin
-from lms_ext_people.extract import PeopleLinkingPlugin
+from firnline_ext_reminders.extract import ReminderProposal, ReminderExtractPlugin
+from firnline_ext_people.extract import PeopleLinkingPlugin
 
 UTC = timezone.utc
 
@@ -546,8 +546,9 @@ def test_parse_extraction_flat_list_fallback():
 
 
 def test_composed_prompt_covers_all_four_kinds():
-    """The system prompt built by the kernel contains exactly ONE JSON code
-    fence with a union schema covering all four proposal kinds."""
+    """The system prompt built by the kernel contains two ```json fences:
+    one instructional example in the core rules prose, and one actual
+    schema fence with a union schema covering all four proposal kinds."""
     prompt = _FULL_ENSEMBLE_CTX.system_prompt
     # Core rules present
     assert "extraction assistant" in prompt.lower()
@@ -555,8 +556,9 @@ def test_composed_prompt_covers_all_four_kinds():
     # No duplicate today/zone injection in system prompt
     assert "Today is" not in prompt
     assert "Europe/Zurich" not in prompt
-    # Exactly one ```json fence
-    assert prompt.count("```json") == 1
+    # Two ```json fences: one in prose example, one actual schema fence
+    assert prompt.count("```json") == 2
+    # The schema fence uses ```json\\n (not ```json space as in the prose example)
     assert "```json\n" in prompt
     assert "\n```" in prompt
     # Union schema lists all four kinds

@@ -19,3 +19,9 @@ storage/
 
 # OpenCode workspace
 .opencode/
+
+# Node
+node_modules/
+
+# Environment
+.env

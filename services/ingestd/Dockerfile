@@ -12,7 +12,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock /app/
 
 # Copy the two workspace members needed for this service.
-COPY packages/lms-core/ /app/packages/lms-core/
+COPY packages/firnline-core/ /app/packages/firnline-core/
 COPY services/ingestd/ /app/services/ingestd/
 
 WORKDIR /app/services/ingestd
@@ -41,14 +41,14 @@ RUN useradd -m -u 1000 ingestd
 # Copy the application venv + source from builder, owned by the runtime user.
 COPY --from=builder --chown=ingestd:ingestd /app /app
 
-# Baked-in first-party extension wheels (LMS_EXTENSIONS picks from here).
+# Baked-in first-party extension wheels (FIRNLINE_EXTENSIONS picks from here).
 COPY --from=builder --chown=ingestd:ingestd /app/wheels/ /extensions/
 
 # Put the workspace venv on PATH so the ingestd console script is found directly.
 # PYTHONPATH makes the extension overlay visible to importlib.metadata.
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/opt/lms-ext-venv/lib
+    PYTHONPATH=/opt/firnline-ext-venv/lib
 
 # Shared extension-installer entrypoint
 COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
@@ -63,6 +63,6 @@ USER ingestd
 # The entrypoint script handles extension installation, then execs CMD.
 # CMD defaults to "ingestd" (polling mode).
 # NOTE: With ENTRYPOINT + CMD, additional docker-run args REPLACE CMD.
-# To pass --once / --dry-run:  docker run lms/ingestd ingestd --once
+# To pass --once / --dry-run:  docker run firnline/ingestd ingestd --once
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["ingestd"]

@@ -9,8 +9,8 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from lms_core.conventions import BlobStore
-from lms_core.plugins import (
+from firnline_core.conventions import BlobStore
+from firnline_core.plugins import (
     CaptureContext,
     CaptureHandler,
     CapturePayload,
@@ -213,7 +213,7 @@ def test_healthz_with_handlers(monkeypatch):
 
 
 def test_healthz_blob_root_writable_true(monkeypatch, tmp_path):
-    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     _patch_app(monkeypatch)
     with _make_client(monkeypatch) as c:
         resp = c.get("/healthz")
@@ -222,7 +222,7 @@ def test_healthz_blob_root_writable_true(monkeypatch, tmp_path):
 
 
 def test_healthz_blob_root_writable_null(monkeypatch):
-    monkeypatch.delenv("LMS_BLOB_ROOT", raising=False)
+    monkeypatch.delenv("FIRNLINE_BLOB_ROOT", raising=False)
     _patch_app(monkeypatch)
     with _make_client(monkeypatch) as c:
         resp = c.get("/healthz")
@@ -399,7 +399,7 @@ def test_zero_handlers_app_starts_and_capture_404s(monkeypatch):
 
 
 def test_file_capture_happy_path(monkeypatch, tmp_path):
-    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     _patch_app(monkeypatch, handlers=[StubFileHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
@@ -421,7 +421,7 @@ def test_file_capture_happy_path(monkeypatch, tmp_path):
 
 
 def test_file_capture_deduplication(monkeypatch, tmp_path):
-    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     _patch_app(monkeypatch, handlers=[StubFileHandler()])
     with _make_client(monkeypatch) as c:
         resp1 = c.post(
@@ -445,7 +445,7 @@ def test_file_capture_deduplication(monkeypatch, tmp_path):
 
 
 def test_file_capture_no_blob_root_503(monkeypatch):
-    monkeypatch.delenv("LMS_BLOB_ROOT", raising=False)
+    monkeypatch.delenv("FIRNLINE_BLOB_ROOT", raising=False)
     _patch_app(monkeypatch, handlers=[StubFileHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
@@ -454,7 +454,7 @@ def test_file_capture_no_blob_root_503(monkeypatch):
             headers={"Authorization": "Bearer test-token"},
         )
     assert resp.status_code == 503
-    assert "LMS_BLOB_ROOT" in resp.json()["detail"]
+    assert "FIRNLINE_BLOB_ROOT" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +464,7 @@ def test_file_capture_no_blob_root_503(monkeypatch):
 
 def test_unsafe_filename_ext_falls_back(monkeypatch, tmp_path):
     """Filename with genuinely unsafe extension is stored extensionless."""
-    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     _patch_app(monkeypatch, handlers=[StubFileHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
@@ -486,7 +486,7 @@ def test_unsafe_filename_ext_falls_back(monkeypatch, tmp_path):
 
 
 def test_upload_exceeds_max_bytes(monkeypatch, tmp_path):
-    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     _patch_app(monkeypatch, handlers=[StubFileHandler()])
     settings = _make_settings(max_upload_bytes=10)
     import captured.app as app_mod
@@ -518,7 +518,7 @@ def test_upload_exceeds_max_bytes(monkeypatch, tmp_path):
 
 
 def test_file_capture_metadata_not_dict(monkeypatch, tmp_path):
-    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     _patch_app(monkeypatch, handlers=[StubFileHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
@@ -584,7 +584,7 @@ def test_handler_http_exception_passes_through(monkeypatch):
 
 
 def test_file_capture_invalid_metadata_json(monkeypatch, tmp_path):
-    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     _patch_app(monkeypatch, handlers=[StubFileHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
@@ -633,7 +633,7 @@ def test_captured_at_roundtrips_to_handler(monkeypatch):
 
 
 def test_file_capture_response_includes_size(monkeypatch, tmp_path):
-    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     _patch_app(monkeypatch, handlers=[StubFileHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
@@ -723,7 +723,7 @@ def test_strict_plugins_off_allows_skipped(monkeypatch):
 # ---------------------------------------------------------------------------
 
 async def test_file_capture_captured_at_roundtrip(monkeypatch, tmp_path):
-    monkeypatch.setenv("LMS_BLOB_ROOT", str(tmp_path))
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     _patch_app(monkeypatch, handlers=[CapturedAtHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(

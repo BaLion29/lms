@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lms_core.settings import TdbSettings
+from firnline_core.settings import TdbSettings
 from pydantic import Field, field_validator
 from pydantic_settings import SettingsConfigDict
 

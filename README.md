@@ -1,61 +1,23 @@
-# lms
+# firnline
 
-An opinionated ADHD-focussed Life-Management System. It captures thoughts
-(text notes, voice memos, files), runs them through AI extraction pipelines
-to turn unstructured input into linked, typed documents (tasks, events,
-people, places, reminders, routines), and stores everything in a TerminusDB
-graph database — the single source of truth. The result is a queryable,
-branch-safe knowledge base that a conversational agent can reason over.
+[![v0.1.0-alpha](https://img.shields.io/badge/version-0.1.0--alpha-blue)](CHANGELOG.md)
+[![Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
-## Architecture at a glance
+An opinionated ADHD-focused Life-Management System. Capture thoughts (text
+notes, voice memos, files), let the AI extraction pipeline turn them into
+linked typed documents (tasks, events, people, places, reminders, routines),
+and query everything through a conversational agent. Everything backed by a
+TerminusDB graph database — the single source of truth.
 
-| Unit | Role |
-|---|---|
-| **terminusdb** | SSOT graph database (TerminusDB v12). All state lives here. |
-| **captured** (`:8088`) | Ingestion API — accepts notes, files, voice memos; dispatches to handler plugins. |
-| **ingestd** | Polling worker — picks up `new` inbox items, runs extractor plugins via LLM, writes typed documents. |
-| **queryd** (`:8087`) | Conversational agent API — read tools, GraphQL, and optional gated write-tool plugins. |
-| **bootstrap** | One-shot container (profile `bootstrap`) — creates database, composes & applies schema (including extension schema modules), installs extensions into a shared overlay volume. |
-
-Full details: [ARCHITECTURE.md](./ARCHITECTURE.md).
-
-**External prerequisite:** An OpenAI-compatible LLM endpoint (e.g. a
-[LiteLLM](https://github.com/BerriAI/litellm) proxy) is **required** and
-NOT part of this compose stack. Set `LMS_LLM_BASE_URL` to its address.
-
-## Quickstart (Docker Compose)
-
-**Prerequisites:** Docker + Docker Compose ≥ 2.24.
+## Quickstart
 
 ```bash
-# 1. Copy and edit the env template
-cp .env.example .env
-vim .env   # set TDB_URL, TDB_PASSWORD, CAPTURED_API_TOKEN,
-           # QUERYD_API_TOKEN, LMS_LLM_BASE_URL
-           # (+ LMS_LLM_API_KEY if needed), and optionally
-           # choose LMS_EXTENSIONS
-
-# 2. Bootstrap (one-shot: creates DB, pushes schema, installs extensions)
+cp .env.example .env && vim .env      # set TDB_URL + secrets
 docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-
-# 3. Start the runtime services
 docker compose up -d
-
-# 4. Verify
-curl localhost:8087/healthz   # queryd
-curl localhost:8088/healthz   # captured
 ```
 
-**Self-contained stack (bundled TerminusDB):**
-
-```bash
-# Set TDB_URL=http://terminusdb:6363 in .env, then:
-docker compose -f compose.yaml -f compose.bundled-tdb.yaml \
-  --profile bootstrap up bootstrap --abort-on-container-exit
-docker compose -f compose.yaml -f compose.bundled-tdb.yaml up -d
-```
-
-**First capture** (replace `$TOKEN` with the value of `CAPTURED_API_TOKEN`):
+Then capture a note:
 
 ```bash
 curl -s -X POST http://localhost:8088/v1/capture/note \
@@ -64,134 +26,55 @@ curl -s -X POST http://localhost:8088/v1/capture/note \
   -d '{"text": "Buy milk on the way home", "kind": "note"}'
 ```
 
-The response is `201` with `{"id": "...", "kind": "note"}`.  ingestd will
-pick it up on its next poll cycle, extract structured data via the LLM, and
-write the resulting documents to TerminusDB.
-
-## Extensions
-
-An **extension** is one pip-installable Python package. It can contain any
-subset of: a schema module (contributes class/enum definitions to the
-composed schema), ingestd source/extractor plugins, queryd write-tool
-plugins, and captured handler plugins.  Extensions are discovered via five
-standard entry-point groups — see [docs/alpha-spec.md §6](docs/alpha-spec.md)
-for the packaging convention.
-
-### Adding extensions
-
-1. Edit `LMS_EXTENSIONS` in `.env` — comma-separated list.
-2. Re-run the bootstrap profile:
-   ```bash
-   docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-   ```
-3. Restart the services so they pick up the new overlay:
-   ```bash
-   docker compose restart captured ingestd queryd
-   ```
-
-### Removing extensions
-
-1. Remove the entry from `LMS_EXTENSIONS` in `.env`.
-2. Set `LMS_EXTENSIONS_PURGE=true` in `.env`.
-3. Re-run bootstrap (it wipes the overlay first, then reinstalls the
-   remaining extensions).
-4. Restart services and set `LMS_EXTENSIONS_PURGE=false` again.
-
-> **Important:** Removing an extension stops its plugins from loading, but
-> its schema module and any documents already written remain in TerminusDB.
-> Removing schema is a breaking change — it requires an explicit `lms-schema`
-> operation outside the compose workflow.
-
-### Accepted specifier formats
-
-Entries in `LMS_EXTENSIONS` may be:
-
-- **PyPI name** (with optional version): `lms_ext_inbox>=0.1.0`
-- **Git URL**: `git+https://github.com/user/lms-ext-foo.git`
-- **Wheel filename** (resolved against `/extensions/` in the image): `lms_ext_inbox-0.1.0a1-py3-none-any.whl`
-
-### First-party extensions
-
-The six extensions in `extensions/` are workspace members.  Their wheels
-are built and baked into every service image during `docker compose build`
-— no host-side `./dist/` directory or `uv build` step is necessary.
-Enable or trim them via `LMS_EXTENSIONS` in `.env`:
-
-| Extension | Description |
-|---|---|
-| `lms-ext-inbox` | InboxNote/InboxAudio schema, ingest sources, and capture handlers |
-| `lms-ext-people` | Person/Contact schema module |
-| `lms-ext-places` | Location schema module |
-| `lms-ext-planning` | Task/Event schema module and queryd write tools |
-| `lms-ext-reminders` | Reminder/Trigger schema modules and queryd write tools |
-| `lms-ext-routines` | Routine/RoutineStep/Activity/ActivitySpec schema module |
-
-### Writing your own
-
-See **[docs/alpha-spec.md §6](docs/alpha-spec.md)** for the packaging
-convention, the five entry-point groups (`lms.schema_modules`,
-`lms.ingestd.sources`, `lms.ingestd.extractors`, `lms.queryd.tools`,
-`lms.captured.handlers`), and the contract every extension must fulfill.
-
-## Bundled TerminusDB (self-contained)
-
-To run a bundled TerminusDB container as part of the stack instead of
-connecting to an external one, use the bundled-tdb overlay. Set
-`TDB_URL=http://terminusdb:6363` in `.env`, then:
+Chat with your data:
 
 ```bash
-docker compose -f compose.yaml -f compose.bundled-tdb.yaml \
-  --profile bootstrap up bootstrap --abort-on-container-exit
-
-docker compose -f compose.yaml -f compose.bundled-tdb.yaml up -d
+curl -s -X POST http://localhost:8087/v1/chat \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"What do I need to do today?"}]}'
 ```
 
-> ⚠️ **Before touching a production database**, read
-> **[docs/production-bootstrap.md](docs/production-bootstrap.md)** — it
-> covers the mandatory backup/promote/rollback discipline.  Schema changes
-> on a live instance require a cold volume snapshot first.
+Full guide: [docs/getting-started.md](docs/getting-started.md).
+
+## Repository layout
+
+| Directory | Description |
+|---|---|
+| `packages/firnline-core/` | Shared library: TerminusDB client, models, plugin protocols |
+| `packages/firnline-schema/` | Schema CLI: compose, diff, apply, codegen |
+| `services/captured/` | Capture-ingress daemon (`POST /v1/capture/note`, `/v1/capture/file`) |
+| `services/ingestd/` | AI ingestion polling worker (LLM extraction + entity linking) |
+| `services/queryd/` | Conversational agent API (`POST /v1/chat`) |
+| `extensions/` | Six first-party extensions (inbox, people, places, planning, reminders, routines) |
+| `schema/modules/core/` | Kernel schema module (markers, registry, conventions) |
+| `docker/` | Entrypoint script for extension overlay management |
+| `compose.yaml` | Docker Compose deployment (external TerminusDB) |
+| `compose.bundled-tdb.yaml` | Overlay adding a bundled TerminusDB v12 container |
+
+## Documentation
+
+All docs live under [`docs/`](docs/) — start with the [index](docs/index.md).
+
+| Page | Covers |
+|---|---|
+| [Getting Started](docs/getting-started.md) | Prerequisites, Docker quickstart, first capture, local dev |
+| [Architecture](docs/architecture.md) | Principles, components, data flow, module/plugin system |
+| [Configuration](docs/configuration.md) | Complete environment variable reference |
+| [Extensions](docs/extensions.md) | Writing and installing extensions: protocols, layout, example |
+| [Operations](docs/operations.md) | Production runbook: backup, schema workflow, rollback |
+| [TerminusDB Notes](docs/terminusdb-notes.md) | Empirically verified v12 API behaviour |
+| [Vision](docs/vision.md) | Entity model, design decisions, ADHD principles |
 
 ## Development
 
-This is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/).
-
 ```bash
-uv run pytest          # all tests
+uv sync
+uv run pytest          # all tests (no network required)
 uv run ruff check      # lint
 uv run ruff format     # format
 ```
 
-The services can also run outside Docker — set the environment variables
-documented in each service's README and start them directly:
+## License
 
-- [services/captured/](services/captured/) (no standalone README yet)
-- [services/ingestd/README.md](services/ingestd/README.md)
-- [services/queryd/README.md](services/queryd/README.md)
-
-## Configuration reference
-
-Every variable from `.env.example` (and compose.yaml-only variables with
-defaults):
-
-| Variable | Default | Required? | Purpose |
-|---|---|---|---|
-| `TDB_PASSWORD` | (empty) | **yes** — generate e.g.: `openssl rand -hex 32` | TerminusDB admin password |
-| `TDB_ORG` | `admin` | no | TerminusDB organization name |
-| `TDB_DB` | `lms` | no | TerminusDB database name |
-| `TDB_USER` | `admin` | no | TerminusDB user |
-| `TDB_BRANCH` | `main` | no | TerminusDB branch for schema operations |
-| `TDB_HOST_PORT` | `6363` | no | Host port mapped to TerminusDB's 6363 |
-| `TDB_URL` | — | **yes** | TerminusDB base URL (required) |
-| `LMS_LLM_BASE_URL` | `http://host.docker.internal:4000` | **yes** | OpenAI-compatible LLM endpoint (e.g. LiteLLM proxy) |
-| `LMS_LLM_API_KEY` | (empty) | no | API key for the LLM endpoint |
-| `LMS_LLM_MODEL` | `gpt-4.1-mini` | no | Model name passed to the LLM endpoint |
-| `CAPTURED_API_TOKEN` | (empty) | **yes** — generate e.g.: `openssl rand -hex 32` | Bearer token for `POST /v1/capture/*` |
-| `QUERYD_API_TOKEN` | (empty) | **yes** — generate e.g.: `openssl rand -hex 32` | Bearer token for queryd endpoints |
-| `QUERYD_ENABLE_WRITES` | `false` | no | Gate write-tool plugins in queryd |
-| `CAPTURED_HOST_PORT` | `8088` | no | Host port for captured |
-| `QUERYD_HOST_PORT` | `8087` | no | Host port for queryd |
-| `LMS_EXTENSIONS` | (empty) | no | Comma-separated extension specifiers to install |
-| `LMS_EXTENSIONS_PURGE` | `false` | no | Set `true` to wipe the shared overlay before reinstalling |
-| `INGESTD_POLL_INTERVAL_SECONDS` | `60` | no | Seconds between ingestd poll cycles |
-| `INGESTD_MAX_LLM_RETRIES` | `3` | no | Max LLM call retries per item |
-| `INGESTD_DRY_RUN` | `false` | no | If `true`, extract but do not write to TerminusDB |
+Apache-2.0 — see [LICENSE](LICENSE).

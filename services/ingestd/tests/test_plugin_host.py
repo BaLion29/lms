@@ -19,7 +19,7 @@ from ingestd.extraction import (
     parse_extraction,
 )
 from ingestd.main import _discover_extractor_plugins_async, _discover_source_plugins_async
-from lms_core.plugins import (
+from firnline_core.plugins import (
     DiscoveryResult,
     ExtractorPlugin,
     IngestSourcePlugin,
@@ -203,7 +203,7 @@ class TestSourceCollision:
         async def _noop_check(tdb, reqs, branch="main"):
             return []
         monkeypatch.setattr(
-            "lms_core.plugins.check_requirements",
+            "firnline_core.plugins.check_requirements",
             _noop_check,
         )
 
@@ -226,7 +226,7 @@ class TestSourceCollision:
         async def _noop_check(tdb, reqs, branch="main"):
             return []
         monkeypatch.setattr(
-            "lms_core.plugins.check_requirements",
+            "firnline_core.plugins.check_requirements",
             _noop_check,
         )
 
@@ -316,7 +316,7 @@ class TestZeroActiveExtractors:
                 violations.append(f"module '{req.name}' not installed")
             return violations
         monkeypatch.setattr(
-            "lms_core.plugins.check_requirements",
+            "firnline_core.plugins.check_requirements",
             _all_fail,
         )
 
@@ -355,7 +355,7 @@ class TestPromptConstruction:
 
     def test_prompt_contains_actual_schema_content(self):
         """Prompt from PlanningPlugin contains known field names from each proposal model."""
-        from lms_ext_planning.extract import PlanningPlugin
+        from firnline_ext_planning.extract import PlanningPlugin
         ctx = build_extraction_context([PlanningPlugin()])
         prompt = ctx.system_prompt
         # Known fields from each proposal model should appear in the prompt
@@ -513,7 +513,7 @@ class TestSourceRequirementSkipping:
         )
 
         # Monkey-patch check_requirements for controlled behaviour
-        import lms_core.plugins as plug_mod
+        import firnline_core.plugins as plug_mod
 
         _orig_check = plug_mod.check_requirements
 
@@ -553,7 +553,7 @@ class TestStrictPlugins:
             active=[("with_req", _SourceWithRequirement())]
         )
 
-        import lms_core.plugins as plug_mod
+        import firnline_core.plugins as plug_mod
         _orig_check = plug_mod.check_requirements
 
         async def _check(tdb, reqs, branch="main"):
@@ -582,7 +582,7 @@ class TestStrictPlugins:
             ]
         )
 
-        import lms_core.plugins as plug_mod
+        import firnline_core.plugins as plug_mod
         _orig_check = plug_mod.check_requirements
 
         async def _check(tdb, reqs, branch="main"):

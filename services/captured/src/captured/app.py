@@ -15,15 +15,15 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from lms_core.conventions import BlobStore, blob_root_from_env
-from lms_core.plugins import (
+from firnline_core.conventions import BlobStore, blob_root_from_env
+from firnline_core.plugins import (
     CaptureContext,
     CaptureHandler,
     CapturePayload,
     discover_plugins,
     select_plugins,
 )
-from lms_core.tdb import TdbClient
+from firnline_core.tdb import TdbClient
 
 from captured.settings import Settings
 
@@ -33,7 +33,7 @@ log = structlog.get_logger()
 # Plugin entry-point group
 # ---------------------------------------------------------------------------
 
-_PLUGIN_GROUP = "lms.captured.handlers"
+_PLUGIN_GROUP = "firnline.captured.handlers"
 
 # ---------------------------------------------------------------------------
 # Request models
@@ -350,7 +350,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if blob_store is None:
             raise HTTPException(
                 status_code=503,
-                detail="blob storage not configured (LMS_BLOB_ROOT is unset)",
+                detail="blob storage not configured (FIRNLINE_BLOB_ROOT is unset)",
             )
 
         # Parse metadata JSON

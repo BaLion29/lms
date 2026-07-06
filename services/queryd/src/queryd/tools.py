@@ -26,8 +26,8 @@ import structlog
 from pydantic import BaseModel
 from pydantic_ai import RunContext, Tool
 
-from lms_core.tdb import TdbClient, TdbError
-from lms_core.tooling import ToolTraceEntry, traced as _kernel_traced
+from firnline_core.tdb import TdbClient, TdbError
+from firnline_core.tooling import ToolTraceEntry, traced as _kernel_traced
 
 from queryd.settings import Settings
 
@@ -39,7 +39,7 @@ ZURICH = ZoneInfo("Europe/Zurich")
 # Re-export ToolTraceEntry (backward compat) + aliased decorator
 # ---------------------------------------------------------------------------
 
-_traced = _kernel_traced  # alias for internal use; public contract is lms_core.tooling
+_traced = _kernel_traced  # alias for internal use; public contract is firnline_core.tooling
 
 # ---------------------------------------------------------------------------
 # Dependency container for pydantic-ai RunContext

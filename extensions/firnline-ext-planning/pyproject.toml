@@ -1,0 +1,44 @@
+[project]
+name = "firnline-ext-planning"
+version = "0.1.0a1"
+description = "Firnline planning extension — Task/Event schema module, queryd write tools, and ingest extractors"
+authors = [
+    { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
+]
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "firnline-core",
+    "pydantic-ai-slim",
+    "structlog",
+]
+
+[project.entry-points."firnline.schema_modules"]
+planning = "firnline_ext_planning"
+
+[project.entry-points."firnline.queryd.tools"]
+planning_tools = "firnline_ext_planning.tools:plugin"
+
+[project.entry-points."firnline.ingestd.extractors"]
+planning_people = "firnline_ext_planning.extract:plugin"
+
+[tool.uv.sources]
+firnline-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/firnline_ext_planning"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "respx",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

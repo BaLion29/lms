@@ -26,7 +26,7 @@ Empirically verified against a local `terminusdb/terminusdb-server:v12.0.6` inst
   - Adding a required field without a default → `instance_not_cardinality_one` witness.
 - **Conclusion**: **Schema-first with validation-at-push** works.  You do NOT need
   a separate migrations-first phase — TerminusDB will reject a schema that breaks
-  existing data.  The `lms-schema apply` command can push schema first and get a clear
+  existing data.  The `firnline-schema apply` command can push schema first and get a clear
   go/no-go signal.
 
 ---

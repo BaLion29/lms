@@ -1,0 +1,45 @@
+[project]
+name = "firnline-ext-reminders"
+version = "0.1.0a1"
+description = "Firnline reminders extension — Reminder/Trigger schema modules, queryd write tools, and ingest extractors"
+authors = [
+    { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
+]
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "firnline-core",
+    "pydantic-ai-slim",
+    "structlog",
+]
+
+[project.entry-points."firnline.schema_modules"]
+reminders = "firnline_ext_reminders.reminders_module"
+triggers = "firnline_ext_reminders.triggers_module"
+
+[project.entry-points."firnline.queryd.tools"]
+reminder_tools = "firnline_ext_reminders.tools:plugin"
+
+[project.entry-points."firnline.ingestd.extractors"]
+reminder_extract = "firnline_ext_reminders.extract:plugin"
+
+[tool.uv.sources]
+firnline-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/firnline_ext_reminders"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "respx",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

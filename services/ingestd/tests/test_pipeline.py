@@ -12,18 +12,18 @@ from ingestd.extraction import (
     ExtractionResult,
     build_extraction_context,
 )
-from lms_ext_planning.extract import (
+from firnline_ext_planning.extract import (
     EventProposal,
     PersonProposal,
     PlanningPlugin,
     TaskProposal,
 )
-from lms_ext_reminders.extract import ReminderProposal
-from lms_ext_people.extract import PeopleLinkingPlugin
-from lms_ext_inbox.sources import InboxAudioSource, InboxNoteSource
+from firnline_ext_reminders.extract import ReminderProposal
+from firnline_ext_people.extract import PeopleLinkingPlugin
+from firnline_ext_inbox.sources import InboxAudioSource, InboxNoteSource
 from ingestd.pipeline import Pipeline
 from ingestd.settings import Settings
-from lms_core.tdb import TdbError
+from firnline_core.tdb import TdbError
 
 
 # ---------------------------------------------------------------------------

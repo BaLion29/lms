@@ -10,12 +10,12 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCall
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 
-from lms_core.tdb import TdbClient
+from firnline_core.tdb import TdbClient
 from queryd.agent import build_agent, usage_limits
 from queryd.settings import Settings
 from queryd.tools import QuerydDeps, build_tools
-from lms_ext_planning.tools import plugin as _planning_plugin
-from lms_ext_reminders.tools import plugin as _reminder_plugin
+from firnline_ext_planning.tools import plugin as _planning_plugin
+from firnline_ext_reminders.tools import plugin as _reminder_plugin
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -223,7 +223,7 @@ async def test_soft_cap_stops_after_max_tool_iterations(respx_mock):
     deps = _deps(settings=s)
 
     # Set up deps with a real TdbClient (HTTP mocked via respx)
-    from lms_core.tdb import TdbClient
+    from firnline_core.tdb import TdbClient
 
     tdb = TdbClient(
         base_url=s.tdb_url,

@@ -12,7 +12,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock /app/
 
 # Copy the two workspace members needed for this service.
-COPY packages/lms-core/ /app/packages/lms-core/
+COPY packages/firnline-core/ /app/packages/firnline-core/
 COPY services/captured/ /app/services/captured/
 
 WORKDIR /app/services/captured
@@ -41,18 +41,18 @@ RUN useradd -m -u 1000 captured
 # Copy the application venv + source from builder, owned by the runtime user.
 COPY --from=builder --chown=captured:captured /app /app
 
-# Baked-in first-party extension wheels (LMS_EXTENSIONS picks from here).
+# Baked-in first-party extension wheels (FIRNLINE_EXTENSIONS picks from here).
 COPY --from=builder --chown=captured:captured /app/wheels/ /extensions/
 
 # Put the workspace venv on PATH so uv-generated scripts are found directly.
 # PYTHONPATH makes the extension overlay visible to importlib.metadata.
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/opt/lms-ext-venv/lib
+    PYTHONPATH=/opt/firnline-ext-venv/lib
 
 # Pre-create blob root with non-root ownership so Docker does not
 # seed the named volume as root-owned (named volumes inherit image ownership).
-RUN mkdir -p /var/lib/lms/blobs && chown captured:captured /var/lib/lms/blobs
+RUN mkdir -p /var/lib/firnline/blobs && chown captured:captured /var/lib/firnline/blobs
 
 # Shared extension-installer entrypoint
 COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh

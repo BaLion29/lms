@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 from pydantic_ai import RunContext
 
-from lms_core.tdb import TdbClient
+from firnline_core.tdb import TdbClient
 from queryd.settings import Settings
 from queryd.tools import (
     QuerydDeps,
@@ -22,7 +22,7 @@ from queryd.tools import (
 )
 # Write-tool plugin imports are now from extension packages (tested there).
 # queryd only tests host-level integration via fixture plugins that import
-# from lms_ext_planning / lms_ext_reminders as dev-deps.
+# from firnline_ext_planning / firnline_ext_reminders as dev-deps.
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -100,8 +100,8 @@ def test_build_tools_no_writes():
 
 def test_build_tools_with_writes():
     s = _settings(enable_writes=True)
-    from lms_ext_planning.tools import plugin as _planning_plugin
-    from lms_ext_reminders.tools import plugin as _reminder_plugin
+    from firnline_ext_planning.tools import plugin as _planning_plugin
+    from firnline_ext_reminders.tools import plugin as _reminder_plugin
     plugin_tools = _planning_plugin.tools(deps=None) + _reminder_plugin.tools(deps=None)
     tools = build_tools(s, plugin_tools=plugin_tools)
     names = {t.name for t in tools}

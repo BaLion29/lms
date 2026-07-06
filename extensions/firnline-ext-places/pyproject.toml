@@ -1,0 +1,34 @@
+[project]
+name = "firnline-ext-places"
+version = "0.1.0a1"
+description = "Firnline places extension — Location schema module"
+authors = [
+    { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
+]
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "firnline-core",
+]
+
+[project.entry-points."firnline.schema_modules"]
+places = "firnline_ext_places"
+
+[tool.uv.sources]
+firnline-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/firnline_ext_places"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
