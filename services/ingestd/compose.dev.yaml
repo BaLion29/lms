@@ -1,0 +1,45 @@
+# ---------------------------------------------------------------------------
+# Development compose file — starts TerminusDB for local development.
+#
+# Usage:
+#   docker compose -f compose.dev.yaml up -d          # TerminusDB only
+#   docker compose -f compose.dev.yaml --profile app up -d  # + ingestd
+#
+# LiteLLM is assumed to run externally (e.g. on the host or another compose).
+# ---------------------------------------------------------------------------
+
+services:
+  terminusdb:
+    image: terminusdb/terminusdb-server:v12.0.6
+    # Verified: tag v12.0.6 present on Docker Hub (2026-07-05).
+    environment:
+      # TerminusDB admin password (mandatory; upstream env var name from
+      # https://raw.githubusercontent.com/terminusdb/terminusdb/main/README.md)
+      TERMINUSDB_ADMIN_PASS: root
+    volumes:
+      - terminusdb_data:/app/terminusdb/storage
+    ports:
+      - "6363:6363"
+
+  # ingestd service — optional, built from the local Dockerfile, behind a
+  # profile so that plain `docker compose up` only starts the database.
+  ingestd:
+    profiles:
+      - app
+    build:
+      context: ..
+      dockerfile: lms-ingestd/Dockerfile
+    environment:
+      # TerminusDB connection (pointing at the compose service)
+      INGESTD_TDB_URL: http://terminusdb:6363
+      INGESTD_TDB_DB: ingestd_dev
+      INGESTD_TDB_PASSWORD: root
+      # LLM — fill in real values for your LiteLLM gateway (external)
+      INGESTD_LLM_BASE_URL: http://host.docker.internal:4000
+      INGESTD_LLM_API_KEY: ""
+      INGESTD_LLM_MODEL: ""
+    depends_on:
+      - terminusdb
+
+volumes:
+  terminusdb_data:
