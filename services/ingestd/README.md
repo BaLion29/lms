@@ -84,7 +84,7 @@ If you prefer to run ingestd directly on the host (with an external TerminusDB):
 
 ```bash
 # 1. Start TerminusDB (only dependency)
-#    (no compose.dev.yaml needed — use root compose.yaml or point at an
+#    (use root compose.yaml or point at an
 #     external instance via TDB_URL)
 
 # 2. Create the database and push the schema (idempotent)

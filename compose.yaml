@@ -1,10 +1,16 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # LMS — docker compose deployment
 #
-# Quickstart (3 commands):
-#   1. cp .env.example .env && vim .env        # edit secrets
+# Default (external TerminusDB — TDB_URL required):
+#   1. cp .env.example .env && vim .env         # set TDB_URL + secrets
 #   2. docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-#   3. docker compose up -d                     # start captured + ingestd + queryd
+#   3. docker compose up -d                      # captured + ingestd + queryd
+#
+# Self-contained (bundled TerminusDB):
+#   1. Set TDB_URL=http://terminusdb:6363 in .env
+#   2. docker compose -f compose.yaml -f compose.bundled-tdb.yaml \
+#        --profile bootstrap up bootstrap --abort-on-container-exit
+#   3. docker compose -f compose.yaml -f compose.bundled-tdb.yaml up -d
 #
 # Bootstrap profile (run once per setup):
 #   docker compose --profile bootstrap run --rm bootstrap
@@ -14,31 +20,10 @@
 #   the lms_ext_venv volume.  All other services mount it read-only.
 #   First-party wheels are resolved from ./dist (mounted as /extensions).
 #
-# External TerminusDB:
-#   docker compose -f compose.yaml -f compose.external-tdb.yaml up -d
-#   Requires Docker Compose >= 2.24 for !reset tag support.
+# Requires Docker Compose >= 2.24.
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 services:
-  # ── TerminusDB (SSOT database) ──────────────────────────────────────────
-  terminusdb:
-    image: terminusdb/terminusdb-server:v12.0.6
-    environment:
-      TERMINUSDB_ADMIN_PASS: ${TDB_PASSWORD:?err TDB_PASSWORD must be set (e.g. in .env)}
-    volumes:
-      - terminusdb_data:/app/terminusdb/storage
-    ports:
-      - "${TDB_HOST_PORT:-6363}:6363"
-    restart: unless-stopped
-    healthcheck:
-      # terminusdb/terminusdb-server:v12.0.6 does NOT ship curl.
-      # Use bash TCP-connect probe instead (Debian-based image includes bash).
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6363'"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 15s
-
   # ── Bootstrap (profiles: [bootstrap]) ───────────────────────────────────
   bootstrap:
     profiles:
@@ -47,10 +32,8 @@ services:
       context: .
       dockerfile: packages/lms-schema/Dockerfile
     image: lms/lms-schema:local
-    depends_on:
-      terminusdb:
-        condition: service_healthy
     environment:
+      TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
       LMS_EXTENSIONS: ${LMS_EXTENSIONS:-}
       LMS_EXTENSIONS_PURGE: ${LMS_EXTENSIONS_PURGE:-false}
       LMS_SCHEMA_TDB_PASSWORD: ${TDB_PASSWORD:?}
@@ -84,7 +67,7 @@ services:
         from lms_core.tdb import TdbClient
         async def main():
             async with TdbClient(
-                base_url="http://terminusdb:6363",
+                base_url="$${TDB_URL}",
                 org="$${TDB_ORG:-admin}",
                 db="$${TDB_DB:-lms}",
                 user="$${TDB_USER:-admin}",
@@ -101,14 +84,14 @@ services:
         lms-schema compose --modules-dir /work/schema/modules --out-dir /work/build
         echo "=== Apply schema ==="
         lms-schema apply --modules-dir /work/schema/modules \
-          --tdb-url http://terminusdb:6363 \
+          --tdb-url $${TDB_URL} \
           --tdb-org $${TDB_ORG:-admin} \
           --tdb-db $${TDB_DB:-lms} \
           --tdb-user $${TDB_USER:-admin} \
           --branch $${TDB_BRANCH:-main}
         echo "=== Validate ==="
         lms-schema validate --modules-dir /work/schema/modules \
-          --tdb-url http://terminusdb:6363 \
+          --tdb-url $${TDB_URL} \
           --tdb-org $${TDB_ORG:-admin} \
           --tdb-db $${TDB_DB:-lms} \
           --tdb-user $${TDB_USER:-admin} \
@@ -121,13 +104,10 @@ services:
       context: .
       dockerfile: services/captured/Dockerfile
     image: lms/captured:local
-    depends_on:
-      terminusdb:
-        condition: service_healthy
     ports:
       - "${CAPTURED_HOST_PORT:-8088}:8088"
     environment:
-      CAPTURED_TDB_URL: http://terminusdb:6363
+      CAPTURED_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
       CAPTURED_TDB_ORG: ${TDB_ORG:-admin}
       CAPTURED_TDB_DB: ${TDB_DB:-lms}
       CAPTURED_TDB_BRANCH: ${TDB_BRANCH:-main}
@@ -159,11 +139,8 @@ services:
       context: .
       dockerfile: services/ingestd/Dockerfile
     image: lms/ingestd:local
-    depends_on:
-      terminusdb:
-        condition: service_healthy
     environment:
-      INGESTD_TDB_URL: http://terminusdb:6363
+      INGESTD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
       INGESTD_TDB_ORG: ${TDB_ORG:-admin}
       INGESTD_TDB_DB: ${TDB_DB:-lms}
       INGESTD_TDB_BRANCH: ${TDB_BRANCH:-main}
@@ -188,13 +165,10 @@ services:
       context: .
       dockerfile: services/queryd/Dockerfile
     image: lms/queryd:local
-    depends_on:
-      terminusdb:
-        condition: service_healthy
     ports:
       - "${QUERYD_HOST_PORT:-8087}:8087"
     environment:
-      QUERYD_TDB_URL: http://terminusdb:6363
+      QUERYD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
       QUERYD_TDB_ORG: ${TDB_ORG:-admin}
       QUERYD_TDB_DB: ${TDB_DB:-lms}
       QUERYD_TDB_BRANCH: ${TDB_BRANCH:-main}
@@ -224,6 +198,5 @@ services:
 
 # ── Volumes ───────────────────────────────────────────────────────────────
 volumes:
-  terminusdb_data:
   lms_ext_venv:
   blobs:

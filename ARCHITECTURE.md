@@ -70,7 +70,8 @@ lms/
 ├── pyproject.toml              # [tool.uv.workspace] members
 ├── README.md                   # env refs, run modes, module tutorial, bootstrap/rollback
 ├── CHANGELOG.md                # entry per production-touching rollout step
-├── compose.dev.yaml            # terminusdb + queryd (+ ingestd) for local dev
+├── compose.yaml                # default (external TDB) deployment
+├── compose.bundled-tdb.yaml    # overlay adding a bundled TerminusDB container
 ├── schema/
 │   └── modules/
 │       ├── core/               # manifest.json · schema.json · context.json   (markers, @context, registry, ExternalRef)
@@ -255,7 +256,7 @@ Evolution process: edit the module fragment (+ migration if breaking) → `compo
 - **Testing** — workspace-wide pytest with **no network**: respx-mocked TerminusDB, Pydantic AI TestModel/FunctionModel for the LLM; golden JSON round-trip tests pin document shapes; codegen-freshness check; a small golden set of real captures guards prompt regressions; dev-container-gated integration tests cover bootstrap → ingest → query and the §7 library-module story. Crash-between-insert-and-flip idempotency is an explicit test.
 - **Security** — single-user; Traefik + Authentik in front of all HTTP; bearer tokens on `/v1/chat` and the capture endpoint (constant-time comparison); queryd's GraphQL tool is read-only by code-level guard; write tools are typed, flag-gated, and narrow; error bodies never leak keys or prompts; ntfy topics treated as secrets.
 - **Backups** — nightly TerminusDB dump to off-machine storage; **versioning is not a backup**. The production-bootstrap step of the modularization rollout requires a fresh backup + documented restore path *before* first touch (§11).
-- **Deployment** — `compose.dev.yaml` for the dev loop (terminusdb + bootstrap + seed scripts + services); production on the existing homelab stack. Multi-stage, non-root images; conventional commits per stage.
+- **Deployment** — `compose.yaml` for production (external TerminusDB); `compose.bundled-tdb.yaml` overlay for self-contained development with a bundled TerminusDB container. Multi-stage, non-root images; conventional commits per stage.
 
 ---
 

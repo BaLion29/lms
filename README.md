@@ -25,15 +25,14 @@ NOT part of this compose stack. Set `LMS_LLM_BASE_URL` to its address.
 
 ## Quickstart (Docker Compose)
 
-**Prerequisites:** Docker + Docker Compose ≥ 2.24 (the `!reset` YAML tag
-used by the external-TDB overlay requires v2.24+; the base stack works with
-any reasonably recent version).
+**Prerequisites:** Docker + Docker Compose ≥ 2.24.
 
 ```bash
 # 1. Copy and edit the env template
 cp .env.example .env
-vim .env   # set TDB_PASSWORD, CAPTURED_API_TOKEN, QUERYD_API_TOKEN,
-           # LMS_LLM_BASE_URL (+ LMS_LLM_API_KEY if needed), and optionally
+vim .env   # set TDB_URL, TDB_PASSWORD, CAPTURED_API_TOKEN,
+           # QUERYD_API_TOKEN, LMS_LLM_BASE_URL
+           # (+ LMS_LLM_API_KEY if needed), and optionally
            # choose LMS_EXTENSIONS
 
 # 2. Bootstrap (one-shot: creates DB, pushes schema, installs extensions)
@@ -45,6 +44,15 @@ docker compose up -d
 # 4. Verify
 curl localhost:8087/healthz   # queryd
 curl localhost:8088/healthz   # captured
+```
+
+**Self-contained stack (bundled TerminusDB):**
+
+```bash
+# Set TDB_URL=http://terminusdb:6363 in .env, then:
+docker compose -f compose.yaml -f compose.bundled-tdb.yaml \
+  --profile bootstrap up bootstrap --abort-on-container-exit
+docker compose -f compose.yaml -f compose.bundled-tdb.yaml up -d
 ```
 
 **First capture** (replace `$TOKEN` with the value of `CAPTURED_API_TOKEN`):
@@ -122,18 +130,17 @@ convention, the five entry-point groups (`lms.schema_modules`,
 `lms.ingestd.sources`, `lms.ingestd.extractors`, `lms.queryd.tools`,
 `lms.captured.handlers`), and the contract every extension must fulfill.
 
-## Using an external TerminusDB / production
+## Bundled TerminusDB (self-contained)
 
-To connect to an already-running TerminusDB instance instead of the bundled one:
+To run a bundled TerminusDB container as part of the stack instead of
+connecting to an external one, use the bundled-tdb overlay. Set
+`TDB_URL=http://terminusdb:6363` in `.env`, then:
 
 ```bash
-# Set TDB_URL in .env (uncomment and fill in):
-#   TDB_URL=http://10.0.10.20:6364
-
-docker compose -f compose.yaml -f compose.external-tdb.yaml \
+docker compose -f compose.yaml -f compose.bundled-tdb.yaml \
   --profile bootstrap up bootstrap --abort-on-container-exit
 
-docker compose -f compose.yaml -f compose.external-tdb.yaml up -d
+docker compose -f compose.yaml -f compose.bundled-tdb.yaml up -d
 ```
 
 > ⚠️ **Before touching a production database**, read
@@ -171,7 +178,7 @@ defaults):
 | `TDB_USER` | `admin` | no | TerminusDB user |
 | `TDB_BRANCH` | `main` | no | TerminusDB branch for schema operations |
 | `TDB_HOST_PORT` | `6363` | no | Host port mapped to TerminusDB's 6363 |
-| `TDB_URL` | — | external overlay only | TerminusDB base URL (required with external overlay) |
+| `TDB_URL` | — | **yes** | TerminusDB base URL (required) |
 | `LMS_LLM_BASE_URL` | `http://host.docker.internal:4000` | **yes** | OpenAI-compatible LLM endpoint (e.g. LiteLLM proxy) |
 | `LMS_LLM_API_KEY` | (empty) | no | API key for the LLM endpoint |
 | `LMS_LLM_MODEL` | `gpt-4.1-mini` | no | Model name passed to the LLM endpoint |
