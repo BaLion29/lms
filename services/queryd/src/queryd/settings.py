@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from lms_core.settings import TdbSettings
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import SettingsConfigDict
 
 
@@ -13,7 +13,7 @@ class Settings(TdbSettings):
     model_config = SettingsConfigDict(env_prefix="QUERYD_")
 
     # API auth
-    api_token: str
+    api_token: str = Field(min_length=1)
 
     # LLM configuration
     llm_base_url: str

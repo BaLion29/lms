@@ -180,3 +180,16 @@ def test_listen_addr_port_out_of_range():
             llm_model="m",
             listen_addr="0.0.0.0:99999",
         )
+
+
+def test_api_token_required():
+    """api_token must be at least 1 char (empty token rejected)."""
+    with pytest.raises(ValidationError, match="api_token"):
+        Settings(
+            api_token="",
+            tdb_db="db",
+            tdb_password="pw",
+            llm_base_url="http://x",
+            llm_api_key="k",
+            llm_model="m",
+        )

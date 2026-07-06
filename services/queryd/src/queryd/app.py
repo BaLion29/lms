@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
+import tempfile
 from contextlib import asynccontextmanager
 from typing import Literal
 
@@ -13,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from lms_core.conventions import blob_root_from_env
 from lms_core.tdb import TdbClient, TdbError
 from lms_core.plugins import discover_plugins, select_plugins
 from pydantic_ai import Tool
@@ -381,7 +384,7 @@ def create_app(
         tdb_ok: bool
         try:
             tdb_ok = await app.state.tdb.db_exists()
-        except (TdbError, Exception):
+        except Exception:
             tdb_ok = False
 
         # Live fetch module versions (graceful degradation)
@@ -393,11 +396,23 @@ def create_app(
             )
             for doc in module_docs:
                 name = doc.get("name")
-                version = doc.get("version")
-                if name and version:
-                    module_versions[name] = version
+                mod_version = doc.get("version")
+                if name and mod_version:
+                    module_versions[name] = mod_version
         except Exception:
             log.warning("healthz: module registry fetch failed")
+
+        # ── Blob root writable probe ──────────────────────────────────────
+        blob_root_writable: bool | None = None
+        blob_root = blob_root_from_env()
+        if blob_root is not None:
+            try:
+                blob_root.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(dir=str(blob_root), delete=True) as f:
+                    f.write(b"probe")
+                blob_root_writable = True
+            except OSError:
+                blob_root_writable = False
 
         active_plugins: list[str] = getattr(app.state, "active_plugins", [])
 
@@ -412,6 +427,7 @@ def create_app(
                 "version": _get_version(),
                 "modules": module_versions,
                 "plugins": active_plugins,
+                "blob_root_writable": blob_root_writable,
             },
         )
 

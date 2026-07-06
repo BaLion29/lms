@@ -762,41 +762,24 @@ async def test_missing_created_at_logs_warning_defaults_now():
 
     pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
-    # Capture structlog events via a processor
-    import structlog
+    from structlog.testing import capture_logs
 
-    captured_events: list[dict] = []
-
-    def _capture(_logger, _method, event_dict):
-        captured_events.append(dict(event_dict))
-        return event_dict
-
-    structlog.configure(
-        processors=[_capture, structlog.dev.ConsoleRenderer()],
-        wrapper_class=structlog.stdlib.BoundLogger,
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
-
-    try:
+    with capture_logs() as captured_events:
         await pipeline.run_cycle()
 
-        assert extract_called is True
-        tdb.replace_document.assert_called_once()
-        replaced = tdb.replace_document.call_args[0][0]
-        assert replaced["status"] == "processed"
-        assert replaced["@id"] == "InboxNote/nodate"
+    assert extract_called is True
+    tdb.replace_document.assert_called_once()
+    replaced = tdb.replace_document.call_args[0][0]
+    assert replaced["status"] == "processed"
+    assert replaced["@id"] == "InboxNote/nodate"
 
-        # Check that a warning was logged about the missing field
-        warning_events = [
-            e for e in captured_events if e.get("event") == "reference_datetime_missing"
-        ]
-        assert len(warning_events) >= 1, (
-            f"No reference_datetime_missing warning in: {captured_events}"
-        )
-    finally:
-        structlog.reset_defaults()
+    # Check that a warning was logged about the missing field
+    warning_events = [
+        e for e in captured_events if e.get("event") == "reference_datetime_missing"
+    ]
+    assert len(warning_events) >= 1, (
+        f"No reference_datetime_missing warning in: {captured_events}"
+    )
 
 
 # ---------------------------------------------------------------------------
