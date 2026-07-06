@@ -30,5 +30,29 @@
       "@class": "xsd:dateTime",
       "@type": "Optional"
     }
+  },
+  {
+    "@id": "SchemaModule",
+    "@type": "Class",
+    "@key": {
+      "@type": "Lexical",
+      "@fields": ["name"]
+    },
+    "name": "xsd:string",
+    "version": "xsd:string",
+    "checksum": "xsd:string",
+    "installed_at": "xsd:dateTime"
+  },
+  {
+    "@id": "SchemaMigration",
+    "@type": "Class",
+    "@key": {
+      "@type": "Lexical",
+      "@fields": ["module", "filename"]
+    },
+    "module": "xsd:string",
+    "filename": "xsd:string",
+    "checksum": "xsd:string",
+    "applied_at": "xsd:dateTime"
   }
 ]

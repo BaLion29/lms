@@ -5,6 +5,10 @@
 # Re-exports from generated module files
 # ---------------------------------------------------------------------------
 
+from .core import (
+    SchemaMigration,
+    SchemaModule,
+)
 from .inbox import (
     InboxAudio,
     InboxAudioStatus,
@@ -60,6 +64,8 @@ __all__ = [
     "Routine",
     "RoutineStep",
     "ScheduleTrigger",
+    "SchemaMigration",
+    "SchemaModule",
     "Task",
     "TaskSpec",
     "TaskStatus",

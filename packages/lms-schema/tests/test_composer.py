@@ -320,8 +320,13 @@ def _normalize(schema_array: list[dict]) -> tuple[dict, dict[str, dict]]:
     return context, classes
 
 
+# Allowed extra classes in composed schema that the monolithic schema
+# does not contain (registry classes added in core 1.1.0).
+_ALLOWED_EXTRAS = {"SchemaModule", "SchemaMigration"}
+
+
 def test_equivalence_with_monolithic() -> None:
-    """The composed schema must be semantically identical to the monolithic one."""
+    """Monolithic schema must be a subset of composed; extra classes must be only registry."""
     if not MONOLITHIC_PATH.is_file():
         pytest.skip("Monolithic schema file not found")
 
@@ -336,14 +341,22 @@ def test_equivalence_with_monolithic() -> None:
     # Context must match
     assert comp_ctx == mono_ctx, "Context object mismatch"
 
-    # Same set of @ids
-    assert set(comp_classes.keys()) == set(mono_classes.keys()), (
-        f"@id set mismatch: "
-        f"only in composed={set(comp_classes) - set(mono_classes)}, "
-        f"only in monolithic={set(mono_classes) - set(comp_classes)}"
+    # Monolithic must be a subset of composed
+    only_in_composed = set(comp_classes.keys()) - set(mono_classes.keys())
+    only_in_monolithic = set(mono_classes.keys()) - set(comp_classes.keys())
+
+    # No classes should exist in monolithic that are missing from composed
+    assert not only_in_monolithic, (
+        f"Classes in monolithic but not in composed: {only_in_monolithic}"
     )
 
-    # Each class object must be byte-exact (via canonical JSON)
+    # Extra classes in composed must be exactly the allowed registry classes
+    assert only_in_composed == _ALLOWED_EXTRAS, (
+        f"Unexpected extra classes in composed: {only_in_composed} "
+        f"(allowed extras: {_ALLOWED_EXTRAS})"
+    )
+
+    # Each shared class must be byte-exact (via canonical JSON)
     for cid, mono_cls in mono_classes.items():
         comp_cls = comp_classes[cid]
         assert comp_cls == mono_cls, f"Mismatch for class '{cid}'"
