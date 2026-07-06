@@ -44,8 +44,12 @@ def _cmd_compose(args: argparse.Namespace) -> int:
         print(f"Error: --modules-dir '{modules_dir}' is not a directory", file=sys.stderr)
         return 1
 
+    kwargs = {}
+    if args.no_entry_points:
+        kwargs["include_entry_points"] = False
+
     try:
-        result = compose(modules_dir)
+        result = compose(modules_dir, **kwargs)
     except SchemaError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -59,13 +63,16 @@ def _cmd_compose(args: argparse.Namespace) -> int:
         json.dumps(result.composed_schema, indent=2) + "\n"
     )
 
-    # Write lock file
+    # Write lock file (with optional source field)
     lock: dict[str, dict[str, dict[str, str]]] = {"modules": {}}
     for info in result.modules:
-        lock["modules"][info.name] = {
+        entry: dict[str, str] = {
             "version": info.version,
             "checksum": info.checksum,
         }
+        if info.source is not None:
+            entry["source"] = info.source
+        lock["modules"][info.name] = entry
     lock_path = out_dir / "modules.lock.json"
     lock_path.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n")
 
@@ -722,6 +729,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--out-dir",
         default="build",
         help="Output directory for composed schema and lock file (default: build)",
+    )
+    p_compose.add_argument(
+        "--no-entry-points",
+        action="store_true",
+        default=False,
+        help="Skip discovery of installed lms.schema_modules entry points",
     )
 
     # codegen

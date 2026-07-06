@@ -1,8 +1,9 @@
 """Agent tools for TerminusDB operations exposed via pydantic-ai.
 
-Tools are gated by ``Settings.enable_writes``: query tools are always
-registered; mutation tools (which write to TerminusDB) are only
-appended when writes are explicitly enabled.
+Read tools (always registered): get_schema_details, graphql_query,
+get_document, today.  Write tools are contributed by plugins (see
+``queryd.plugins``); ``build_tools`` accepts an optional list of
+plugin-provided ``Tool`` objects.
 
 Every tool records a ``ToolTraceEntry`` into ``ctx.deps.trace`` via the
 ``@_traced`` decorator so callers can inspect the complete tool-call
@@ -19,20 +20,15 @@ import re
 import typing
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import structlog
 from pydantic import BaseModel
 from pydantic_ai import RunContext, Tool
 
-from lms_core.models import (
-    Reminder,
-    Task,
-    TaskStatus,
-    _format_datetime,
-)
-from lms_core.tdb import TdbClient, TdbError, short_iri
+from lms_core.models import _format_datetime
+from lms_core.tdb import TdbClient, TdbError
 
 from queryd.settings import Settings
 
@@ -290,244 +286,13 @@ async def today(ctx: RunContext[QuerydDeps]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Write tools (registered only when settings.enable_writes is True)
+# Shared utility (also used by write-tool plugins)
 # ---------------------------------------------------------------------------
 
 
 def _now_utc_str() -> str:
     """Return current UTC time in ``YYYY-MM-DDTHH:MM:SSZ`` format."""
     return _format_datetime(datetime.now(timezone.utc))
-
-
-@_traced
-async def set_task_status(
-    ctx: RunContext[QuerydDeps],
-    task_iri: str,
-    status: Literal["open", "planned", "done"],
-) -> dict[str, object]:
-    """Set the status of a Task document."""
-    iri = short_iri(task_iri)
-    branch = ctx.deps.settings.tdb_branch
-
-    try:
-        doc = await ctx.deps.tdb.get_document(iri, branch=branch)
-    except TdbError as exc:
-        return {"ok": False, "error": f"document not found: {iri} ({exc.status})"}
-
-    if doc.get("@type") != "Task":
-        return {"ok": False, "error": f"{iri} is not a Task (type={doc.get('@type')})"}
-
-    doc["status"] = status
-    doc["updated_at"] = _now_utc_str()
-
-    log.info(
-        "queryd: set_task_status",
-        iri=iri,
-        status=status,
-        doc=doc,
-    )
-
-    try:
-        await ctx.deps.tdb.replace_document(
-            doc,
-            branch=branch,
-            message=f"queryd: set status {status} on {iri}",
-            author="queryd",
-        )
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
-
-    return {"ok": True, "iri": iri}
-
-
-@_traced
-async def set_event_status(
-    ctx: RunContext[QuerydDeps],
-    event_iri: str,
-    status: Literal["open", "planned", "closed", "cancelled"],
-) -> dict[str, object]:
-    """Set the status of an Event document."""
-    iri = short_iri(event_iri)
-    branch = ctx.deps.settings.tdb_branch
-
-    try:
-        doc = await ctx.deps.tdb.get_document(iri, branch=branch)
-    except TdbError as exc:
-        return {"ok": False, "error": f"document not found: {iri} ({exc.status})"}
-
-    if doc.get("@type") != "Event":
-        return {
-            "ok": False,
-            "error": f"{iri} is not an Event (type={doc.get('@type')})",
-        }
-
-    doc["status"] = status
-    doc["updated_at"] = _now_utc_str()
-
-    log.info(
-        "queryd: set_event_status",
-        iri=iri,
-        status=status,
-        doc=doc,
-    )
-
-    try:
-        await ctx.deps.tdb.replace_document(
-            doc,
-            branch=branch,
-            message=f"queryd: set status {status} on {iri}",
-            author="queryd",
-        )
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
-
-    return {"ok": True, "iri": iri}
-
-
-@_traced
-async def create_task(
-    ctx: RunContext[QuerydDeps],
-    name: str,
-    description: str | None = None,
-    due_date: datetime | None = None,
-    priority: int | None = None,
-) -> dict[str, object]:
-    """Create a new Task document."""
-    now_dt = datetime.now(timezone.utc)
-    task = Task(
-        name=name,
-        description=description,
-        due_date=due_date,
-        priority=priority,
-        status=TaskStatus.OPEN,
-        created_at=now_dt,
-        updated_at=now_dt,
-    )
-    doc = task.to_tdb()
-    branch = ctx.deps.settings.tdb_branch
-
-    log.info("queryd: create_task", doc=doc)
-
-    try:
-        iris = await ctx.deps.tdb.insert_documents(
-            [doc],
-            branch=branch,
-            message=f"queryd: create task {name}",
-            author="queryd",
-        )
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
-
-    result_iri = short_iri(iris[0]) if iris else "unknown"
-    return {"ok": True, "iri": result_iri}
-
-
-@_traced
-async def create_reminder(
-    ctx: RunContext[QuerydDeps],
-    name: str,
-    description: str | None = None,
-    refers_to_iri: str | None = None,
-) -> dict[str, object]:
-    """Create a new Reminder, optionally linked to a Task or Event.
-
-    When *refers_to_iri* is given, the target MUST exist and have an
-    ``@type`` of ``Task`` or ``Event``; otherwise the creation is
-    rejected.
-    """
-    branch = ctx.deps.settings.tdb_branch
-    refers_to: str | None = None
-
-    if refers_to_iri is not None:
-        siri = short_iri(refers_to_iri)
-        try:
-            target = await ctx.deps.tdb.get_document(siri, branch=branch)
-        except TdbError as exc:
-            return {
-                "ok": False,
-                "error": f"refers_to document not found: {siri} ({exc.status})",
-            }
-        if target.get("@type") not in ("Task", "Event"):
-            return {
-                "ok": False,
-                "error": f"refers_to {siri} has type {target.get('@type')}, expected Task or Event",
-            }
-        refers_to = siri
-
-    now_dt = datetime.now(timezone.utc)
-    reminder = Reminder(
-        name=name,
-        description=description,
-        refers_to=refers_to,
-        created_at=now_dt,
-        updated_at=now_dt,
-    )
-    doc = reminder.to_tdb()
-
-    log.info("queryd: create_reminder", doc=doc)
-
-    try:
-        iris = await ctx.deps.tdb.insert_documents(
-            [doc],
-            branch=branch,
-            message=f"queryd: create reminder {name}",
-            author="queryd",
-        )
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
-
-    result_iri = short_iri(iris[0]) if iris else "unknown"
-    return {"ok": True, "iri": result_iri}
-
-
-@_traced
-async def update_task(
-    ctx: RunContext[QuerydDeps],
-    task_iri: str,
-    name: str | None = None,
-    description: str | None = None,
-    due_date: datetime | None = None,
-    priority: int | None = None,
-) -> dict[str, object]:
-    """Update fields of an existing Task.
-
-    Only the provided (non-None) fields are changed; ``updated_at`` is
-    always bumped to now.
-    """
-    iri = short_iri(task_iri)
-    branch = ctx.deps.settings.tdb_branch
-
-    try:
-        doc = await ctx.deps.tdb.get_document(iri, branch=branch)
-    except TdbError as exc:
-        return {"ok": False, "error": f"document not found: {iri} ({exc.status})"}
-
-    if doc.get("@type") != "Task":
-        return {"ok": False, "error": f"{iri} is not a Task (type={doc.get('@type')})"}
-
-    if name is not None:
-        doc["name"] = name
-    if description is not None:
-        doc["description"] = description
-    if due_date is not None:
-        doc["due_date"] = _format_datetime(due_date)
-    if priority is not None:
-        doc["priority"] = priority
-    doc["updated_at"] = _now_utc_str()
-
-    log.info("queryd: update_task", iri=iri, doc=doc)
-
-    try:
-        await ctx.deps.tdb.replace_document(
-            doc,
-            branch=branch,
-            message=f"queryd: update task {iri}",
-            author="queryd",
-        )
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
-
-    return {"ok": True, "iri": iri}
 
 
 # ---------------------------------------------------------------------------
@@ -541,25 +306,20 @@ _READ_TOOLS = [
     Tool(today),
 ]
 
-_WRITE_TOOLS = [
-    Tool(set_task_status),
-    Tool(set_event_status),
-    Tool(create_task),
-    Tool(create_reminder),
-    Tool(update_task),
-]
-
 # Extension point: future vector-search / RAG tools can be appended here.
 # _READ_TOOLS.append(Tool(semantic_search))  # future: vector search service plugs in here
 
 
-def build_tools(settings: Settings) -> list[Tool]:
+def build_tools(
+    settings: Settings,
+    plugin_tools: list[Tool] | None = None,
+) -> list[Tool]:
     """Return the list of pydantic-ai ``Tool`` objects for *settings*.
 
-    Query tools are always included; mutation tools are only appended
+    Query tools are always included; *plugin_tools* are only appended
     when ``settings.enable_writes`` is ``True``.
     """
     tools: list[Tool] = list(_READ_TOOLS)
-    if settings.enable_writes:
-        tools.extend(_WRITE_TOOLS)
+    if settings.enable_writes and plugin_tools:
+        tools.extend(plugin_tools)
     return tools

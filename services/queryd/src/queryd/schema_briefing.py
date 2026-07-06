@@ -50,6 +50,59 @@ async def fetch_introspection(tdb: TdbClient) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Module registry helpers (capability awareness)
+# ---------------------------------------------------------------------------
+
+
+async def fetch_module_list(
+    tdb: TdbClient,
+    *,
+    branch: str = "main",
+) -> list[dict[str, Any]]:
+    """Fetch ``SchemaModule`` docs from the in-database registry.
+
+    Returns a list of module dicts (each has at least ``name`` and
+    ``version``).  Raises ``TdbError`` if the registry is unavailable
+    (e.g. before the modularisation rollout).
+    """
+    return await tdb.get_documents("SchemaModule", branch=branch)
+
+
+def render_module_briefing(
+    modules: list[dict[str, Any]],
+    *,
+    active_plugins: list[str] | None = None,
+) -> str:
+    """Render the installed-modules list for the system-prompt briefing.
+
+    Returns an empty string when *modules* is empty (i.e. the registry
+    exists but has no entries yet — pre-modularisation state).
+    """
+    if not modules or not isinstance(modules, list):
+        return ""
+
+    lines: list[str] = []
+    lines.append("=== Installed Schema Modules ===")
+    lines.append("")
+    for doc in sorted(modules, key=lambda d: (d if isinstance(d, dict) else {}).get("name", "")):
+        if not isinstance(doc, dict):
+            continue
+        name = doc.get("name", "?")
+        version = doc.get("version", "?")
+        lines.append(f"  {name} {version}")
+    lines.append("")
+
+    if active_plugins:
+        lines.append("=== Active Write-Tool Plugins ===")
+        lines.append("")
+        for p in sorted(active_plugins):
+            lines.append(f"  {p}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # SDL-like schema summary (full, for get_schema_details tool)
 # ---------------------------------------------------------------------------
 

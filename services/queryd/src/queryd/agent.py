@@ -63,13 +63,19 @@ def usage_limits(settings: Settings) -> UsageLimits:
 
 
 def build_agent(
-    settings: Settings, model: Model | None = None
+    settings: Settings,
+    model: Model | None = None,
+    *,
+    tools: list | None = None,
 ) -> Agent[QuerydDeps, str]:
     """Build a pydantic-ai Agent for the queryd service.
 
     * Model: OpenAI-compatible via OpenAIChatModel (or *model* if provided).
     * Temperature 0 for deterministic answers.
-    * Tools from ``build_tools(settings)``, gated by ``enable_writes``.
+    * *tools*: pydantic-ai ``Tool`` objects.  When ``None`` (default),
+      ``build_tools(settings)`` is called, which yields only read tools.
+      Supply explicit tools (read + plugin write tools) from the
+      application layer.
     * Static system prompt + per-request dynamic briefing.
 
     *model* is a **test seam**: supply a ``FunctionModel`` / ``TestModel``
@@ -85,12 +91,15 @@ def build_agent(
             settings=ModelSettings(temperature=0),
         )
 
+    if tools is None:
+        tools = build_tools(settings)
+
     agent = Agent[QuerydDeps, str](
         model,
         output_type=str,
         retries=1,
         deps_type=QuerydDeps,
-        tools=build_tools(settings),
+        tools=tools,
         instructions=_STATIC_SYSTEM_PROMPT,
     )
 

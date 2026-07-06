@@ -16,13 +16,15 @@ from queryd.tools import (
     _STRIP_PATTERN,
     _check_graphql,
     build_tools,
-    create_reminder,
-    create_task,
     get_document,
     graphql_query,
+    today,
+)
+from queryd.plugins.planning_tools import (
+    create_reminder,
+    create_task,
     set_event_status,
     set_task_status,
-    today,
     update_task,
 )
 
@@ -102,7 +104,9 @@ def test_build_tools_no_writes():
 
 def test_build_tools_with_writes():
     s = _settings(enable_writes=True)
-    tools = build_tools(s)
+    from queryd.plugins.planning_tools import plugin as _planning_plugin
+    plugin_tools = _planning_plugin.tools(deps=None)
+    tools = build_tools(s, plugin_tools=plugin_tools)
     names = {t.name for t in tools}
     assert names == {
         "get_schema_details",

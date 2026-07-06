@@ -27,6 +27,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from queryd.app import create_app
 from queryd.settings import Settings
 from queryd.tools import ToolTraceEntry
+from queryd.plugins.planning_tools import plugin as _planning_plugin
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -300,7 +301,11 @@ def test_writes_enabled_set_task_status_e2e(respx_mock: respx.MockRouter):
         )
 
     settings = _make_settings(enable_writes=True)
-    app = create_app(settings, model=FunctionModel(function=_fn))
+    app = create_app(
+        settings,
+        model=FunctionModel(function=_fn),
+        plugin_tools=_planning_plugin.tools(deps=None),
+    )
 
     with TestClient(app) as client:
         resp = client.post(

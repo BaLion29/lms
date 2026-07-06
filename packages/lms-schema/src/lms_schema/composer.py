@@ -1,5 +1,19 @@
 """Schema module composer: topo-sort, validate, assemble.
 
+Modules are discovered from two sources (merged):
+
+1. **Repo tree** — sub-directories under *modules_dir* that contain a
+   ``manifest.json``.  Origin = ``repo:<name>``.
+
+2. **Entry points** — the ``lms.schema_modules`` group (see
+   :mod:`lms_schema.discovery`).  Each entry-point value resolves to a
+   directory containing ``manifest.json`` + ``schema.json``.  Origin =
+   ``pkg:<dist-name>==<dist-version>``.
+
+Duplicate module names across sources produce a hard error naming both
+origins.  All validation (L1/L2, exports, duplicate @id, topo, checksums)
+applies uniformly to every module regardless of source.
+
 Checksums use the canonical form:
 
     sha256(json.dumps(fragment_array, sort_keys=True, separators=(",", ":")))
@@ -14,11 +28,14 @@ import json
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from . import SchemaError
 from .manifest import Manifest, ManifestError
 from .semver import Range
+
+if TYPE_CHECKING:
+    from .discovery import ModuleSource
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +96,7 @@ class ModuleInfo:
     name: str
     version: str
     checksum: str
+    source: str | None = None  # "repo:<name>" or "pkg:<dist>==<version>"
 
 
 @dataclass
@@ -101,21 +119,37 @@ def fragment_checksum(fragment_array: list[dict[str, Any]]) -> str:
     return _sha256(fragment_array)
 
 
-def compose(modules_dir: Path) -> ComposeResult:
-    """Compose all schema modules under *modules_dir* into a single schema.
+def compose(
+    modules_dir: Path,
+    *,
+    include_entry_points: bool = True,
+    entry_point_modules: dict[str, ModuleSource] | None = None,
+) -> ComposeResult:
+    """Compose all schema modules (repo + entry points) into a single schema.
+
+    Args:
+        modules_dir: Root directory of repo-tree modules.
+        include_entry_points: When ``True`` (default), also discover modules
+            from installed ``lms.schema_modules`` entry points.
+        entry_point_modules: Injection seam for tests.  When ``None``,
+            :func:`~lms_schema.discovery.discover_module_dirs` is called;
+            pass ``{}`` to bypass discovery without disabling the flag.
 
     Steps:
 
-    1.  Load every sub-directory that contains a ``manifest.json``.
-    2.  Validate manifests and inject implicit ``core`` dependency.
-    3.  Resolve dependency graph; range-check declared dep ranges;
+    1.  Load repo sub-directories; discover entry-point modules.
+    2.  Merge sources — duplicate NAME → hard error naming both origins.
+    3.  Validate manifests and inject implicit ``core`` dependency.
+    4.  Resolve dependency graph; range-check declared dep ranges;
         topological sort (deterministic tie-break: alphabetical);
         cycle detection.
-    4.  Run L1 and L2 validations; check for duplicate ``@id``.
-    5.  Assemble the composed schema and compute per-module checksums.
+    5.  Run L1 and L2 validations; check for duplicate ``@id``.
+    6.  Assemble the composed schema and compute per-module checksums.
     """
-    # ── 1. Load modules ──────────────────────────────────────────────
     modules: dict[str, Manifest] = {}
+    module_sources: dict[str, str] = {}
+
+    # ── 1a. Load repo-tree modules ──────────────────────────────────
     for subdir in sorted(modules_dir.iterdir(), key=lambda p: p.name):
         manifest_path = subdir / "manifest.json"
         if subdir.is_dir() and manifest_path.is_file():
@@ -123,6 +157,30 @@ def compose(modules_dir: Path) -> ComposeResult:
             if manifest.name in modules:
                 raise ManifestError(f"Duplicate module name: {manifest.name}")
             modules[manifest.name] = manifest
+            module_sources[manifest.name] = f"repo:{manifest.name}"
+
+    # ── 1b. Load entry-point modules ────────────────────────────────
+    if include_entry_points:
+        if entry_point_modules is None:
+            from .discovery import discover_module_dirs
+            ep_modules = discover_module_dirs()
+        else:
+            ep_modules = entry_point_modules
+
+        for ms in ep_modules.values():
+            if ms.name in modules:
+                raise ComposerError(
+                    f"Duplicate module name '{ms.name}' across sources: "
+                    f"{module_sources[ms.name]} and {ms.origin}"
+                )
+            manifest = Manifest.load(ms.path)
+            if manifest.name != ms.name:
+                raise ComposerError(
+                    f"Entry-point module name mismatch: "
+                    f"entry point '{ms.name}', manifest '{manifest.name}'"
+                )
+            modules[ms.name] = manifest
+            module_sources[ms.name] = ms.origin
 
     if not modules:
         raise ComposerError(f"No modules found in {modules_dir}")
@@ -154,7 +212,7 @@ def compose(modules_dir: Path) -> ComposeResult:
     all_classes, class_to_module = _validate_all(modules, order)
 
     # ── 6. Assemble composed schema + checksums ──────────────────────
-    return _assemble(modules, order, all_classes, class_to_module)
+    return _assemble(modules, order, all_classes, class_to_module, module_sources)
 
 
 # ---------------------------------------------------------------------------
@@ -449,11 +507,15 @@ def _assemble(
     order: list[str],
     all_classes: dict[str, list[dict[str, Any]]],
     class_to_module: dict[str, str],
+    module_sources: dict[str, str] | None = None,
 ) -> ComposeResult:
     """Build the composed schema and compute checksums.
 
     *all_classes* is the per-module parsed schema.json arrays (already
     loaded and validated) to avoid re-reading files.
+
+    *module_sources* maps module name → origin string (``repo:...`` or
+    ``pkg:...``).  When ``None``, ``ModuleInfo.source`` is left as ``None``.
     """
     # Load @context from core
     core_dir = modules["core"].module_dir
@@ -466,13 +528,20 @@ def _assemble(
     composed: list[dict[str, Any]] = [context]
     infos: list[ModuleInfo] = []
 
+    sources = module_sources or {}
+
     for name in order:
         m = modules[name]
         classes = all_classes[name]
 
         # Checksum over the canonical fragment (the raw array, not re-sorted)
         checksum = fragment_checksum(classes)
-        infos.append(ModuleInfo(name=name, version=m.version, checksum=checksum))
+        infos.append(ModuleInfo(
+            name=name,
+            version=m.version,
+            checksum=checksum,
+            source=sources.get(name),
+        ))
 
         # Sort classes by @id for deterministic composed output
         classes_sorted = sorted(classes, key=lambda c: c.get("@id", ""))

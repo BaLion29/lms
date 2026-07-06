@@ -14,6 +14,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from lms_core.tdb import TdbClient, TdbError
+from lms_core.plugins import discover_plugins, select_plugins
+from pydantic_ai import Tool
 from pydantic_ai.exceptions import (
     ModelAPIError,
     ModelHTTPError,
@@ -32,11 +34,13 @@ from pydantic_ai.models import Model
 from queryd.agent import build_agent, usage_limits
 from queryd.schema_briefing import (
     fetch_introspection,
+    fetch_module_list,
+    render_module_briefing,
     render_prompt_briefing,
     render_schema_summary,
 )
 from queryd.settings import Settings
-from queryd.tools import QuerydDeps, ToolTraceEntry
+from queryd.tools import QuerydDeps, ToolTraceEntry, build_tools
 
 log = structlog.get_logger()
 
@@ -45,7 +49,6 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 _PLACEHOLDER_BRIEFING = "schema unavailable at startup"
-
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -97,7 +100,7 @@ def _bearer_auth(request: Request) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Lazy schema re-fetch helper
+# Lazy briefing helpers
 # ---------------------------------------------------------------------------
 
 
@@ -117,13 +120,81 @@ async def _ensure_briefing(app: FastAPI) -> None:
         tdb: TdbClient = app.state.tdb
         try:
             intro = await fetch_introspection(tdb)
-            app.state.briefings = (
-                render_schema_summary(intro),
-                render_prompt_briefing(intro),
-            )
+            _rebuild_briefings(app, intro)
             log.info("lazy schema re-fetch succeeded")
         except Exception:
             log.warning("lazy schema re-fetch failed", exc_info=True)
+
+
+def _rebuild_briefings(app: FastAPI, intro: dict) -> None:
+    """Rebuild summary + prompt briefing from introspection + stored module data."""
+    schema_summary = render_schema_summary(intro)
+    prompt_briefing = render_prompt_briefing(intro)
+
+    modules = getattr(app.state, "modules", [])
+    active_plugins = getattr(app.state, "active_plugins", [])
+    if modules or active_plugins:
+        prompt_briefing += "\n\n" + render_module_briefing(
+            modules, active_plugins=active_plugins
+        )
+
+    app.state.briefings = (schema_summary, prompt_briefing)
+
+
+# ---------------------------------------------------------------------------
+# Plugin helper
+# ---------------------------------------------------------------------------
+
+_PLUGIN_GROUP = "lms.queryd.tools"
+
+
+def _collect_plugin_tools(
+    plugins: list[tuple[str, object]],
+    settings: Settings,
+    tdb: TdbClient,
+) -> tuple[list[Tool], list[str]]:
+    """Call ``tools(deps)`` on each plugin, check for name collisions.
+
+    Returns ``(all_tools, active_names)``.  Raises ``RuntimeError`` on
+    name collision (against read tools or across plugins).
+    """
+    plugin_tools: list[Tool] = []
+    active_names: list[str] = []
+
+    # Read-tool names (baseline for collision check)
+    read_tool_names = {t.name for t in build_tools(settings, plugin_tools=[])}
+
+    for ep_name, obj in plugins:
+        # Duck-typing: ToolPlugin is not @runtime_checkable
+        if hasattr(obj, "tools") and hasattr(obj, "name"):
+            plugin = obj
+        else:
+            log.warning("plugin '%s' is not a ToolPlugin", ep_name)
+            continue
+
+        active_names.append(plugin.name)
+        tools: list[Tool] = plugin.tools(deps=None)
+
+        for t in tools:
+            if t.name in read_tool_names:
+                raise RuntimeError(
+                    f"Tool name collision: plugin '{plugin.name}' tool "
+                    f"'{t.name}' conflicts with a core read tool"
+                )
+
+        # Cross-plugin collision
+        existing = {t.name for t in plugin_tools}
+        for t in tools:
+            if t.name in existing:
+                raise RuntimeError(
+                    f"Tool name collision: plugin '{plugin.name}' tool "
+                    f"'{t.name}' already registered by another plugin"
+                )
+        existing |= {t.name for t in tools}
+
+        plugin_tools.extend(tools)
+
+    return plugin_tools, active_names
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +203,13 @@ async def _ensure_briefing(app: FastAPI) -> None:
 
 
 @asynccontextmanager
-async def _lifespan(app: FastAPI, settings: Settings, model: Model | None = None):
+async def _lifespan(
+    app: FastAPI,
+    settings: Settings,
+    model: Model | None = None,
+    *,
+    plugin_tools_override: list[Tool] | None = None,
+):
     tdb = TdbClient(
         base_url=settings.tdb_url,
         org=settings.tdb_org,
@@ -143,19 +220,85 @@ async def _lifespan(app: FastAPI, settings: Settings, model: Model | None = None
     )
     app.state.tdb = tdb
 
-    # Build the agent once at startup.
-    app.state.agent = build_agent(settings, model=model)
+    # ── Plugin discovery and selection ─────────────────────────────────
+    plugin_tools: list[Tool] = []
+    active_plugins: list[str] = []
 
-    # Introspection: try at startup, store placeholder on failure.
+    if plugin_tools_override is not None:
+        # Test seam: use explicitly provided write tools
+        if settings.enable_writes:
+            plugin_tools = list(plugin_tools_override)
+            active_plugins = ["test_override"]
+        else:
+            log.info(
+                "write-tool plugins suppressed (ENABLE_WRITES=false)",
+                count=len(plugin_tools_override),
+            )
+    else:
+        discovered = discover_plugins(_PLUGIN_GROUP)
+        log.info(
+            "plugins discovered",
+            group=_PLUGIN_GROUP,
+            count=len(discovered.active),
+            failed=len(discovered.failed),
+        )
+
+        if not settings.enable_writes:
+            log.info(
+                "all write-tool plugins suppressed (ENABLE_WRITES=false)",
+                discovered=len(discovered.active),
+            )
+        else:
+            selection = await select_plugins(
+                tdb,
+                discovered,
+                strict=settings.strict_plugins,
+                branch=settings.tdb_branch,
+            )
+
+            for name, violations in selection.skipped:
+                log.warning(
+                    "plugin skipped (unmet requirements)",
+                    plugin=name,
+                    violations=violations,
+                )
+
+            if selection.active:
+                p_tools, active_plugins = _collect_plugin_tools(
+                    selection.active, settings, tdb
+                )
+                plugin_tools = p_tools
+                log.info("active write-tool plugins", plugins=active_plugins)
+            else:
+                log.info("no active write-tool plugins")
+
+    app.state.active_plugins = active_plugins
+
+    # ── Build agent once ───────────────────────────────────────────────
+    tools = build_tools(settings, plugin_tools=plugin_tools)
+    app.state.agent = build_agent(settings, model=model, tools=tools)
+
+    # ── Introspection ──────────────────────────────────────────────────
     try:
         intro = await fetch_introspection(tdb)
-        app.state.briefings = (
-            render_schema_summary(intro),
-            render_prompt_briefing(intro),
-        )
         log.info("schema introspection succeeded at startup")
     except Exception:
         log.warning("schema introspection failed at startup", exc_info=True)
+        intro = None
+
+    # ── Module registry ────────────────────────────────────────────────
+    modules: list[dict] = []
+    try:
+        modules = await fetch_module_list(tdb, branch=settings.tdb_branch)
+        log.info("module registry fetched", count=len(modules))
+    except Exception:
+        log.warning("module registry unavailable — skipping capability section")
+    app.state.modules = modules
+
+    # ── Build briefings ────────────────────────────────────────────────
+    if intro is not None:
+        _rebuild_briefings(app, intro)
+    else:
         app.state.briefings = (_PLACEHOLDER_BRIEFING, _PLACEHOLDER_BRIEFING)
 
     app.state._briefing_lock = asyncio.Lock()
@@ -189,18 +332,28 @@ def _get_version() -> str:
         return "dev"
 
 
-def create_app(settings: Settings, model: Model | None = None) -> FastAPI:
+def create_app(
+    settings: Settings,
+    model: Model | None = None,
+    *,
+    plugin_tools: list[Tool] | None = None,
+) -> FastAPI:
     """Build the FastAPI application for the given *settings*.
 
     *model* is a **test seam**: when provided it is injected into the
     agent so unit tests can supply a ``FunctionModel`` or ``TestModel``
     without reaching a real LLM.
+
+    *plugin_tools* is a **test seam**: when provided, these ``Tool``
+    objects are used as write-tool plugins instead of discovering them
+    via entry points.  When ``None`` (default, production),
+    ``discover_plugins("lms.queryd.tools")`` is used.
     """
     _configure_logging()
 
     @asynccontextmanager
     async def _app_lifespan(app: FastAPI):
-        async with _lifespan(app, settings, model) as _:
+        async with _lifespan(app, settings, model, plugin_tools_override=plugin_tools) as _:
             yield
 
     app = FastAPI(
@@ -225,25 +378,40 @@ def create_app(settings: Settings, model: Model | None = None) -> FastAPI:
 
     @app.get("/healthz")
     async def healthz():
+        tdb_ok: bool
         try:
-            ok = await app.state.tdb.db_exists()
+            tdb_ok = await app.state.tdb.db_exists()
         except (TdbError, Exception):
-            ok = False
-        if ok:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "status": "ok",
-                    "terminusdb": "up",
-                    "version": _get_version(),
-                },
+            tdb_ok = False
+
+        # Live fetch module versions (graceful degradation)
+        module_versions: dict[str, str] = {}
+        try:
+            module_docs = await fetch_module_list(
+                app.state.tdb,
+                branch=app.state.settings.tdb_branch,
             )
+            for doc in module_docs:
+                name = doc.get("name")
+                version = doc.get("version")
+                if name and version:
+                    module_versions[name] = version
+        except Exception:
+            log.warning("healthz: module registry fetch failed")
+
+        active_plugins: list[str] = getattr(app.state, "active_plugins", [])
+
+        status = "ok" if tdb_ok else "degraded"
+        status_code = 200 if tdb_ok else 503
+
         return JSONResponse(
-            status_code=503,
+            status_code=status_code,
             content={
-                "status": "degraded",
-                "terminusdb": "down",
+                "status": status,
+                "terminusdb": "up" if tdb_ok else "down",
                 "version": _get_version(),
+                "modules": module_versions,
+                "plugins": active_plugins,
             },
         )
 
