@@ -9,9 +9,14 @@ import sys
 
 import structlog
 
-from ingestd.extraction import build_agent, build_llm_model
+from ingestd.extraction import (
+    build_agent,
+    build_extraction_context,
+    build_llm_model,
+)
 from ingestd.pipeline import Pipeline
 from ingestd.settings import Settings
+from lms_core.plugins import discover_plugins, select_plugins
 from lms_core.tdb import TdbClient
 
 
@@ -57,6 +62,129 @@ async def run_cycle_safe(pipeline: Pipeline, should_stop: asyncio.Event | None) 
     return True
 
 
+# ---------------------------------------------------------------------------
+# Plugin discovery helpers
+# ---------------------------------------------------------------------------
+
+_EXTRACTOR_GROUP = "lms.ingestd.extractors"
+_SOURCE_GROUP = "lms.ingestd.sources"
+
+
+async def _discover_extractor_plugins_async(
+    tdb: TdbClient,
+    branch: str,
+    logger,
+):
+    """Discover extractor plugins, check requirements, build ExtractionContext.
+
+    Raises ``RuntimeError`` if no plugins are active, on broken entry
+    points, or on kind collisions (which surface as ``ValueError``
+    from ``build_extraction_context``).
+    """
+    discovered = discover_plugins(_EXTRACTOR_GROUP)
+    logger.info(
+        "extractor_plugins_discovered",
+        group=_EXTRACTOR_GROUP,
+        count=len(discovered.active),
+        failed=len(discovered.failed),
+    )
+
+    # Broken entry points ARE fatal
+    if discovered.failed:
+        names = [n for n, _ in discovered.failed]
+        raise RuntimeError(
+            f"Extractor plugin entry points failed to load: {names}"
+        )
+
+    selection = await select_plugins(tdb, discovered, strict=False, branch=branch)
+
+    for name, violations in selection.skipped:
+        logger.warning(
+            "extractor_plugin_skipped",
+            plugin=name,
+            violations=violations,
+        )
+
+    if not selection.active:
+        raise RuntimeError("No active extractor plugins — nothing to extract.")
+
+    # Check duck-typing: each object should have proposal_models()
+    valid_plugins = []
+    for name, obj in selection.active:
+        if not hasattr(obj, "proposal_models"):
+            logger.warning("plugin_not_extractor", name=name)
+            continue
+        valid_plugins.append(obj)
+
+    if not valid_plugins:
+        raise RuntimeError("No valid extractor plugins — nothing to extract.")
+
+    # Build ExtractionContext (raises ValueError on kind collisions)
+    return build_extraction_context(valid_plugins)
+
+
+async def _discover_source_plugins_async(
+    tdb: TdbClient,
+    branch: str,
+    logger,
+) -> list:
+    """Discover source plugins, check requirements, return active ones."""
+    discovered = discover_plugins(_SOURCE_GROUP)
+    logger.info(
+        "source_plugins_discovered",
+        group=_SOURCE_GROUP,
+        count=len(discovered.active),
+        failed=len(discovered.failed),
+    )
+
+    # Broken entry points ARE fatal for sources
+    if discovered.failed:
+        names = [n for n, _ in discovered.failed]
+        raise RuntimeError(
+            f"Source plugin entry points failed to load: {names}"
+        )
+
+    selection = await select_plugins(tdb, discovered, strict=False, branch=branch)
+
+    for name, violations in selection.skipped:
+        logger.warning(
+            "source_plugin_skipped",
+            plugin=name,
+            violations=violations,
+        )
+
+    if not selection.active:
+        raise RuntimeError("No active source plugins — nothing to poll.")
+
+    sources: list = []
+    seen_keys: set[tuple[str, str]] = set()
+
+    for name, obj in selection.active:
+        if not hasattr(obj, "document_type") or not hasattr(obj, "ready_status"):
+            logger.warning("plugin_not_source", name=name)
+            continue
+
+        key = (obj.document_type, obj.ready_status)
+        if key in seen_keys:
+            raise RuntimeError(
+                f"Source collision: (document_type={obj.document_type!r}, "
+                f"ready_status={obj.ready_status!r}) already registered by "
+                f"another source plugin"
+            )
+        seen_keys.add(key)
+        sources.append(obj)
+
+    if not sources:
+        raise RuntimeError("No valid source plugins — nothing to poll.")
+
+    return sources
+
+
+# ---------------------------------------------------------------------------
+# Main async entrypoint
+# ---------------------------------------------------------------------------
+
+
 async def async_main(
     once: bool,
     dry_run: bool,
@@ -67,6 +195,9 @@ async def async_main(
         settings = settings.model_copy(update={"dry_run": True})
 
     validate_llm_settings(settings)
+
+    logger = structlog.get_logger(__name__)
+    branch = settings.tdb_branch
 
     tdb = TdbClient(
         base_url=settings.tdb_url,
@@ -83,7 +214,37 @@ async def async_main(
     )
     agent = build_agent(model)
 
-    pipeline = Pipeline(tdb=tdb, agent=agent, settings=settings)
+    # ── Discover extractor plugins ──────────────────────────────────
+    try:
+        extraction_ctx = await _discover_extractor_plugins_async(
+            tdb, branch, logger
+        )
+    except (RuntimeError, ValueError):
+        logger.exception("extractor_plugin_discovery_failed")
+        sys.exit(1)
+
+    # ── Discover source plugins ─────────────────────────────────────
+    try:
+        source_plugins = await _discover_source_plugins_async(
+            tdb, branch, logger
+        )
+    except RuntimeError:
+        logger.exception("source_plugin_discovery_failed")
+        sys.exit(1)
+
+    logger.info(
+        "plugin_startup_complete",
+        extractor_active=len(extraction_ctx.kind_to_plugin),
+        source_count=len(source_plugins),
+    )
+
+    pipeline = Pipeline(
+        tdb=tdb,
+        agent=agent,
+        settings=settings,
+        source_plugins=source_plugins,
+        extraction_ctx=extraction_ctx,
+    )
 
     last_cycle_ok = True
     try:

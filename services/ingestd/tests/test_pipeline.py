@@ -8,11 +8,17 @@ from unittest.mock import AsyncMock
 import pytest
 
 from ingestd.extraction import (
-    EventProposal,
+    ExtractionContext,
     ExtractionResult,
+    build_extraction_context,
+)
+from ingestd.plugins.planning_people import (
+    EventProposal,
     PersonProposal,
+    PlanningPeoplePlugin,
     TaskProposal,
 )
+from ingestd.plugins.inbox_sources import InboxAudioSource, InboxNoteSource
 from ingestd.pipeline import Pipeline
 from ingestd.settings import Settings
 from lms_core.tdb import TdbError
@@ -21,6 +27,11 @@ from lms_core.tdb import TdbError
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+# Shared extraction context for all pipeline tests
+_PLUGIN = PlanningPeoplePlugin()
+_EXTRACTION_CTX = build_extraction_context([_PLUGIN])
+_SOURCES = [InboxNoteSource(), InboxAudioSource()]
 
 
 def _settings(**overrides) -> Settings:
@@ -103,6 +114,18 @@ def _inbox_audio(iri: str, transcription: str, status: str = "transcribed") -> d
     }
 
 
+def _make_pipeline(tdb, agent=None, settings=None, extract_fn=None):
+    """Shorthand to build a Pipeline with required source_plugins and extraction_ctx."""
+    return Pipeline(
+        tdb=tdb,
+        agent=agent,
+        settings=settings or _settings(),
+        source_plugins=_SOURCES,
+        extraction_ctx=_EXTRACTION_CTX,
+        extract_fn=extract_fn,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Test 1 — Happy path: InboxNote → Task
 # ---------------------------------------------------------------------------
@@ -115,7 +138,8 @@ async def test_happy_path_inserts_task_and_flips_status():
     tdb = _fake_tdb(inbox_notes=[note])
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         return ExtractionResult(
             proposals=[
@@ -131,8 +155,7 @@ async def test_happy_path_inserts_task_and_flips_status():
             confidence=0.95,
         )
 
-    settings = _settings()
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -175,14 +198,14 @@ async def test_idempotency_skips_already_derived():
     extract_called = False
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         nonlocal extract_called
         extract_called = True
         return ExtractionResult(proposals=[], reasoning="", confidence=1.0)
 
-    settings = _settings()
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -206,7 +229,8 @@ async def test_nothing_actionable_flips_to_processed():
     tdb = _fake_tdb(inbox_notes=[note])
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         return ExtractionResult(
             proposals=[],
@@ -214,8 +238,7 @@ async def test_nothing_actionable_flips_to_processed():
             confidence=0.99,
         )
 
-    settings = _settings()
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -251,7 +274,8 @@ async def test_tdberror_retry_with_error_feedback():
     extract_calls = []
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         extract_calls.append(error_feedback)
         return ExtractionResult(
@@ -269,7 +293,7 @@ async def test_tdberror_retry_with_error_feedback():
         )
 
     settings = _settings(max_llm_retries=3)
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, settings=settings, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -312,7 +336,8 @@ async def test_retry_exhaustion_flips_to_failed():
     tdb.insert_documents.side_effect = insert_stub
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         return ExtractionResult(
             proposals=[
@@ -329,7 +354,7 @@ async def test_retry_exhaustion_flips_to_failed():
         )
 
     settings = _settings(max_llm_retries=2)
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, settings=settings, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -356,7 +381,8 @@ async def test_dry_run_no_inserts_no_flips():
     tdb = _fake_tdb(inbox_notes=[note])
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         return ExtractionResult(
             proposals=[
@@ -373,7 +399,7 @@ async def test_dry_run_no_inserts_no_flips():
         )
 
     settings = _settings(dry_run=True)
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, settings=settings, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -398,7 +424,8 @@ async def test_person_linked_and_known_location_no_duplicates():
     )
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         return ExtractionResult(
             proposals=[
@@ -415,8 +442,7 @@ async def test_person_linked_and_known_location_no_duplicates():
             confidence=0.9,
         )
 
-    settings = _settings()
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -441,7 +467,8 @@ async def test_new_location_inserted_before_event():
     tdb = _fake_tdb(inbox_notes=[note])
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         return ExtractionResult(
             proposals=[
@@ -457,8 +484,7 @@ async def test_new_location_inserted_before_event():
             confidence=0.9,
         )
 
-    settings = _settings()
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -477,8 +503,6 @@ async def test_new_location_inserted_before_event():
     event_docs = event_call[0][0]
     assert len(event_docs) == 1
     assert event_docs[0]["@type"] == "Event"
-    # IRI comes from the mocked insert; mock returns None by default, so location stays None
-    # That's fine — we just test the split between location and event inserts.
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +520,8 @@ async def test_unexpected_exception_flips_to_failed_next_doc_still_processed():
     call_count = 0
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         nonlocal call_count
         call_count += 1
@@ -516,8 +541,7 @@ async def test_unexpected_exception_flips_to_failed_next_doc_still_processed():
             confidence=0.9,
         )
 
-    settings = _settings()
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -542,12 +566,12 @@ async def test_run_cycle_safe_catches_exception():
     tdb = _fake_tdb()
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         return ExtractionResult(proposals=[], reasoning="", confidence=1.0)
 
-    settings = _settings()
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
     # Make run_cycle raise by making context fetch fail
     tdb.get_documents.side_effect = TdbError(500, "context fetch explosion")
@@ -565,7 +589,8 @@ async def test_run_cycle_safe_returns_true_on_success():
     tdb = _fake_tdb(inbox_notes=[note])
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         return ExtractionResult(
             proposals=[TaskProposal(name="Task")],
@@ -573,8 +598,7 @@ async def test_run_cycle_safe_returns_true_on_success():
             confidence=0.9,
         )
 
-    settings = _settings()
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
     result = await run_cycle_safe(pipeline, None)
     assert result is True
@@ -595,7 +619,8 @@ async def test_exact_retry_accounting_max_retries_3():
     extract_calls = []
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         extract_calls.append(error_feedback)
         return ExtractionResult(
@@ -605,7 +630,7 @@ async def test_exact_retry_accounting_max_retries_3():
         )
 
     settings = _settings(max_llm_retries=3)
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, settings=settings, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -630,7 +655,8 @@ async def test_inbox_audio_path():
     received_args = {}
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         received_args["text"] = text
         received_args["reference_dt"] = reference_dt
@@ -641,8 +667,7 @@ async def test_inbox_audio_path():
             confidence=0.9,
         )
 
-    settings = _settings()
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -674,7 +699,8 @@ async def test_dry_run_extract_called_but_zero_writes():
     extract_called = False
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         nonlocal extract_called
         extract_called = True
@@ -685,7 +711,7 @@ async def test_dry_run_extract_called_but_zero_writes():
         )
 
     settings = _settings(dry_run=True)
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, settings=settings, extract_fn=fake_extract)
 
     await pipeline.run_cycle()
 
@@ -719,7 +745,8 @@ async def test_missing_created_at_logs_warning_defaults_now():
     extract_called = False
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         nonlocal extract_called
         extract_called = True
@@ -733,8 +760,7 @@ async def test_missing_created_at_logs_warning_defaults_now():
             confidence=0.9,
         )
 
-    settings = _settings()
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
     # Capture structlog events via a processor
     import structlog
@@ -788,7 +814,8 @@ async def test_should_stop_after_first_doc():
     processed_docs = []
 
     async def fake_extract(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         processed_docs.append(text)
         return ExtractionResult(
@@ -797,17 +824,16 @@ async def test_should_stop_after_first_doc():
             confidence=0.9,
         )
 
-    settings = _settings()
-    pipeline = Pipeline(tdb=tdb, agent=None, settings=settings, extract_fn=fake_extract)
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
 
     stop = asyncio.Event()
 
     # We need to set stop after the first doc is extracted but before the second.
-    # Use a wrapper extract that sets stop on first call
     call_count = [0]
 
     async def extract_with_stop(
-        agent, text, reference_dt, context_block, error_feedback=None
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
     ):
         processed_docs.append(text)
         call_count[0] += 1
@@ -831,3 +857,88 @@ async def test_should_stop_after_first_doc():
     assert tdb.replace_document.call_count == 1
     replaced = tdb.replace_document.call_args[0][0]
     assert replaced["@id"] == "InboxNote/abc"
+
+
+# ---------------------------------------------------------------------------
+# Test 16 — build_documents mid-batch isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_documents_mid_batch_isolation():
+    """One plugin proposal raises during build → other proposals still inserted,
+    source doc still transitions to processed."""
+    # Use a custom plugin that has two kinds: a working one and a failing one
+    from typing import Any
+    from pydantic import BaseModel
+
+    class _GoodProposal(BaseModel):
+        kind: str = "good"
+        name: str
+
+    class _BadProposal(BaseModel):
+        kind: str = "bad"
+        name: str
+
+    class _IsolationPlugin:
+        name = "isolation_test"
+        requires: list = []
+
+        def proposal_models(self):
+            return [_GoodProposal, _BadProposal]
+
+        def prompt_snippet(self):
+            return ""
+
+        async def linking_context(self, tdb, *, index=None, branch=""):
+            return ""
+
+        async def build_documents(self, proposal, ctx):
+            if proposal.kind == "bad":
+                raise RuntimeError("build explosion")
+            return [{"@type": "Good", "name": proposal.name, "derived_from": ctx.inbox_iri}]
+
+    isolation_ctx = build_extraction_context([_IsolationPlugin()])
+    note = _inbox_note("InboxNote/abc", "Test isolation")
+    tdb = _fake_tdb(inbox_notes=[note])
+
+    async def insert_stub(docs, branch="main", message="ingestd"):
+        return [f"terminusdb:///data/{d['@type']}/new" for d in docs]
+
+    tdb.insert_documents.side_effect = insert_stub
+
+    async def fake_extract(
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
+    ):
+        return ExtractionResult(
+            proposals=[
+                _GoodProposal(kind="good", name="Keep me"),
+                _BadProposal(kind="bad", name="Drop me"),
+                _GoodProposal(kind="good", name="Also keep"),
+            ],
+            reasoning="isolation test",
+            confidence=0.9,
+        )
+
+    settings = _settings()
+    pipeline = Pipeline(
+        tdb=tdb, agent=None, settings=settings,
+        source_plugins=_SOURCES,
+        extraction_ctx=isolation_ctx,
+        extract_fn=fake_extract,
+    )
+
+    await pipeline.run_cycle()
+
+    # Both good proposals should be in the inserted docs
+    inserted = tdb.insert_documents.call_args[0][0]
+    assert len(inserted) == 2
+    names = [d["name"] for d in inserted]
+    assert "Keep me" in names
+    assert "Also keep" in names
+
+    # Source doc still flipped to processed
+    tdb.replace_document.assert_called_once()
+    replaced = tdb.replace_document.call_args[0][0]
+    assert replaced["status"] == "processed"

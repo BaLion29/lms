@@ -1,14 +1,23 @@
 """Pydantic AI extraction agent — turns freeform notes into typed proposals.
 
 Uses text-based JSON extraction (not tool calls) for broad model compatibility.
+
+Design:
+- Proposal models are provided by ExtractorPlugin plugins.
+- ``build_extraction_context`` collects their models, checks for ``kind``
+  collisions, and produces a unified system prompt + per-kind parse dispatch.
+- ``extract`` and ``parse_extraction`` require an ``ExtractionContext``.
+- The system prompt is static (built once at startup); today's date and
+  timezone are injected into the per-call user input.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, Field, ValidationError
@@ -22,50 +31,16 @@ from zoneinfo import ZoneInfo
 
 logger = structlog.get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Output models
-# ---------------------------------------------------------------------------
-
-
-class TaskProposal(BaseModel):
-    kind: Literal["task"] = "task"
-    name: str
-    description: str | None = None
-    priority: int | None = None
-    estimated_duration: int | None = None
-    due_date: datetime | None = None
-
-
-class EventProposal(BaseModel):
-    kind: Literal["event"] = "event"
-    name: str
-    description: str | None = None
-    start_datetime: datetime | None = None
-    end_datetime: datetime | None = None
-    location_name: str | None = None
-
-
-class ReminderProposal(BaseModel):
-    kind: Literal["reminder"] = "reminder"
-    name: str
-    description: str | None = None
-
-
-class PersonProposal(BaseModel):
-    kind: Literal["person"] = "person"
-    name: str
-    email: str | None = None
-    phone: str | None = None
-
-
-Proposal = Annotated[
-    TaskProposal | EventProposal | ReminderProposal | PersonProposal,
-    Field(discriminator="kind"),
-]
-
 
 class ExtractionResult(BaseModel):
-    proposals: list[Proposal] = Field(default_factory=list)
+    """A single extraction call result.
+
+    *proposals* accepts ``list[Any]`` so that the same class works with
+    dynamically-built proposal unions.  Callers should access individual
+    items via the typed model they dispatch to.
+    """
+
+    proposals: list[Any] = Field(default_factory=list)
     reasoning: str
     confidence: float
 
@@ -79,55 +54,33 @@ class ExtractionError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# System prompt builder (runtime date injection)
+# ExtractionContext — built once at startup from ExtractorPlugins
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ExtractionContext:
+    """Pre-built extraction configuration from plugin list.
+
+    Built once at startup.  Fields:
+    * ``system_prompt`` — the system prompt (core rules + plugin snippets)
+    * ``kind_to_model`` — ``{"task": TaskProposal, "event": EventProposal, …}``
+    * ``kind_to_plugin`` — ``{"task": <PlanningPeoplePlugin>, …}``
+    """
+
+    system_prompt: str
+    kind_to_model: dict[str, type[BaseModel]] = field(default_factory=dict)
+    kind_to_plugin: dict[str, Any] = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# System prompt builder
 # ---------------------------------------------------------------------------
 
 _TIMEZONE = ZoneInfo("Europe/Zurich")
 
-_JSON_SCHEMA = """{
-  "proposals": [
-    {
-      "kind": "task",
-      "name": "<string>",
-      "description": "<string or null>",
-      "priority": <integer 1-5 or null>,
-      "estimated_duration": <minutes or null>,
-      "due_date": "<ISO 8601 datetime or null>"
-    },
-    {
-      "kind": "event",
-      "name": "<string>",
-      "description": "<string or null>",
-      "start_datetime": "<ISO 8601 datetime or null>",
-      "end_datetime": "<ISO 8601 datetime or null>",
-      "location_name": "<string or null>"
-    },
-    {
-      "kind": "reminder",
-      "name": "<string>",
-      "description": "<string or null>"
-    },
-    {
-      "kind": "person",
-      "name": "<string>",
-      "email": "<string or null>",
-      "phone": "<string or null>"
-    }
-  ],
-  "reasoning": "<string: brief explanation of the extraction>",
-  "confidence": <float 0.0 to 1.0>
-}"""
-
-
-def _build_system_prompt() -> str:
-    """Return the system prompt with today's date injected at call time."""
-    today = datetime.now(_TIMEZONE)
-    today_str = today.strftime("%A, %Y-%m-%d (%Z)")
-    return f"""You are an extraction assistant. Your job is to read a short note or transcription \
-and extract structured proposals (tasks, events, reminders, people).
-
-Today is {today_str}
-Timezone: Europe/Zurich.
+_CORE_RULES = """You are an extraction assistant. Your job is to read a short note or transcription \
+and extract structured proposals.
 
 Guidelines:
 - Input may be German, French, or English. Extracted names and descriptions MUST stay in \
@@ -150,11 +103,69 @@ names as listed for entities the note refers to. Do not paraphrase known names.
 - Return an empty proposals list when there is nothing actionable in the input.
 
 Return ONLY valid JSON in a markdown code block (```json ... ```). The JSON must follow \
-this exact schema:
+this exact schema:"""
 
-```json
-{_JSON_SCHEMA}
-```"""
+
+def _build_system_prompt_from_plugins(
+    plugins: list[Any],
+) -> str:
+    """Build system prompt: core rules + each plugin's ``prompt_snippet()``.
+
+    The prompt is static — today's date is NOT included here; it is injected
+    into the per-call user prompt instead.
+    """
+    parts = [_CORE_RULES]
+    for plugin in plugins:
+        parts.append(plugin.prompt_snippet())
+    return "".join(parts)
+
+
+def build_extraction_context(
+    plugins: list[Any],
+) -> ExtractionContext:
+    """Build an ``ExtractionContext`` from a list of ``ExtractorPlugin`` instances.
+
+    Raises ``ValueError`` when two plugins declare the same ``kind`` discriminant.
+    """
+    kind_to_model: dict[str, type[BaseModel]] = {}
+    kind_to_plugin: dict[str, Any] = {}
+    errors: list[str] = []
+
+    for plugin in plugins:
+        for model_cls in plugin.proposal_models():
+            if not hasattr(model_cls, "model_fields"):
+                errors.append(
+                    f"plugin '{plugin.name}' returned non-pydantic model: {model_cls}"
+                )
+                continue
+            kind_field = model_cls.model_fields.get("kind")
+            if kind_field is None or kind_field.default is None:
+                errors.append(
+                    f"plugin '{plugin.name}' model {model_cls.__name__} "
+                    "missing 'kind' field with default"
+                )
+                continue
+            kind = kind_field.default
+            if kind in kind_to_model:
+                raise ValueError(
+                    f"Kind collision: '{kind}' declared by both "
+                    f"'{kind_to_plugin[kind].name}' and '{plugin.name}'"
+                )
+            kind_to_model[kind] = model_cls
+            kind_to_plugin[kind] = plugin
+
+    if errors:
+        raise ValueError(
+            f"Plugin model errors ({len(errors)}): " + "; ".join(errors)
+        )
+
+    system_prompt = _build_system_prompt_from_plugins(plugins)
+
+    return ExtractionContext(
+        system_prompt=system_prompt,
+        kind_to_model=kind_to_model,
+        kind_to_plugin=kind_to_plugin,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -169,8 +180,12 @@ def _build_user_prompt(
     error_feedback: str | None,
 ) -> str:
     """Assemble the complete user prompt for one extraction call."""
+    today = datetime.now(_TIMEZONE)
+    today_str = today.strftime("%A, %Y-%m-%d (%Z)")
     ref_str = reference_dt.strftime("%A, %Y-%m-%dT%H:%M:%SZ")
     parts = [
+        f"Today is {today_str}",
+        "Timezone: Europe/Zurich.",
         f"The note was created on {ref_str}",
     ]
     if entity_context.strip():
@@ -253,30 +268,67 @@ def build_llm_model(base_url: str, api_key: str, model_name: str) -> OpenAIChatM
 # ---------------------------------------------------------------------------
 
 
-def parse_extraction(raw_text: str) -> ExtractionResult:
+def parse_extraction(
+    raw_text: str,
+    kind_to_model: dict[str, type[BaseModel]],
+) -> ExtractionResult:
     """Parse JSON from an LLM text response into an ``ExtractionResult``.
+
+    Each item in ``"proposals"`` is dispatched by its ``"kind"`` field to
+    the matching model.  Unknown kinds are collected as errors and the item
+    is skipped; individual validation failures are also collected — other
+    proposals in the same batch are still returned.
 
     Handles code fences and other formatting quirks.
     """
     json_str = _extract_json_from_text(raw_text)
-    try:
-        return ExtractionResult.model_validate_json(json_str)
-    except ValidationError:
-        # Try parsing as a plain list of proposals wrapped manually
-        # Some models might return just the proposals array
+
+    data = json.loads(json_str)  # let JSONDecodeError propagate
+
+    if isinstance(data, list):
+        # Bare array → wrap
+        proposals_data = data
+        reasoning = "extracted from list response"
+        confidence = 0.7
+    elif isinstance(data, dict):
+        proposals_data = data.get("proposals", [])
+        reasoning = data.get("reasoning", "")
+        confidence = data.get("confidence", 0.5)
+    else:
+        raise ValueError(f"Unexpected JSON type: {type(data)}")
+
+    proposals: list[Any] = []
+    parse_errors: list[str] = []
+
+    for item in proposals_data:
+        if not isinstance(item, dict):
+            parse_errors.append(f"non-dict proposal item: {item}")
+            continue
+        kind = item.get("kind")
+        if kind is None:
+            parse_errors.append(f"proposal item missing 'kind': {item}")
+            continue
+        model_cls = kind_to_model.get(kind)
+        if model_cls is None:
+            parse_errors.append(f"unknown kind '{kind}' — no plugin handles it")
+            continue
         try:
-            proposals_data = json.loads(json_str)
-            if isinstance(proposals_data, list):
-                return ExtractionResult.model_validate(
-                    {
-                        "proposals": proposals_data,
-                        "reasoning": "extracted from list response",
-                        "confidence": 0.7,
-                    }
-                )
-        except (json.JSONDecodeError, ValidationError):
-            pass
-        raise
+            proposals.append(model_cls.model_validate(item))
+        except ValidationError as e:
+            parse_errors.append(f"kind '{kind}' validation error: {e}")
+
+    if parse_errors:
+        logger.warning(
+            "extraction_parse_errors",
+            count=len(parse_errors),
+            errors=parse_errors,
+        )
+
+    return ExtractionResult(
+        proposals=proposals,
+        reasoning=reasoning,
+        confidence=float(confidence),
+    )
 
 
 async def extract(
@@ -286,6 +338,8 @@ async def extract(
     entity_context: str,
     error_feedback: str | None = None,
     max_parse_retries: int = 2,
+    *,
+    extraction_ctx: ExtractionContext,
 ) -> ExtractionResult:
     """Run extraction on *text* and return the structured result.
 
@@ -304,6 +358,7 @@ async def extract(
         attempt.  Included verbatim in the prompt so the model can correct itself.
     max_parse_retries: Maximum number of LLM retries when the output cannot be
         parsed as valid ``ExtractionResult`` JSON (default 2).
+    extraction_ctx: Pre-built ``ExtractionContext`` (required).
 
     Raises
     ------
@@ -311,7 +366,9 @@ async def extract(
         When the LLM response cannot be parsed after all retries, or the model
         produces no usable text at all.
     """
-    system_prompt = _build_system_prompt()
+    system_prompt = extraction_ctx.system_prompt
+    kind_to_model = extraction_ctx.kind_to_model
+
     user_prompt = _build_user_prompt(text, reference_dt, entity_context, error_feedback)
 
     last_error: Exception | None = None
@@ -331,10 +388,10 @@ async def extract(
             raise ExtractionError("LLM returned empty response after all retries")
 
         try:
-            parsed = parse_extraction(raw_text)
+            parsed = parse_extraction(raw_text, kind_to_model=kind_to_model)
             logger.debug("extraction_raw_response", raw=raw_text[:500])
             return parsed
-        except ValidationError as e:
+        except (ValidationError, ValueError, json.JSONDecodeError) as e:
             last_error = e
             logger.warning(
                 "extraction_parse_failure",

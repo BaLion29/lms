@@ -14,17 +14,30 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from ingestd.extraction import (
-    EventProposal,
+    ExtractionContext,
     ExtractionError,
     ExtractionResult,
-    PersonProposal,
-    TaskProposal,
     build_agent,
+    build_extraction_context,
     extract,
     parse_extraction,
 )
+from ingestd.plugins.planning_people import (
+    EventProposal,
+    PersonProposal,
+    ReminderProposal,
+    TaskProposal,
+    PlanningPeoplePlugin,
+)
 
 UTC = timezone.utc
+
+# Reusable extraction context for tests that need the plugin-aware path
+_PLUGIN = PlanningPeoplePlugin()
+_EXTRACTION_CTX = build_extraction_context([_PLUGIN])
+
+# Kind-to-model map for direct parse_extraction calls
+_KIND_MAP = _EXTRACTION_CTX.kind_to_model
 
 
 # ---------------------------------------------------------------------------
@@ -89,19 +102,24 @@ async def test_task_with_resolved_due_date():
 
     agent = build_agent(FunctionModel(model_func))
     note_text = "Project review am Freitag um 17 Uhr"
-    output = await extract(agent, note_text, reference_dt, "Known people: Alice")
+    output = await extract(
+        agent, note_text, reference_dt, "Known people: Alice",
+        extraction_ctx=_EXTRACTION_CTX,
+    )
 
     # Assert user prompt content
     assert "2026-07-05" in captured_user_content
     assert "T14:00:00Z" in captured_user_content
     assert note_text in captured_user_content
     assert "Sunday" in captured_user_content
+    # Today's date and timezone are now in the user prompt
+    assert "Today is" in captured_user_content
+    assert "Europe/Zurich" in captured_user_content
 
-    # Assert system prompt contains today's date
+    # Assert system prompt does NOT contain today's date (static prompt)
     assert captured_instructions is not None
-    assert "Europe/Zurich" in captured_instructions
-    assert "Today is" in captured_instructions
-    # Weekday anchoring instruction
+    assert "Europe/Zurich" not in captured_instructions
+    # Weekday anchoring instruction still in system prompt
     assert (
         "count forward to the next occurrence of the target weekday"
         in captured_instructions
@@ -155,6 +173,7 @@ async def test_event_and_person_proposals():
         "Standup tomorrow at 9 with Bob (bob@example.com)",
         reference_dt,
         "",
+        extraction_ctx=_EXTRACTION_CTX,
     )
 
     assert len(output.proposals) == 2
@@ -192,6 +211,7 @@ async def test_empty_proposals():
         "Das Wetter ist schoen heute.",
         reference_dt,
         "",
+        extraction_ctx=_EXTRACTION_CTX,
     )
 
     assert output.proposals == []
@@ -236,7 +256,10 @@ async def test_german_transcription_language_preserved():
     german_text = (
         "Ich muss noch eine Einkaufsliste für die Geburtstagsfeier am Samstag machen."
     )
-    output = await extract(agent, german_text, reference_dt, "")
+    output = await extract(
+        agent, german_text, reference_dt, "",
+        extraction_ctx=_EXTRACTION_CTX,
+    )
 
     # German text appears verbatim in the user prompt
     assert german_text in captured_user_content
@@ -285,6 +308,7 @@ async def test_error_feedback_in_prompt():
         reference_dt,
         "",
         error_feedback=error_text,
+        extraction_ctx=_EXTRACTION_CTX,
     )
 
     # Error text must appear verbatim in the prompt
@@ -321,6 +345,7 @@ async def test_testmodel_smoke():
         "Buy milk tomorrow.",
         reference_dt,
         "Known people: Alice / Known locations: Office",
+        extraction_ctx=_EXTRACTION_CTX,
     )
 
     assert isinstance(output, ExtractionResult)
@@ -346,7 +371,7 @@ def test_parse_extraction_code_fence():
 }
 ```
 Done."""
-    result = parse_extraction(raw)
+    result = parse_extraction(raw, kind_to_model=_KIND_MAP)
     assert len(result.proposals) == 1
     assert result.proposals[0].name == "Do it"
     assert result.confidence == 0.95
@@ -360,7 +385,7 @@ Done."""
 def test_parse_extraction_plain_json():
     """parse_extraction handles plain JSON without code fences."""
     raw = '{"proposals":[],"reasoning":"Nothing.","confidence":1.0}'
-    result = parse_extraction(raw)
+    result = parse_extraction(raw, kind_to_model=_KIND_MAP)
     assert result.proposals == []
     assert result.confidence == 1.0
 
@@ -373,7 +398,7 @@ def test_parse_extraction_plain_json():
 def test_parse_extraction_embedded_json():
     """parse_extraction finds JSON embedded in extraneous text."""
     raw = 'I found this: {"proposals":[{"kind":"task","name":"X"}],"reasoning":"ok","confidence":0.8} end'
-    result = parse_extraction(raw)
+    result = parse_extraction(raw, kind_to_model=_KIND_MAP)
     assert len(result.proposals) == 1
     assert result.proposals[0].name == "X"
 
@@ -398,7 +423,10 @@ async def test_extract_empty_response_returns_empty_result():
         return _json_response(result)
 
     agent = build_agent(FunctionModel(model_func))
-    output = await extract(agent, "whatever", reference_dt, "")
+    output = await extract(
+        agent, "whatever", reference_dt, "",
+        extraction_ctx=_EXTRACTION_CTX,
+    )
 
     assert output.proposals == []
     assert output.confidence == 0.99
@@ -427,7 +455,10 @@ async def test_parse_retry_succeeds():
         return _json_response(result)
 
     agent = build_agent(FunctionModel(model_func))
-    output = await extract(agent, "Some note", reference_dt, "")
+    output = await extract(
+        agent, "Some note", reference_dt, "",
+        extraction_ctx=_EXTRACTION_CTX,
+    )
 
     assert calls[0] == 2
     assert len(output.proposals) == 1
@@ -450,7 +481,10 @@ async def test_parse_retry_exhausted_raises_extraction_error():
     agent = build_agent(FunctionModel(model_func))
 
     with pytest.raises(ExtractionError, match="Parse failure"):
-        await extract(agent, "Some note", reference_dt, "")
+        await extract(
+            agent, "Some note", reference_dt, "",
+            extraction_ctx=_EXTRACTION_CTX,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +508,10 @@ async def test_empty_response_retried_raises_extraction_error():
     agent = build_agent(FunctionModel(model_func))
 
     with pytest.raises(ExtractionError, match="empty response"):
-        await extract(agent, "Some note", reference_dt, "")
+        await extract(
+            agent, "Some note", reference_dt, "",
+            extraction_ctx=_EXTRACTION_CTX,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -485,7 +522,7 @@ async def test_empty_response_retried_raises_extraction_error():
 def test_parse_extraction_flat_list_fallback():
     """parse_extraction wraps a bare JSON array into ExtractionResult."""
     raw = '[{"kind":"task","name":"X"},{"kind":"reminder","name":"Y"}]'
-    result = parse_extraction(raw)
+    result = parse_extraction(raw, kind_to_model=_KIND_MAP)
     assert len(result.proposals) == 2
     assert result.proposals[0].kind == "task"
     assert result.proposals[0].name == "X"
