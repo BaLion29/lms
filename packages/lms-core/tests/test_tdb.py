@@ -288,6 +288,39 @@ async def test_non_2xx_raises_tdberror_with_verbatim_body(client, respx_mock):
 
 
 # ---------------------------------------------------------------------------
+# get_schema
+# ---------------------------------------------------------------------------
+
+
+async def test_get_schema(client, respx_mock):
+    schema_payload = [
+        {"@type": "@context", "@base": "terminusdb:///data/"},
+        {"@id": "Source", "@type": "Class", "@abstract": []},
+        {"@id": "Task", "@type": "Class", "@inherits": "Source", "name": "xsd:string"},
+    ]
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json=schema_payload)
+
+    result = await client.get_schema()
+
+    assert route.called
+    req = route.calls.last.request
+    assert req.url.params["graph_type"] == "schema"
+    assert req.url.params["as_list"] == "true"
+    assert result == schema_payload
+
+
+async def test_get_schema_custom_branch(client, respx_mock):
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/develop",
+    ).respond(json=[])
+
+    await client.get_schema(branch="develop")
+    assert route.called
+
+
+# ---------------------------------------------------------------------------
 # get_documents_by_status
 # ---------------------------------------------------------------------------
 

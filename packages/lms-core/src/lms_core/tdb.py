@@ -255,6 +255,23 @@ class TdbClient:
     # Convenience
     # ------------------------------------------------------------------
 
+    async def get_schema(
+        self, branch: str = "main"
+    ) -> list[dict[str, Any]]:
+        """Fetch the full schema from the document API.
+
+        Returns the schema graph as a list of class/enum/@context definitions.
+        """
+        response = await self._client.get(
+            self._doc_path(branch),
+            params={
+                "graph_type": "schema",
+                "as_list": "true",
+            },
+        )
+        await self._raise_on_error(response)
+        return response.json()  # type: ignore[no-any-return]
+
     async def get_documents_by_status(
         self, type_: str, status: str, branch: str = "main"
     ) -> list[dict[str, Any]]:

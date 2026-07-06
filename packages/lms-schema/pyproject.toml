@@ -6,7 +6,12 @@ authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "lms-core",
+]
+
+[tool.uv.sources]
+lms-core = { workspace = true }
 
 [project.scripts]
 lms-schema = "lms_schema.cli:main"
@@ -21,6 +26,8 @@ packages = ["src/lms_schema"]
 [dependency-groups]
 dev = [
     "pytest",
+    "pytest-asyncio",
+    "respx",
     "ruff",
 ]
 
