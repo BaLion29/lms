@@ -108,11 +108,14 @@ Entries in `LMS_EXTENSIONS` may be:
 
 - **PyPI name** (with optional version): `lms_ext_inbox>=0.1.0`
 - **Git URL**: `git+https://github.com/user/lms-ext-foo.git`
-- **Wheel filename** (resolved against `./dist`): `lms_ext_inbox-0.1.0a1-py3-none-any.whl`
+- **Wheel filename** (resolved against `/extensions/` in the image): `lms_ext_inbox-0.1.0a1-py3-none-any.whl`
 
 ### First-party extensions
 
-Build wheels into `./dist/` with `uv build`, then list them in `LMS_EXTENSIONS`:
+The six extensions in `extensions/` are workspace members.  Their wheels
+are built and baked into every service image during `docker compose build`
+— no host-side `./dist/` directory or `uv build` step is necessary.
+Enable or trim them via `LMS_EXTENSIONS` in `.env`:
 
 | Extension | Description |
 |---|---|

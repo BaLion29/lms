@@ -20,6 +20,14 @@ WORKDIR /app/packages/lms-schema
 # --package lms-schema ensures uv only syncs this member.
 RUN uv sync --frozen --no-dev --package lms-schema
 
+# Build first-party extension wheels so they are baked into the image.
+# This avoids requiring a host-side ./dist bind mount.
+COPY extensions/ /app/extensions/
+RUN mkdir -p /app/wheels && \
+    for ext in /app/extensions/*/; do \
+        uv build --wheel --out-dir /app/wheels/ "$ext"; \
+    done
+
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime: slim Python image, non-root user
 # ---------------------------------------------------------------------------
@@ -30,6 +38,9 @@ RUN useradd -m -u 1000 lmsschema
 
 # Copy the application venv + source from builder, owned by the runtime user.
 COPY --from=builder --chown=lmsschema:lmsschema /app /app
+
+# Baked-in first-party extension wheels (LMS_EXTENSIONS picks from here).
+COPY --from=builder --chown=lmsschema:lmsschema /app/wheels/ /extensions/
 
 # Put the workspace venv on PATH so the lms-schema CLI is found directly.
 # PYTHONPATH makes the extension overlay visible to importlib.metadata.

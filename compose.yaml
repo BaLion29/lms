@@ -18,7 +18,7 @@
 # Extension toggling:
 #   Set LMS_EXTENSIONS in .env.  The bootstrap service installs them into
 #   the lms_ext_venv volume.  All other services mount it read-only.
-#   First-party wheels are resolved from ./dist (mounted as /extensions).
+#   First-party wheels are baked into the images at build time.
 #
 # Requires Docker Compose >= 2.24.
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -45,7 +45,6 @@ services:
       - lms_ext_venv:/opt/lms-ext-venv             # writeable — installs wheels here
       - ./schema:/work/schema:ro
       - ./build:/work/build
-      - ./dist:/extensions:ro                       # wheel mount dir for LMS_EXTENSIONS
     restart: "no"
     # 1. Create the database if it does not exist (TerminusDB requires it
     #    before any schema push; uses a Python heredoc — no extra deps besides

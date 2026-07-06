@@ -22,6 +22,14 @@ WORKDIR /app/services/queryd
 # context and would cause discovery errors otherwise.
 RUN uv sync --frozen --no-dev --package queryd
 
+# Build first-party extension wheels so they are baked into the image.
+# This avoids requiring a host-side ./dist bind mount.
+COPY extensions/ /app/extensions/
+RUN mkdir -p /app/wheels && \
+    for ext in /app/extensions/*/; do \
+        uv build --wheel --out-dir /app/wheels/ "$ext"; \
+    done
+
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime: slim Python image, non-root user
 # ---------------------------------------------------------------------------
@@ -32,6 +40,9 @@ RUN useradd -m -u 1000 queryd
 
 # Copy the application venv + source from builder, owned by the runtime user.
 COPY --from=builder --chown=queryd:queryd /app /app
+
+# Baked-in first-party extension wheels (LMS_EXTENSIONS picks from here).
+COPY --from=builder --chown=queryd:queryd /app/wheels/ /extensions/
 
 # Put the workspace venv on PATH so the queryd console script is found directly.
 # PYTHONPATH makes the extension overlay visible to importlib.metadata.
