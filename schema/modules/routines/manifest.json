@@ -1,0 +1,7 @@
+{
+  "name": "routines",
+  "version": "1.0.0",
+  "depends_on": [{"name": "planning", "range": ">=1.0.0 <2.0.0"}],
+  "exports": ["Routine", "Activity"],
+  "description": "Routines with steps, activities and specs"
+}

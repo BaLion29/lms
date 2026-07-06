@@ -1,0 +1,68 @@
+[
+  {
+    "@id": "Routine",
+    "@inherits": [
+      "Remindable",
+      "Source"
+    ],
+    "@type": "Class",
+    "created_at": "xsd:dateTime",
+    "name": "xsd:string",
+    "required_context": {
+      "@class": "Context",
+      "@type": "Set"
+    },
+    "steps": {
+      "@class": "RoutineStep",
+      "@type": "List"
+    },
+    "trigger": "Trigger",
+    "updated_at": "xsd:dateTime"
+  },
+  {
+    "@id": "RoutineStep",
+    "@inherits": "Source",
+    "@oneOf": {
+      "activity": "ActivitySpec",
+      "task": "TaskSpec"
+    },
+    "@type": "Class",
+    "cadence_days": {
+      "@class": "xsd:integer",
+      "@type": "Optional"
+    }
+  },
+  {
+    "@id": "Activity",
+    "@inherits": [
+      "Remindable",
+      "Source",
+      "Context",
+      "ActivitySpec"
+    ],
+    "@type": "Class",
+    "created_at": "xsd:dateTime",
+    "derived_from": {
+      "@class": "Source",
+      "@type": "Optional"
+    },
+    "end_datetime": {
+      "@class": "xsd:dateTime",
+      "@type": "Optional"
+    },
+    "start_datetime": {
+      "@class": "xsd:dateTime",
+      "@type": "Optional"
+    },
+    "updated_at": "xsd:dateTime"
+  },
+  {
+    "@id": "ActivitySpec",
+    "@type": "Class",
+    "description": {
+      "@class": "xsd:string",
+      "@type": "Optional"
+    },
+    "name": "xsd:string"
+  }
+]

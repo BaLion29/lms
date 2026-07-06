@@ -1,0 +1,7 @@
+{
+  "name": "people",
+  "version": "1.0.0",
+  "depends_on": [],
+  "exports": ["Person", "Location"],
+  "description": "People, contacts and locations"
+}

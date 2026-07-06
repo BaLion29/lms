@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 members = [
     "ingestd",
     "lms-core",
+    "lms-schema",
     "lms-workspace",
     "queryd",
 ]
@@ -412,6 +413,25 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "respx" },
+    { name = "ruff" },
+]
+
+[[package]]
+name = "lms-schema"
+version = "0.1.0"
+source = { editable = "packages/lms-schema" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
     { name = "ruff" },
 ]
 

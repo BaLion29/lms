@@ -1,0 +1,34 @@
+[
+  {
+    "@abstract": [],
+    "@id": "Remindable",
+    "@type": "Class"
+  },
+  {
+    "@abstract": [],
+    "@id": "Source",
+    "@type": "Class"
+  },
+  {
+    "@abstract": [],
+    "@id": "Context",
+    "@type": "Class"
+  },
+  {
+    "@abstract": [],
+    "@id": "Trigger",
+    "@type": "Class",
+    "created_at": "xsd:dateTime",
+    "enabled": "xsd:boolean",
+    "name": "xsd:string",
+    "updated_at": "xsd:dateTime",
+    "valid_from": {
+      "@class": "xsd:dateTime",
+      "@type": "Optional"
+    },
+    "valid_until": {
+      "@class": "xsd:dateTime",
+      "@type": "Optional"
+    }
+  }
+]

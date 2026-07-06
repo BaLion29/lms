@@ -1,0 +1,7 @@
+{
+  "name": "planning",
+  "version": "1.0.0",
+  "depends_on": [{"name": "people", "range": ">=1.0.0 <2.0.0"}],
+  "exports": ["Task", "TaskSpec", "Event", "Reminder"],
+  "description": "Tasks, events, reminders and trigger system"
+}

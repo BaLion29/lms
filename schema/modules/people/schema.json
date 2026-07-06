@@ -1,0 +1,53 @@
+[
+  {
+    "@id": "Person",
+    "@inherits": [
+      "Source",
+      "Context"
+    ],
+    "@type": "Class",
+    "contact": {
+      "@class": "Contact",
+      "@type": "Optional"
+    },
+    "name": "xsd:string"
+  },
+  {
+    "@id": "Contact",
+    "@key": {
+      "@type": "Random"
+    },
+    "@subdocument": [],
+    "@type": "Class",
+    "domicile": {
+      "@class": "Location",
+      "@type": "Optional"
+    },
+    "email": {
+      "@class": "xsd:string",
+      "@type": "Optional"
+    },
+    "phone": {
+      "@class": "xsd:string",
+      "@type": "Optional"
+    }
+  },
+  {
+    "@id": "Location",
+    "@inherits": "Context",
+    "@type": "Class",
+    "address": {
+      "@class": "xsd:string",
+      "@type": "Optional"
+    },
+    "aliases": {
+      "@class": "xsd:string",
+      "@type": "Set"
+    },
+    "coordinates": {
+      "@class": "xdd:coordinate",
+      "@type": "Optional"
+    },
+    "name": "xsd:string"
+  }
+]

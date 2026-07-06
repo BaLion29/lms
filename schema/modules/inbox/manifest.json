@@ -1,0 +1,7 @@
+{
+  "name": "inbox",
+  "version": "1.0.0",
+  "depends_on": [],
+  "exports": ["InboxNote", "InboxAudio"],
+  "description": "Inbox capture documents for notes and audio"
+}
