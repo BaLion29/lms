@@ -336,3 +336,129 @@ def test_diff_against_live_no_differences():
 
     changes = diff_against_live(current, id_to_mod, fetched)
     assert changes == []
+
+
+def test_diff_against_live_allow_extra_live_classes():
+    """When --allow-extra-live-classes, live-only classes are additive, not breaking."""
+    current = {
+        "A": {"@id": "A", "@type": "Class", "name": "xsd:string"},
+    }
+    id_to_mod = {"A": "core"}
+    fetched = [
+        {"@type": "@context"},
+        {"@id": "A", "@type": "Class", "name": "xsd:string"},
+        {"@id": "C", "@type": "Class", "desc": "xsd:string"},
+    ]
+
+    changes = diff_against_live(current, id_to_mod, fetched, allow_extra_live_classes=True)
+    assert len(changes) == 1
+    assert changes[0].kind == "additive"
+    assert "'C'" in changes[0].description
+    assert "unexpected" in changes[0].description.lower()
+
+
+# ===================================================================
+# Enum reorder tests (ordered comparison)
+# ===================================================================
+
+
+def test_enum_reorder_is_breaking():
+    """Reordering enum @values is BREAKING (TerminusDB ordinal storage)."""
+    old = [{"@id": "Status", "@type": "Enum", "@value": ["draft", "review", "published"]}]
+    new = [{"@id": "Status", "@type": "Enum", "@value": ["draft", "published", "review"]}]
+    changes = classify_module_changes("m", old, new)
+    assert len(changes) == 1
+    assert changes[0].kind == "breaking"
+    assert "reordered" in changes[0].description
+
+
+def test_enum_reorder_with_add_is_breaking_and_additive():
+    """Reordering + adding a value: both detected."""
+    old = [{"@id": "Status", "@type": "Enum", "@value": ["draft", "review", "published"]}]
+    new = [{"@id": "Status", "@type": "Enum", "@value": ["draft", "published", "review", "archived"]}]
+    changes = classify_module_changes("m", old, new)
+    assert len(changes) == 2
+    kinds = {c.kind for c in changes}
+    assert "additive" in kinds
+    assert "breaking" in kinds
+
+
+# ===================================================================
+# @key, @inherits, @oneOf REMOVAL tests
+# ===================================================================
+
+
+def test_key_removal_is_breaking():
+    """Removing @key from a class is BREAKING."""
+    old = [{"@id": "A", "@type": "Class", "@key": "name", "name": "xsd:string"}]
+    new = [{"@id": "A", "@type": "Class", "name": "xsd:string"}]
+    changes = classify_module_changes("m", old, new)
+    assert len(changes) == 1
+    assert changes[0].kind == "breaking"
+    assert "@key" in changes[0].description
+
+
+def test_inherits_removal_is_breaking():
+    """Removing @inherits from a class is BREAKING."""
+    old = [{"@id": "A", "@type": "Class", "@inherits": "Source", "name": "xsd:string"}]
+    new = [{"@id": "A", "@type": "Class", "name": "xsd:string"}]
+    changes = classify_module_changes("m", old, new)
+    assert len(changes) == 1
+    assert changes[0].kind == "breaking"
+    assert "@inherits" in changes[0].description
+
+
+def test_oneof_removal_is_breaking():
+    """Removing @oneOf from a class is BREAKING."""
+    old = [{"@id": "A", "@type": "Class", "@oneOf": {"x": "xsd:string"}, "x": "xsd:string"}]
+    new = [{"@id": "A", "@type": "Class", "x": "xsd:string"}]
+    changes = classify_module_changes("m", old, new)
+    assert len(changes) == 1
+    assert changes[0].kind == "breaking"
+    assert "@oneOf" in changes[0].description
+
+
+# ===================================================================
+# required → Optional "range widened" description
+# ===================================================================
+
+
+def test_required_to_optional_range_widened():
+    """Changing from required (plain type) to Optional says 'range widened'."""
+    old = [{"@id": "A", "@type": "Class", "x": "xsd:string"}]
+    new = [{"@id": "A", "@type": "Class", "x": {"@class": "xsd:string", "@type": "Optional"}}]
+    changes = classify_module_changes("m", old, new)
+    assert len(changes) == 1
+    assert changes[0].kind == "breaking"
+    assert "range widened" in changes[0].description
+
+
+# ===================================================================
+# Version DOWNGRADE guardrail
+# ===================================================================
+
+
+def test_downgrade_is_guardrail_violation():
+    """Version DOWNGRADE (new < old) is always a violation."""
+    changes = [Change("m", "additive", "New class 'Y'")]
+    violations = check_guardrails(
+        "m", changes,
+        Version(2, 0, 0),  # old
+        Version(1, 0, 0),  # new (downgrade!)
+        set(), set(),
+    )
+    assert len(violations) == 1
+    assert "DOWNGRADE" in violations[0]
+    assert "2.0.0" in violations[0] and "1.0.0" in violations[0]
+
+
+def test_downgrade_even_without_changes():
+    """Downgrade without any changes is still a violation."""
+    violations = check_guardrails(
+        "m", [],
+        Version(1, 5, 0),
+        Version(1, 0, 0),
+        set(), set(),
+    )
+    assert len(violations) == 1
+    assert "DOWNGRADE" in violations[0]

@@ -65,8 +65,58 @@ def _cmd_compose(args: argparse.Namespace) -> int:
     lock_path = out_dir / "modules.lock.json"
     lock_path.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n")
 
+    # Write meta file (class → module mapping, sorted for determinism)
+    meta: dict[str, dict[str, str]] = {
+        "classes": dict(sorted(result.class_id_to_module.items())),
+    }
+    meta_path = out_dir / "composed.meta.json"
+    meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
+
     print(f"Composed {len(result.modules)} modules → {schema_path}")
     print(f"Lock file written → {lock_path}")
+    print(f"Meta file written → {meta_path}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# codegen
+# ---------------------------------------------------------------------------
+
+
+def _cmd_codegen(args: argparse.Namespace) -> int:
+    composed_path = Path(args.composed)
+    meta_path = Path(args.meta)
+
+    if not composed_path.is_file():
+        print(
+            f"Error: composed schema not found at '{composed_path}'.\n"
+            f"  Run 'lms-schema compose' first to generate it.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not meta_path.is_file():
+        print(
+            f"Error: composed meta not found at '{meta_path}'.\n"
+            f"  Run 'lms-schema compose' first to generate it.",
+            file=sys.stderr,
+        )
+        return 1
+
+    composed_schema = json.loads(composed_path.read_text())
+    meta = json.loads(meta_path.read_text())
+    class_id_to_module = meta.get("classes", {})
+
+    from .codegen import schema_checksum, write_generated
+
+    checksum = schema_checksum(composed_schema)
+    out_dir = Path(args.out)
+
+    paths = write_generated(out_dir, composed_schema, class_id_to_module, checksum)
+
+    print(f"Generated {len(paths)} files → {out_dir}")
+    for p in paths:
+        print(f"  {p.name}")
     return 0
 
 
@@ -168,9 +218,10 @@ def _diff_fragments(
             baseline_migrations = {mf.name for mf in list_migrations(bm.module_dir)}
         elif baseline_lock and name in baseline_lock:
             baseline_ver = Version.parse(baseline_lock[name]["version"])
-            # No baseline modules dir, but we have the lock — fragments not available
-            # for diffing, but we can still do guardrail checks
-            baseline_fragment = None
+            # Module is in the lock but no baseline-modules dir provided →
+            # treat baseline fragment as empty so all current classes show
+            # as additive new content.  Checksum/version guardrails still apply.
+            baseline_fragment = []
 
         cur_migrations = {mf.name for mf in list_migrations(cur_manifest.module_dir)}
 
@@ -186,21 +237,6 @@ def _diff_fragments(
 
         if changes:
             all_changes.extend(changes)
-
-        # Compute what checksum was expected
-        old_checksum = None
-        if baseline_lock and name in baseline_lock:
-            old_checksum = baseline_lock[name]["checksum"]
-
-        new_checksum = current_checksums.get(name, "")
-
-        # Guardrail: checksum changed but version unchanged
-        if old_checksum and old_checksum != new_checksum:
-            if baseline_ver is not None and baseline_ver == cur_ver:
-                all_violations.append(
-                    f"Module '{name}': checksum changed but version not bumped "
-                    f"(still {cur_ver})"
-                )
 
         # Only run guardrails when we have a baseline version
         if baseline_ver is not None:
@@ -221,6 +257,19 @@ def _diff_fragments(
                     f"but no schema/export changes detected"
                 )
 
+    # --- Deleted modules (in baseline but not current) ---
+    for name in sorted(baseline_modules):
+        if name not in current_modules:
+            all_changes.append(Change(
+                module=name,
+                kind="breaking",
+                description=f"Module '{name}' deleted (present in baseline but missing in current)",
+            ))
+            all_violations.append(
+                f"Module '{name}': DELETED — present in baseline but missing "
+                f"in current modules directory"
+            )
+
     return all_changes, all_violations, all_warnings
 
 
@@ -232,6 +281,7 @@ async def _diff_live(
     tdb_user: str,
     tdb_password: str,
     branch: str,
+    allow_extra_live_classes: bool = False,
 ) -> list[Change]:
     """Compare the composed schema against a live TerminusDB instance."""
     # Lazy import — only when networking is actually requested
@@ -266,13 +316,53 @@ async def _diff_live(
     ) as client:
         fetched = await client.get_schema(branch=branch)
 
-    return diff_against_live(current_by_id, id_to_module, fetched)
+    return diff_against_live(current_by_id, id_to_module, fetched,
+                             allow_extra_live_classes=allow_extra_live_classes)
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
+    import os
+    import traceback
+
     modules_dir = Path(args.modules_dir)
     if not modules_dir.is_dir():
         print(f"Error: --modules-dir '{modules_dir}' is not a directory", file=sys.stderr)
+        return 2
+
+    # --- Validate TDB args (all-or-nothing) ---
+    tdb_password = args.tdb_password or os.environ.get("LMS_SCHEMA_TDB_PASSWORD", "")
+    tdb_args_provided = any([
+        args.tdb_url, args.tdb_org, args.tdb_db, args.tdb_user, args.tdb_password,
+    ])
+
+    if tdb_args_provided:
+        missing = []
+        if not args.tdb_url:
+            missing.append("--tdb-url")
+        if not args.tdb_org:
+            missing.append("--tdb-org")
+        if not args.tdb_db:
+            missing.append("--tdb-db")
+        if not args.tdb_user:
+            missing.append("--tdb-user")
+        if not tdb_password:
+            missing.append("--tdb-password (or LMS_SCHEMA_TDB_PASSWORD env var)")
+        if missing:
+            print(
+                f"Error: live-diff requested but missing required arguments: {', '.join(missing)}",
+                file=sys.stderr,
+            )
+            return 2
+
+    has_fragment_baseline = args.baseline_lock or args.baseline_modules
+    has_live_baseline = bool(args.tdb_url)
+
+    if not has_fragment_baseline and not has_live_baseline:
+        print(
+            "Error: no baseline source provided. "
+            "Specify at least one of --baseline-lock, --baseline-modules, or --tdb-url.",
+            file=sys.stderr,
+        )
         return 2
 
     all_guardrail_violations: list[str] = []
@@ -314,11 +404,17 @@ def _cmd_diff(args: argparse.Namespace) -> int:
                 args.tdb_org,
                 args.tdb_db,
                 args.tdb_user,
-                args.tdb_password,
+                tdb_password,
                 args.branch,
+                allow_extra_live_classes=args.allow_extra_live_classes,
             ))
         except Exception as exc:
-            print(f"Error fetching live schema: {exc}", file=sys.stderr)
+            from lms_core.tdb import TdbError  # delayed import
+            if isinstance(exc, TdbError):
+                print(f"Error fetching live schema: {exc}", file=sys.stderr)
+            else:
+                traceback.print_exc()
+                print(f"Error fetching live schema: {exc}", file=sys.stderr)
             return 2
 
         _print_changes(live_changes)
@@ -371,6 +467,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output directory for composed schema and lock file (default: build)",
     )
 
+    # codegen
+    p_codegen = sub.add_parser("codegen", help="Generate Pydantic models from composed schema")
+    p_codegen.add_argument(
+        "--composed",
+        default="build/composed.schema.json",
+        help="Path to composed schema (default: build/composed.schema.json)",
+    )
+    p_codegen.add_argument(
+        "--meta",
+        default="build/composed.meta.json",
+        help="Path to composed meta mapping (default: build/composed.meta.json)",
+    )
+    p_codegen.add_argument(
+        "--out",
+        default="packages/lms-core/src/lms_core/generated",
+        help="Output directory for generated models (default: packages/lms-core/src/lms_core/generated)",
+    )
+
     # diff
     p_diff = sub.add_parser("diff", help="Diff modules and check guardrails")
     p_diff.add_argument(
@@ -393,8 +507,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_diff.add_argument("--tdb-org", default=None)
     p_diff.add_argument("--tdb-db", default=None)
     p_diff.add_argument("--tdb-user", default=None)
-    p_diff.add_argument("--tdb-password", default=None)
+    p_diff.add_argument(
+        "--tdb-password",
+        default=None,
+        help="TerminusDB password (falls back to LMS_SCHEMA_TDB_PASSWORD env var)",
+    )
     p_diff.add_argument("--branch", default="main")
+    p_diff.add_argument(
+        "--allow-extra-live-classes",
+        action="store_true",
+        default=False,
+        help="Downgrade live-only classes from breaking to warnings",
+    )
 
     return parser
 
@@ -405,6 +529,8 @@ def main() -> None:
 
     if args.command == "compose":
         sys.exit(_cmd_compose(args))
+    elif args.command == "codegen":
+        sys.exit(_cmd_codegen(args))
     elif args.command == "diff":
         sys.exit(_cmd_diff(args))
     else:

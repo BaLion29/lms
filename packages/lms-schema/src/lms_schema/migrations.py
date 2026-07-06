@@ -3,6 +3,8 @@
 Migrations live under ``schema/modules/<name>/migrations/`` as
 ``NNNN_description.py`` files.  This module provides listing and
 validation — the actual runner comes later.
+
+Gaps in NNNN numbering are permitted (e.g., 0001 → 0005 is fine).
 """
 
 from __future__ import annotations

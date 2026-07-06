@@ -261,6 +261,7 @@ class TdbClient:
         """Fetch the full schema from the document API.
 
         Returns the schema graph as a list of class/enum/@context definitions.
+        Note that the returned list includes the ``@context`` object.
         """
         response = await self._client.get(
             self._doc_path(branch),
