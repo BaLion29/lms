@@ -17,7 +17,6 @@ from pydantic import BaseModel
 from ingestd.extraction import ExtractionContext, ExtractionResult, extract
 from ingestd.linking import (
     EntityIndex,
-    build_context_block,
     build_index,
     match_location,
     match_person,
@@ -67,7 +66,7 @@ class Pipeline:
         # Extract unique extractor plugins from context (for linking_context)
         seen: set[int] = set()
         self._extractor_plugins: list[Any] = []
-        for plugin in extraction_ctx.kind_to_plugin.values():
+        for plugin in extraction_ctx.plugins:
             pid = id(plugin)
             if pid not in seen:
                 seen.add(pid)
@@ -161,8 +160,8 @@ class Pipeline:
     # ------------------------------------------------------------------
 
     async def _build_linking_context(self, index: EntityIndex) -> str:
-        """Build linking context: built-in block + each plugin's contribution."""
-        parts: list[str] = [build_context_block(index)]
+        """Build linking context from each extractor plugin's contribution."""
+        parts: list[str] = []
 
         for plugin in self._extractor_plugins:
             try:

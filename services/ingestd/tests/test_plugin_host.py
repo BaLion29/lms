@@ -354,9 +354,9 @@ class TestPromptConstruction:
         assert "Plugin A" in ctx.system_prompt
 
     def test_prompt_contains_actual_schema_content(self):
-        """Prompt from PlanningPeoplePlugin contains known field names from each proposal model."""
-        from ingestd.plugins.planning_people import PlanningPeoplePlugin
-        ctx = build_extraction_context([PlanningPeoplePlugin()])
+        """Prompt from PlanningPlugin contains known field names from each proposal model."""
+        from lms_ext_planning.extract import PlanningPlugin
+        ctx = build_extraction_context([PlanningPlugin()])
         prompt = ctx.system_prompt
         # Known fields from each proposal model should appear in the prompt
         assert "estimated_duration" in prompt  # TaskProposal

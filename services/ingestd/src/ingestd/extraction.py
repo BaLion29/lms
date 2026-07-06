@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import json
 import re
+import typing
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, get_args, get_origin
 
 import structlog
 from pydantic import BaseModel, Field, ValidationError
@@ -66,11 +67,13 @@ class ExtractionContext:
     * ``system_prompt`` — the system prompt (core rules + plugin snippets)
     * ``kind_to_model`` — ``{"task": TaskProposal, "event": EventProposal, …}``
     * ``kind_to_plugin`` — ``{"task": <PlanningPeoplePlugin>, …}``
+    * ``plugins`` — the full list of plugins (including those with zero proposal models)
     """
 
     system_prompt: str
     kind_to_model: dict[str, type[BaseModel]] = field(default_factory=dict)
     kind_to_plugin: dict[str, Any] = field(default_factory=dict)
+    plugins: list[Any] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -106,17 +109,62 @@ Return ONLY valid JSON in a markdown code block (```json ... ```). The JSON must
 this exact schema:"""
 
 
+def _model_schema_entry(model_cls: type[BaseModel]) -> dict[str, Any]:
+    """Render a human-readable JSON-schema entry for one proposal model.
+
+    Inspects ``model_fields``; skips the ``kind`` discriminant (set from
+    default).  Returns a dict suitable for inclusion in the union schema
+    array — e.g. ``{"kind":"task","name":"<string>",...}``.
+    """
+    entry: dict[str, object] = {}
+    for fname, finfo in model_cls.model_fields.items():
+        if fname == "kind":
+            entry["kind"] = finfo.default
+            continue
+        origin = get_origin(finfo.annotation)
+        args = get_args(finfo.annotation)
+        is_optional = type(None) in args if args else False
+        if is_optional:
+            entry[fname] = f"<{finfo.annotation!r} or null>"
+        else:
+            entry[fname] = f"<{finfo.annotation!r}>"
+    # Ensure kind is first
+    items = list(entry.items())
+    items.sort(key=lambda kv: (0 if kv[0] == "kind" else 1))
+    return dict(items)
+
+
+def _render_union_schema(kind_to_model: dict[str, type[BaseModel]]) -> str:
+    """Build a merged JSON-schema block covering all proposal kinds.
+
+    Returns a pretty-printed JSON string with one object per kind
+    in the ``proposals`` array, plus ``reasoning`` and ``confidence``.
+    """
+    entries = [_model_schema_entry(m) for m in kind_to_model.values()]
+    schema = {
+        "proposals": entries,
+        "reasoning": "<string: brief explanation of the extraction>",
+        "confidence": "<float 0.0 to 1.0>",
+    }
+    return json.dumps(schema, indent=2, default=str)
+
+
 def _build_system_prompt_from_plugins(
+    kind_to_model: dict[str, type[BaseModel]],
     plugins: list[Any],
 ) -> str:
-    """Build system prompt: core rules + each plugin's ``prompt_snippet()``.
+    """Build system prompt: core rules + ONE merged JSON schema fence + plugin
+    instruction snippets.
 
-    The prompt is static — today's date is NOT included here; it is injected
-    into the per-call user prompt instead.
+    The kernel owns the JSON output contract — the code fence is built here
+    from the collected proposal models, never from individual plugins.
     """
-    parts = [_CORE_RULES]
+    schema_json = _render_union_schema(kind_to_model)
+    parts = [_CORE_RULES, f"\n\n```json\n{schema_json}\n```"]
     for plugin in plugins:
-        parts.append(plugin.prompt_snippet())
+        snippet = plugin.prompt_snippet()
+        if snippet:
+            parts.append(f"\n\n{snippet}")
     return "".join(parts)
 
 
@@ -159,12 +207,13 @@ def build_extraction_context(
             f"Plugin model errors ({len(errors)}): " + "; ".join(errors)
         )
 
-    system_prompt = _build_system_prompt_from_plugins(plugins)
+    system_prompt = _build_system_prompt_from_plugins(kind_to_model, plugins)
 
     return ExtractionContext(
         system_prompt=system_prompt,
         kind_to_model=kind_to_model,
         kind_to_plugin=kind_to_plugin,
+        plugins=list(plugins),
     )
 
 

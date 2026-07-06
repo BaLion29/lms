@@ -1,11 +1,10 @@
-"""Tests for ingestd.linking — entity index building, context blocks, matching."""
+"""Tests for ingestd.linking — entity index building, matching."""
 
 from __future__ import annotations
 
 import structlog
 from ingestd.linking import (
     EntityIndex,
-    build_context_block,
     build_index,
     match_location,
     match_person,
@@ -73,48 +72,6 @@ class TestBuildIndex:
         index = build_index(people, locations)
         # The stored key is the casefold of "Straße"
         assert index.people["strasse"] == "Person/1"
-
-
-# ---------------------------------------------------------------------------
-# build_context_block
-# ---------------------------------------------------------------------------
-
-
-class TestBuildContextBlock:
-    def test_small_index_exact_string(self):
-        index = EntityIndex(
-            people={"anna meier": "Person/abc"},
-            people_display=[("Anna Meier", "Person/abc")],
-            locations={"rotondohütte": "Location/hut1"},
-            locations_display=[("Rotondohütte", "Location/hut1")],
-        )
-        block = build_context_block(index)
-        expected = (
-            "Known people: Anna Meier <Person/abc>\n"
-            "Known locations: Rotondohütte <Location/hut1>"
-        )
-        assert block == expected
-
-    def test_multiple_entries_comma_separated(self):
-        index = EntityIndex(
-            people={},
-            people_display=[
-                ("Anna Meier", "Person/abc"),
-                ("Bob Müller", "Person/def"),
-            ],
-            locations={},
-            locations_display=[],
-        )
-        block = build_context_block(index)
-        assert block == (
-            "Known people: Anna Meier <Person/abc>, Bob Müller <Person/def>\n"
-            "Known locations: (none)"
-        )
-
-    def test_empty_index_shows_none(self):
-        index = EntityIndex()
-        block = build_context_block(index)
-        assert block == "Known people: (none)\nKnown locations: (none)"
 
 
 # ---------------------------------------------------------------------------

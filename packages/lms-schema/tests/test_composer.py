@@ -364,7 +364,7 @@ def test_equivalence_with_monolithic() -> None:
         assert comp_cls == mono_cls, f"Mismatch for class '{cid}'"
 
     # Extension modules must be present with pkg: source prefix
-    extension_modules = {"inbox", "places", "routines"}
+    extension_modules = {"inbox", "places", "routines", "people", "planning", "reminders", "triggers"}
     module_names = {m.name for m in result.modules}
     for ext_name in extension_modules:
         assert ext_name in module_names, (

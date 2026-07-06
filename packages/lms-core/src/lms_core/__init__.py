@@ -32,6 +32,7 @@ from lms_core.plugins import (
     CaptureHandler,
     CapturePayload,
     DiscoveryResult,
+    EntityIndex,
     ExtractorPlugin,
     IngestSourcePlugin,
     ModuleRequirement,
@@ -48,6 +49,11 @@ from lms_core.tdb import (
     TdbError,
     full_iri,
     short_iri,
+)
+from lms_core.tooling import (
+    ToolTraceEntry,
+    now_utc_str,
+    traced,
 )
 
 __all__ = [
@@ -90,6 +96,7 @@ __all__ = [
     "CaptureHandler",
     "CapturePayload",
     "DiscoveryResult",
+    "EntityIndex",
     "ExtractorPlugin",
     "IngestSourcePlugin",
     "ModuleRequirement",
@@ -98,4 +105,8 @@ __all__ = [
     "check_requirements",
     "discover_plugins",
     "select_plugins",
+    # tooling
+    "ToolTraceEntry",
+    "now_utc_str",
+    "traced",
 ]

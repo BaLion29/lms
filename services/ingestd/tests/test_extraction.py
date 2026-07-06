@@ -22,22 +22,31 @@ from ingestd.extraction import (
     extract,
     parse_extraction,
 )
-from ingestd.plugins.planning_people import (
+from lms_ext_planning.extract import (
     EventProposal,
     PersonProposal,
-    ReminderProposal,
     TaskProposal,
-    PlanningPeoplePlugin,
+    PlanningPlugin,
 )
+from lms_ext_reminders.extract import ReminderProposal, ReminderExtractPlugin
+from lms_ext_people.extract import PeopleLinkingPlugin
 
 UTC = timezone.utc
 
 # Reusable extraction context for tests that need the plugin-aware path
-_PLUGIN = PlanningPeoplePlugin()
-_EXTRACTION_CTX = build_extraction_context([_PLUGIN])
+_PLANNING_PLUGIN = PlanningPlugin()
+_EXTRACTION_CTX = build_extraction_context([_PLANNING_PLUGIN])
+
+# Full ensemble context for integration tests (all three plugins)
+_FULL_ENSEMBLE_CTX = build_extraction_context([
+    PlanningPlugin(),
+    ReminderExtractPlugin(),
+    PeopleLinkingPlugin(),
+])
 
 # Kind-to-model map for direct parse_extraction calls
 _KIND_MAP = _EXTRACTION_CTX.kind_to_model
+_FULL_KIND_MAP = _FULL_ENSEMBLE_CTX.kind_to_model
 
 
 # ---------------------------------------------------------------------------
@@ -522,10 +531,71 @@ async def test_empty_response_retried_raises_extraction_error():
 def test_parse_extraction_flat_list_fallback():
     """parse_extraction wraps a bare JSON array into ExtractionResult."""
     raw = '[{"kind":"task","name":"X"},{"kind":"reminder","name":"Y"}]'
-    result = parse_extraction(raw, kind_to_model=_KIND_MAP)
+    result = parse_extraction(raw, kind_to_model=_FULL_KIND_MAP)
     assert len(result.proposals) == 2
     assert result.proposals[0].kind == "task"
     assert result.proposals[0].name == "X"
     assert result.proposals[1].kind == "reminder"
     assert result.proposals[1].name == "Y"
     assert result.confidence == 0.7
+
+
+# ---------------------------------------------------------------------------
+# Test 15 — Integration: composed prompt from all three plugins covers all 4 kinds
+# ---------------------------------------------------------------------------
+
+
+def test_composed_prompt_covers_all_four_kinds():
+    """The system prompt built by the kernel contains exactly ONE JSON code
+    fence with a union schema covering all four proposal kinds."""
+    prompt = _FULL_ENSEMBLE_CTX.system_prompt
+    # Core rules present
+    assert "extraction assistant" in prompt.lower()
+    assert "do not translate" in prompt.lower()
+    # No duplicate today/zone injection in system prompt
+    assert "Today is" not in prompt
+    assert "Europe/Zurich" not in prompt
+    # Exactly one ```json fence
+    assert prompt.count("```json") == 1
+    assert "```json\n" in prompt
+    assert "\n```" in prompt
+    # Union schema lists all four kinds
+    assert '"kind": "task"' in prompt
+    assert '"kind": "event"' in prompt
+    assert '"kind": "person"' in prompt
+    assert '"kind": "reminder"' in prompt
+    # Planning plugin fields
+    assert "estimated_duration" in prompt
+    assert "location_name" in prompt
+    assert "email" in prompt
+    # Generic JSON fields
+    assert "proposals" in prompt
+    assert "reasoning" in prompt
+    assert "confidence" in prompt
+
+    # Kind map has all four kinds
+    assert set(_FULL_KIND_MAP.keys()) == {"task", "event", "person", "reminder"}
+
+
+def test_mixed_batch_parse_all_four_kinds():
+    """A JSON batch with all four kinds is correctly dispatched to the right models."""
+    raw = """{
+  "proposals": [
+    {"kind": "task", "name": "Buy milk"},
+    {"kind": "event", "name": "Meeting", "location_name": "Office"},
+    {"kind": "person", "name": "Bob Smith", "email": "bob@example.com"},
+    {"kind": "reminder", "name": "Call doctor"}
+  ],
+  "reasoning": "test",
+  "confidence": 0.95
+}"""
+    result = parse_extraction(raw, kind_to_model=_FULL_KIND_MAP)
+    assert len(result.proposals) == 4
+    assert isinstance(result.proposals[0], TaskProposal)
+    assert isinstance(result.proposals[1], EventProposal)
+    assert isinstance(result.proposals[2], PersonProposal)
+    assert isinstance(result.proposals[3], ReminderProposal)
+    assert result.proposals[0].name == "Buy milk"
+    assert result.proposals[1].name == "Meeting"
+    assert result.proposals[2].name == "Bob Smith"
+    assert result.proposals[3].name == "Call doctor"

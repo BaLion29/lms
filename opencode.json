@@ -1,0 +1,94 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "provider": {
+    "litellm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LiteLLM",
+      "options": {
+        "baseURL": "http://10.0.10.20:4000/v1",
+        "apiKey": "sk-GtBSTZgXiqsaFHPnQq1ucQ"
+      },
+      "models": {
+        "extreme-reasoning": { "name": "Extreme (frontier, expensive)" },
+        "deep-reasoning": { "name": "Deep (workhorse)" },
+        "reasoning": { "name": "Normal (cheap/fast)" }
+      }
+    }
+  },
+
+  "model": "litellm/reasoning",
+  "small_model": "litellm/reasoning",
+  "default_agent": "build",
+
+  "agent": {
+    "build": {
+      "model": "litellm/reasoning",
+      "temperature": 0.2
+    },
+    "plan": {
+      "model": "litellm/deep-reasoning"
+    },
+
+    "architect": {
+      "mode": "primary",
+      "model": "litellm/extreme-reasoning",
+      "temperature": 0.1,
+      "description": "Frontier-model architect for large or hard projects. Plans and controls worker subagents; never implements directly.",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "bash": "ask",
+        "task": {
+          "*": "deny",
+          "scout": "allow",
+          "coder": "allow",
+          "reviewer": "allow"
+        }
+      }
+    },
+
+    "scout": {
+      "mode": "subagent",
+      "model": "litellm/reasoning",
+      "temperature": 0.1,
+      "description": "Cheap read-only codebase exploration. Use for finding files, mapping structure, locating relevant code, summarizing modules. Returns compact summaries, never full files.",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "bash": "deny"
+      }
+    },
+
+    "coder": {
+      "mode": "subagent",
+      "model": "litellm/deep-reasoning",
+      "temperature": 0.2,
+      "description": "Implementation worker. Use for writing and editing code, running tests, fixing failures, following a spec produced by the caller. One well-scoped task per invocation."
+    },
+
+    "reviewer": {
+      "mode": "subagent",
+      "model": "litellm/reasoning",
+      "temperature": 0.1,
+      "description": "Read-only code review. Use after coder finishes a task: checks correctness, edge cases, security, project conventions. Returns a short verdict plus concrete issues.",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "bash": "deny"
+      }
+    },
+
+    "oracle": {
+      "mode": "subagent",
+      "model": "litellm/extreme-reasoning",
+      "temperature": 0.1,
+      "description": "EXPENSIVE frontier escalation. Consult ONLY when genuinely stuck: subtle bugs after 2+ failed fixes, hard architectural trade-offs, gnarly concurrency/correctness questions. Caller MUST pass a distilled brief (problem, what was tried, minimal code excerpts) — never raw file dumps.",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "bash": "deny"
+      }
+    }
+  }
+}

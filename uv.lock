@@ -8,7 +8,10 @@ members = [
     "ingestd",
     "lms-core",
     "lms-ext-inbox",
+    "lms-ext-people",
     "lms-ext-places",
+    "lms-ext-planning",
+    "lms-ext-reminders",
     "lms-ext-routines",
     "lms-schema",
     "lms-workspace",
@@ -328,6 +331,9 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "lms-ext-inbox" },
+    { name = "lms-ext-people" },
+    { name = "lms-ext-planning" },
+    { name = "lms-ext-reminders" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "respx" },
@@ -347,6 +353,9 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "lms-ext-inbox", editable = "extensions/lms-ext-inbox" },
+    { name = "lms-ext-people", editable = "extensions/lms-ext-people" },
+    { name = "lms-ext-planning", editable = "extensions/lms-ext-planning" },
+    { name = "lms-ext-reminders", editable = "extensions/lms-ext-reminders" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "respx" },
@@ -493,6 +502,29 @@ dev = [
 ]
 
 [[package]]
+name = "lms-ext-people"
+version = "0.1.0a1"
+source = { editable = "extensions/lms-ext-people" }
+dependencies = [
+    { name = "lms-core" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "lms-core", editable = "packages/lms-core" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[[package]]
 name = "lms-ext-places"
 version = "0.1.0a1"
 source = { editable = "extensions/lms-ext-places" }
@@ -512,6 +544,72 @@ requires-dist = [{ name = "lms-core", editable = "packages/lms-core" }]
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest" },
+    { name = "ruff" },
+]
+
+[[package]]
+name = "lms-ext-planning"
+version = "0.1.0a1"
+source = { editable = "extensions/lms-ext-planning" }
+dependencies = [
+    { name = "lms-core" },
+    { name = "pydantic-ai-slim" },
+    { name = "structlog" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "lms-core", editable = "packages/lms-core" },
+    { name = "pydantic-ai-slim" },
+    { name = "structlog" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[[package]]
+name = "lms-ext-reminders"
+version = "0.1.0a1"
+source = { editable = "extensions/lms-ext-reminders" }
+dependencies = [
+    { name = "lms-core" },
+    { name = "pydantic-ai-slim" },
+    { name = "structlog" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "lms-core", editable = "packages/lms-core" },
+    { name = "pydantic-ai-slim" },
+    { name = "structlog" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
     { name = "ruff" },
 ]
 
@@ -844,6 +942,8 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "lms-ext-planning" },
+    { name = "lms-ext-reminders" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "respx" },
@@ -864,6 +964,8 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "lms-ext-planning", editable = "extensions/lms-ext-planning" },
+    { name = "lms-ext-reminders", editable = "extensions/lms-ext-reminders" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "respx" },

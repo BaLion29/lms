@@ -1,0 +1,36 @@
+[project]
+name = "lms-ext-people"
+version = "0.1.0a1"
+description = "LMS people extension — Person/Contact schema module"
+authors = [
+    { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "lms-core",
+]
+
+[project.entry-points."lms.schema_modules"]
+people = "lms_ext_people"
+
+[project.entry-points."lms.ingestd.extractors"]
+people_linking = "lms_ext_people.extract:plugin"
+
+[tool.uv.sources]
+lms-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lms_ext_people"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

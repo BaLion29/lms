@@ -14,7 +14,8 @@ from lms_core.tdb import TdbClient
 from queryd.agent import build_agent, usage_limits
 from queryd.settings import Settings
 from queryd.tools import QuerydDeps, build_tools
-from queryd.plugins.planning_tools import plugin as _planning_plugin
+from lms_ext_planning.tools import plugin as _planning_plugin
+from lms_ext_reminders.tools import plugin as _reminder_plugin
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -80,7 +81,7 @@ def test_build_agent_read_tools_only_when_writes_disabled():
 def test_build_agent_all_9_tools_when_writes_enabled():
     """With enable_writes=True and plugin tools passed, all 9 tools are registered."""
     s = _settings(enable_writes=True)
-    plugin_tools = _planning_plugin.tools(deps=None)
+    plugin_tools = _planning_plugin.tools(deps=None) + _reminder_plugin.tools(deps=None)
     agent = build_agent(s, tools=_make_all_tools(s, plugin_tools))
     tool_names = set(agent._function_toolset.tools.keys())
     assert len(tool_names) == 9

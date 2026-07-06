@@ -102,6 +102,26 @@ async def check_requirements(
 
 
 # ---------------------------------------------------------------------------
+# EntityIndex — shared type for the linking_context plugin seam
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class EntityIndex:
+    """Pre-built lookup structures for entity linking.
+
+    ``people`` / ``locations`` are keyed by casefolded name for O(1) lookup.
+    ``people_display`` / ``locations_display`` preserve the original name
+    for use in prompt context blocks.
+    """
+
+    people: dict[str, str] = field(default_factory=dict)
+    locations: dict[str, str] = field(default_factory=dict)
+    people_display: list[tuple[str, str]] = field(default_factory=list)
+    locations_display: list[tuple[str, str]] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # Plugin protocols
 # ---------------------------------------------------------------------------
 

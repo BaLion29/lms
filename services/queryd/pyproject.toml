@@ -17,14 +17,8 @@ dependencies = [
     "structlog",
 ]
 
-[tool.uv.sources]
-lms-core = { workspace = true }
-
 [project.scripts]
 queryd = "queryd.main:main"
-
-[project.entry-points."lms.queryd.tools"]
-planning_tools = "queryd.plugins.planning_tools:plugin"
 
 [build-system]
 requires = ["hatchling"]
@@ -33,8 +27,15 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/queryd"]
 
+[tool.uv.sources]
+lms-core = { workspace = true }
+lms-ext-planning = { workspace = true }
+lms-ext-reminders = { workspace = true }
+
 [dependency-groups]
 dev = [
+    "lms-ext-planning",
+    "lms-ext-reminders",
     "pytest",
     "pytest-asyncio",
     "respx",

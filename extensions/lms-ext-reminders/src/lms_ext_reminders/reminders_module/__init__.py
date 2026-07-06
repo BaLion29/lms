@@ -1,0 +1,1 @@
+"""Reminders schema module."""

@@ -12,12 +12,14 @@ from ingestd.extraction import (
     ExtractionResult,
     build_extraction_context,
 )
-from ingestd.plugins.planning_people import (
+from lms_ext_planning.extract import (
     EventProposal,
     PersonProposal,
-    PlanningPeoplePlugin,
+    PlanningPlugin,
     TaskProposal,
 )
+from lms_ext_reminders.extract import ReminderProposal
+from lms_ext_people.extract import PeopleLinkingPlugin
 from lms_ext_inbox.sources import InboxAudioSource, InboxNoteSource
 from ingestd.pipeline import Pipeline
 from ingestd.settings import Settings
@@ -29,8 +31,9 @@ from lms_core.tdb import TdbError
 # ---------------------------------------------------------------------------
 
 # Shared extraction context for all pipeline tests
-_PLUGIN = PlanningPeoplePlugin()
-_EXTRACTION_CTX = build_extraction_context([_PLUGIN])
+_PLANNING_PLUGIN = PlanningPlugin()
+_PEOPLE_PLUGIN = PeopleLinkingPlugin()
+_EXTRACTION_CTX = build_extraction_context([_PLANNING_PLUGIN, _PEOPLE_PLUGIN])
 _SOURCES = [InboxNoteSource(), InboxAudioSource()]
 
 

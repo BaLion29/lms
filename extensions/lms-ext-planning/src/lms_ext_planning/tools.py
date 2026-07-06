@@ -1,48 +1,38 @@
-"""Built-in write-tool plugin for planning operations (Task, Event, Reminder).
+"""Queryd write-tool plugin for planning operations (Task, Event).
 
-Provides the pydantic-ai Tool objects that were previously registered
-directly in ``queryd.tools``.  The tool functions are decorated with
-``@_traced`` (imported from ``queryd.tools``), preserving byte-identical
-iteration-cap and tracing behaviour.
-
-Design choice (documented):
-    ``_traced`` is applied *inside* the plugin (on each tool function)
-    rather than at registration time, so that the functions are already
-    traced when ``Tool(fn)`` wraps them.  This keeps the same decorator
-    applied to the same functions as before the refactor — zero
-    behavioural difference.
+Provides the pydantic-ai Tool objects for planning write operations.
+Imports tracing from ``lms_core.tooling`` (public kernel contract, L7).
 """
 
 from __future__ import annotations
 
-import structlog
 from datetime import datetime, timezone
 from typing import Any, Literal
+
+import structlog
 
 from pydantic_ai import RunContext, Tool
 
 from lms_core.models import (
-    Reminder,
     Task,
     TaskStatus,
     _format_datetime,
 )
 from lms_core.tdb import TdbError, short_iri
 from lms_core.plugins import ModuleRequirement
-
-from queryd.tools import QuerydDeps, _now_utc_str, _traced  # noqa: F401
+from lms_core.tooling import traced, now_utc_str
 
 log = structlog.get_logger()
 
 
 # ---------------------------------------------------------------------------
-# Tool functions (verbatim move from queryd.tools)
+# Tool functions
 # ---------------------------------------------------------------------------
 
 
-@_traced
+@traced
 async def set_task_status(
-    ctx: RunContext[QuerydDeps],
+    ctx: RunContext[Any],
     task_iri: str,
     status: Literal["open", "planned", "done"],
 ) -> dict[str, object]:
@@ -59,7 +49,7 @@ async def set_task_status(
         return {"ok": False, "error": f"{iri} is not a Task (type={doc.get('@type')})"}
 
     doc["status"] = status
-    doc["updated_at"] = _now_utc_str()
+    doc["updated_at"] = now_utc_str()
 
     log.info(
         "queryd: set_task_status",
@@ -81,9 +71,9 @@ async def set_task_status(
     return {"ok": True, "iri": iri}
 
 
-@_traced
+@traced
 async def set_event_status(
-    ctx: RunContext[QuerydDeps],
+    ctx: RunContext[Any],
     event_iri: str,
     status: Literal["open", "planned", "closed", "cancelled"],
 ) -> dict[str, object]:
@@ -103,7 +93,7 @@ async def set_event_status(
         }
 
     doc["status"] = status
-    doc["updated_at"] = _now_utc_str()
+    doc["updated_at"] = now_utc_str()
 
     log.info(
         "queryd: set_event_status",
@@ -125,9 +115,9 @@ async def set_event_status(
     return {"ok": True, "iri": iri}
 
 
-@_traced
+@traced
 async def create_task(
-    ctx: RunContext[QuerydDeps],
+    ctx: RunContext[Any],
     name: str,
     description: str | None = None,
     due_date: datetime | None = None,
@@ -163,67 +153,9 @@ async def create_task(
     return {"ok": True, "iri": result_iri}
 
 
-@_traced
-async def create_reminder(
-    ctx: RunContext[QuerydDeps],
-    name: str,
-    description: str | None = None,
-    refers_to_iri: str | None = None,
-) -> dict[str, object]:
-    """Create a new Reminder, optionally linked to a Task or Event.
-
-    When *refers_to_iri* is given, the target MUST exist and have an
-    ``@type`` of ``Task`` or ``Event``; otherwise the creation is
-    rejected.
-    """
-    branch = ctx.deps.settings.tdb_branch
-    refers_to: str | None = None
-
-    if refers_to_iri is not None:
-        siri = short_iri(refers_to_iri)
-        try:
-            target = await ctx.deps.tdb.get_document(siri, branch=branch)
-        except TdbError as exc:
-            return {
-                "ok": False,
-                "error": f"refers_to document not found: {siri} ({exc.status})",
-            }
-        if target.get("@type") not in ("Task", "Event"):
-            return {
-                "ok": False,
-                "error": f"refers_to {siri} has type {target.get('@type')}, expected Task or Event",
-            }
-        refers_to = siri
-
-    now_dt = datetime.now(timezone.utc)
-    reminder = Reminder(
-        name=name,
-        description=description,
-        refers_to=refers_to,
-        created_at=now_dt,
-        updated_at=now_dt,
-    )
-    doc = reminder.to_tdb()
-
-    log.info("queryd: create_reminder", doc=doc)
-
-    try:
-        iris = await ctx.deps.tdb.insert_documents(
-            [doc],
-            branch=branch,
-            message=f"queryd: create reminder {name}",
-            author="queryd",
-        )
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
-
-    result_iri = short_iri(iris[0]) if iris else "unknown"
-    return {"ok": True, "iri": result_iri}
-
-
-@_traced
+@traced
 async def update_task(
-    ctx: RunContext[QuerydDeps],
+    ctx: RunContext[Any],
     task_iri: str,
     name: str | None = None,
     description: str | None = None,
@@ -254,7 +186,7 @@ async def update_task(
         doc["due_date"] = _format_datetime(due_date)
     if priority is not None:
         doc["priority"] = priority
-    doc["updated_at"] = _now_utc_str()
+    doc["updated_at"] = now_utc_str()
 
     log.info("queryd: update_task", iri=iri, doc=doc)
 
@@ -277,11 +209,11 @@ async def update_task(
 
 
 class PlanningToolsPlugin:
-    """Built-in queryd write-tool plugin for planning operations."""
+    """Queryd write-tool plugin for planning operations."""
 
     name: str = "planning_tools"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="planning", range=">=1.0.0 <2.0.0")
+        ModuleRequirement(name="planning", range=">=2.0.0 <3.0.0")
     ]
 
     def tools(self, deps: Any) -> list[Tool]:
@@ -290,7 +222,6 @@ class PlanningToolsPlugin:
             Tool(set_task_status),
             Tool(set_event_status),
             Tool(create_task),
-            Tool(create_reminder),
             Tool(update_task),
         ]
 

@@ -18,7 +18,8 @@ from lms_core.plugins import (
 
 from queryd.app import create_app, _collect_plugin_tools
 from queryd.settings import Settings
-from queryd.plugins.planning_tools import plugin as _planning_plugin
+from lms_ext_planning.tools import plugin as _planning_plugin
+from lms_ext_reminders.tools import plugin as _reminder_plugin
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -402,14 +403,13 @@ def test_collect_plugin_tools_success():
     tools, names = _collect_plugin_tools(
         [("planning", _planning_plugin)], _settings(enable_writes=True), MagicMock()
     )
-    assert len(tools) == 5
+    assert len(tools) == 4
     assert names == ["planning_tools"]
     tool_names = {t.name for t in tools}
     assert tool_names == {
         "set_task_status",
         "set_event_status",
         "create_task",
-        "create_reminder",
         "update_task",
     }
 

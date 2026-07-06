@@ -1,27 +1,12 @@
-"""Naive entity linking helpers — index building, context block generation, matching."""
+"""Naive entity linking helpers — index building, matching."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 import structlog
 
+from lms_core.plugins import EntityIndex  # re-exported for backward compat
+
 logger = structlog.get_logger(__name__)
-
-
-@dataclass
-class EntityIndex:
-    """Pre-built lookup structures for entity linking.
-
-    ``people`` / ``locations`` are keyed by casefolded name for O(1) lookup.
-    ``people_display`` / ``locations_display`` preserve the original name
-    for use in prompt context blocks.
-    """
-
-    people: dict[str, str] = field(default_factory=dict)
-    locations: dict[str, str] = field(default_factory=dict)
-    people_display: list[tuple[str, str]] = field(default_factory=list)
-    locations_display: list[tuple[str, str]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -58,27 +43,6 @@ def build_index(people: list[dict], locations: list[dict]) -> EntityIndex:
             index.locations[alias.casefold()] = iri
 
     return index
-
-
-# ---------------------------------------------------------------------------
-# Context block
-# ---------------------------------------------------------------------------
-
-
-def build_context_block(index: EntityIndex) -> str:
-    """Render a compact prompt context block listing known people and locations."""
-
-    def _section(label: str, entries: list[tuple[str, str]]) -> str:
-        if not entries:
-            return f"Known {label}: (none)"
-        items = ", ".join(f"{name} <{iri}>" for name, iri in entries)
-        return f"Known {label}: {items}"
-
-    return (
-        _section("people", index.people_display)
-        + "\n"
-        + _section("locations", index.locations_display)
-    )
 
 
 # ---------------------------------------------------------------------------
