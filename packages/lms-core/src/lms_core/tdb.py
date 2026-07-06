@@ -189,20 +189,30 @@ class TdbClient:
         await self._raise_on_error(response)
 
     async def graphql(
-        self, query: str, variables: dict[str, Any] | None = None
+        self,
+        query: str,
+        variables: dict[str, Any] | None = None,
+        *,
+        branch: str | None = None,
     ) -> dict[str, Any]:
         """Execute a GraphQL query and return the ``data`` field.
+
+        When *branch* is ``None`` (default) the query runs against the
+        database default (``main``).  For branch-scoped queries pass the
+        branch name, which appends ``/local/branch/{branch}`` to the URL.
 
         Raises ``TdbError`` on non-2xx **or** when the response contains
         an ``errors`` field (GraphQL can return 200 with errors).
         """
+        if branch is None:
+            path = f"/api/graphql/{self.org}/{self.db}"
+        else:
+            path = f"/api/graphql/{self.org}/{self.db}/local/branch/{branch}"
+
         payload: dict[str, Any] = {"query": query}
         if variables is not None:
             payload["variables"] = variables
-        response = await self._client.post(
-            f"/api/graphql/{self.org}/{self.db}",
-            json=payload,
-        )
+        response = await self._client.post(path, json=payload)
         await self._raise_on_error(response)
         body: dict[str, Any] = response.json()
         if body.get("errors"):
@@ -237,17 +247,96 @@ class TdbClient:
         )
         await self._raise_on_error(response)
 
-    async def push_schema(self, schema: list[dict[str, Any]]) -> None:
-        """Push/replace the full schema (``full_replace=true``, idempotent)."""
+    async def push_schema(
+        self,
+        schema: list[dict[str, Any]],
+        branch: str = "main",
+        *,
+        full_replace: bool = True,
+        author: str = "ingestd",
+        message: str = "bootstrap",
+    ) -> None:
+        """Push/replace the full schema (``full_replace=true``, idempotent).
+
+        When *branch* is ``"main"`` the schema is pushed to the default
+        (non-branch-scoped) path for backward compatibility.  For any other
+        branch the branch-scoped document path is used.
+        """
+        if branch == "main":
+            path = f"/api/document/{self.org}/{self.db}"
+        else:
+            path = self._doc_path(branch)
+
         response = await self._client.post(
-            f"/api/document/{self.org}/{self.db}",
+            path,
             params={
                 "graph_type": "schema",
-                "full_replace": "true",
-                "author": "ingestd",
-                "message": "bootstrap",
+                "full_replace": "true" if full_replace else "false",
+                "author": author,
+                "message": message,
             },
             json=schema,
+        )
+        await self._raise_on_error(response)
+
+    # ------------------------------------------------------------------
+    # Branch operations
+    # ------------------------------------------------------------------
+
+    async def create_branch(self, new_branch: str, origin: str = "main") -> None:
+        """Create *new_branch* from *origin*.
+
+        Raises ``TdbError`` if the branch already exists (400).
+        """
+        response = await self._client.post(
+            f"/api/branch/{self.org}/{self.db}/local/branch/{new_branch}",
+            json={"origin": origin},
+        )
+        await self._raise_on_error(response)
+
+    async def delete_branch(self, branch: str) -> None:
+        """Delete *branch*.
+
+        Raises ``TdbError`` if the branch does not exist or is ``"main"``.
+        """
+        response = await self._client.delete(
+            f"/api/branch/{self.org}/{self.db}/local/branch/{branch}",
+        )
+        await self._raise_on_error(response)
+
+    async def branch_exists(self, branch: str) -> bool:
+        """Return ``True`` when *branch* exists.
+
+        Probes the document endpoint with a minimal request — a 2xx means
+        the branch exists, a 4xx (with the ``UnresolvableAbsoluteDescriptor``
+        error type) means it does not.
+        """
+        response = await self._client.get(
+            self._doc_path(branch),
+            params={"graph_type": "instance", "count": 1},
+        )
+        return response.is_success
+
+    # ------------------------------------------------------------------
+    # Promote / merge
+    # ------------------------------------------------------------------
+
+    async def reset_branch(
+        self,
+        target_branch: str,
+        commit_descriptor: str,
+    ) -> None:
+        """Move *target_branch* to *commit_descriptor*.
+
+        *commit_descriptor* must be a full commit-descriptor path, e.g.
+        ``"admin/mydb/local/commit/<identifier>"``.
+
+        This is the recommended way to *promote* changes from a feature
+        branch onto another branch (including ``main``).
+        """
+        response = await self._client.post(
+            f"/api/reset/{self.org}/{self.db}/local/branch/{target_branch}",
+            json={"commit_descriptor": commit_descriptor},
         )
         await self._raise_on_error(response)
 
