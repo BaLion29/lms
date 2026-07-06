@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +45,7 @@ def _make_module(
 
 
 def _run_diff(modules_dir: Path, baseline_modules: Path | None = None, baseline_lock: Path | None = None) -> subprocess.CompletedProcess:
-    cmd = [sys.executable, "-m", "lms_schema.cli", "diff", "--modules-dir", str(modules_dir)]
+    cmd = [sys.executable, "-m", "lms_schema.cli", "diff", "--modules-dir", str(modules_dir), "--no-entry-points"]
     if baseline_modules:
         cmd.extend(["--baseline-modules", str(baseline_modules)])
     if baseline_lock:
@@ -127,7 +128,7 @@ class TestDiffExitCodes:
 
         # Write a consistent lock
         from lms_schema.composer import compose
-        result = compose(mod_dir)
+        result = compose(mod_dir, include_entry_points=False)
         real_lock = {"modules": {info.name: {"version": info.version, "checksum": info.checksum} for info in result.modules}}
         real_lock_path = tmp_path / "real_lock.json"
         real_lock_path.write_text(json.dumps(real_lock))
@@ -149,7 +150,7 @@ class TestDiffExitCodes:
 
         # Build real lock from baseline
         from lms_schema.composer import compose
-        bl_result = compose(bl_dir)
+        bl_result = compose(bl_dir, include_entry_points=False)
         real_lock = {"modules": {info.name: {"version": info.version, "checksum": info.checksum} for info in bl_result.modules}}
         lock_path = tmp_path / "lock.json"
         lock_path.write_text(json.dumps(real_lock))
@@ -171,7 +172,7 @@ class TestDiffExitCodes:
                      classes=[])  # removed Foo, no migrations
 
         from lms_schema.composer import compose
-        bl_result = compose(bl_dir)
+        bl_result = compose(bl_dir, include_entry_points=False)
         real_lock = {"modules": {info.name: {"version": info.version, "checksum": info.checksum} for info in bl_result.modules}}
         lock_path = tmp_path / "lock.json"
         lock_path.write_text(json.dumps(real_lock))
@@ -195,7 +196,7 @@ class TestDiffExitCodes:
                      migrations={"0001_old.py": "# old\n", "0002_new.py": "# new\n"})
 
         from lms_schema.composer import compose
-        bl_result = compose(bl_dir)
+        bl_result = compose(bl_dir, include_entry_points=False)
         real_lock = {"modules": {info.name: {"version": info.version, "checksum": info.checksum} for info in bl_result.modules}}
         lock_path = tmp_path / "lock.json"
         lock_path.write_text(json.dumps(real_lock))
@@ -220,7 +221,7 @@ class TestDiffExitCodes:
                      ])
 
         from lms_schema.composer import compose
-        bl_result = compose(bl_dir)
+        bl_result = compose(bl_dir, include_entry_points=False)
         real_lock = {"modules": {info.name: {"version": info.version, "checksum": info.checksum} for info in bl_result.modules}}
         lock_path = tmp_path / "lock.json"
         lock_path.write_text(json.dumps(real_lock))
@@ -241,7 +242,7 @@ class TestDiffExitCodes:
                      classes=[{"@id": "Foo", "@type": "Class", "name": "xsd:string"}])
 
         from lms_schema.composer import compose
-        bl_result = compose(bl_dir)
+        bl_result = compose(bl_dir, include_entry_points=False)
         real_lock = {"modules": {info.name: {"version": info.version, "checksum": info.checksum} for info in bl_result.modules}}
         lock_path = tmp_path / "lock.json"
         lock_path.write_text(json.dumps(real_lock))
@@ -264,7 +265,7 @@ class TestDiffExitCodes:
                      classes=[{"@id": "Foo", "@type": "Class"}])
 
         from lms_schema.composer import compose
-        bl_result = compose(bl_dir)
+        bl_result = compose(bl_dir, include_entry_points=False)
         real_lock = {"modules": {info.name: {"version": info.version, "checksum": info.checksum} for info in bl_result.modules}}
         lock_path = tmp_path / "lock.json"
         lock_path.write_text(json.dumps(real_lock))
@@ -310,7 +311,7 @@ class TestDiffExitCodes:
         # m1 deliberately not created
 
         from lms_schema.composer import compose
-        bl_result = compose(bl_dir)
+        bl_result = compose(bl_dir, include_entry_points=False)
         real_lock = {"modules": {info.name: {"version": info.version, "checksum": info.checksum} for info in bl_result.modules}}
         lock_path = tmp_path / "lock.json"
         lock_path.write_text(json.dumps(real_lock))
@@ -334,7 +335,7 @@ class TestDiffExitCodes:
                               {"@id": "Bar", "@type": "Class"}])
 
         from lms_schema.composer import compose
-        bl_result = compose(bl_dir)
+        bl_result = compose(bl_dir, include_entry_points=False)
         real_lock = {"modules": {info.name: {"version": info.version, "checksum": info.checksum} for info in bl_result.modules}}
         lock_path = tmp_path / "lock.json"
         lock_path.write_text(json.dumps(real_lock))
@@ -363,3 +364,71 @@ class TestDiffExitCodes:
         proc = subprocess.run(cmd, capture_output=True, text=True)
         assert proc.returncode == 2, f"stdout={proc.stdout} stderr={proc.stderr}"
         assert "missing" in proc.stderr.lower()
+
+
+# ---------------------------------------------------------------------------
+# Entry-point module diff classification
+# ---------------------------------------------------------------------------
+
+
+def test_diff_classifies_entry_point_module_changes(tmp_path: Path) -> None:
+    """A fragment change in an entry-point module surfaces in diff output."""
+    from lms_schema.cli import _diff_fragments
+    from lms_schema.discovery import ModuleSource
+
+    repo_dir = tmp_path / "repo"
+    _make_core(repo_dir)
+
+    # Baseline modules dir (repo-tree) — contains core only
+    baseline_repo = tmp_path / "baseline_repo"
+    _make_core(baseline_repo)
+
+    # ── Baseline extension (stored as a physical dir so the diff sees its fragment)
+    baseline_ext_dir = tmp_path / "baseline_ext" / "extmod"
+    baseline_ext_dir.mkdir(parents=True)
+    (baseline_ext_dir / "manifest.json").write_text(json.dumps({
+        "name": "extmod", "version": "1.0.0",
+        "depends_on": [{"name": "core", "range": ">=1.0.0"}],
+        "exports": ["A", "B"], "description": "ext",
+    }))
+    (baseline_ext_dir / "schema.json").write_text(json.dumps([
+        {"@id": "A", "@type": "Class"},
+        {"@id": "B", "@type": "Class"},
+    ]))
+
+    # ── Current extension (provided via monkey-patched discovery)
+    pkg_dir = tmp_path / "pkg" / "extmod"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "manifest.json").write_text(json.dumps({
+        "name": "extmod", "version": "1.1.0",
+        "depends_on": [{"name": "core", "range": ">=1.0.0"}],
+        "exports": ["A"], "description": "ext",
+    }))
+    (pkg_dir / "schema.json").write_text(json.dumps([
+        {"@id": "A", "@type": "Class"},
+    ]))
+
+    # Baseline lock (needed for guardrails)
+    from lms_schema.composer import fragment_checksum
+    base_fragment = json.loads((baseline_ext_dir / "schema.json").read_text())
+    bl_lock = {"modules": {
+        "core": {"version": "1.0.0", "checksum": "unused"},
+        "extmod": {"version": "1.0.0", "checksum": fragment_checksum(base_fragment)},
+    }}
+
+    # Monkey-patch discovery to return the current extension
+    fake_ms = ModuleSource(name="extmod", path=pkg_dir, origin="pkg:lms-ext-test==1.1.0")
+    with patch("lms_schema.discovery.discover_module_dirs", return_value={"extmod": fake_ms}):
+        changes, violations, warnings = _diff_fragments(
+            repo_dir,
+            baseline_modules_dir=baseline_ext_dir.parent,  # entry-point module baseline
+            baseline_lock=bl_lock,
+            include_entry_points=True,
+        )
+
+    # The diff should detect changes in extmod
+    extmod_changes = [c for c in changes if c.module == "extmod"]
+    assert len(extmod_changes) > 0, f"Expected changes for extmod, got: {changes}"
+    assert any("B" in c.description for c in extmod_changes), (
+        f"Expected removal of class 'B' in extmod changes, got: {extmod_changes}"
+    )

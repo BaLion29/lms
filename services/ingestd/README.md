@@ -61,6 +61,13 @@ Required variables are validated at startup.
   primary manual testing mode.
 - **Once + dry-run**: `uv run ingestd --once --dry-run` — one cycle, no writes.
 
+## Deployment
+
+ingestd has **zero runtime dependencies on extensions** (spec §2).  In production
+you **must** install at least one source+extractor extension (e.g. `lms-ext-inbox`)
+alongside the kernel.  Without extension packages, ingestd discovers no sources
+and exits at startup by design.
+
 ## Local development
 
 ```bash

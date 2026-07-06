@@ -173,6 +173,8 @@ def _diff_fragments(
     current_modules_dir: Path,
     baseline_modules_dir: Path | None,
     baseline_lock: dict[str, dict[str, str]] | None,
+    *,
+    include_entry_points: bool = True,
 ) -> tuple[list[Change], list[str], list[str]]:
     """Compare current fragments against a baseline modules dir and/or lock.
 
@@ -182,7 +184,7 @@ def _diff_fragments(
     all_violations: list[str] = []
     all_warnings: list[str] = []
 
-    # Discover current modules
+    # Discover current modules (repo-tree)
     current_modules: dict[str, Manifest] = {}
     for subdir in sorted(current_modules_dir.iterdir(), key=lambda p: p.name):
         manifest_path = subdir / "manifest.json"
@@ -190,10 +192,29 @@ def _diff_fragments(
             m = Manifest.load(subdir)
             current_modules[m.name] = m
 
+    # Discover entry-point modules
+    ep_module_paths: dict[str, Path] = {}
+    if include_entry_points:
+        try:
+            from .discovery import discover_module_dirs
+            for ms in discover_module_dirs().values():
+                if ms.name not in current_modules:
+                    m = Manifest.load(ms.path)
+                    if m.name != ms.name:
+                        all_warnings.append(
+                            f"Entry-point module name mismatch: "
+                            f"'{ms.name}' vs manifest '{m.name}' — skipping"
+                        )
+                        continue
+                    current_modules[m.name] = m
+                    ep_module_paths[m.name] = ms.path
+        except SchemaError as exc:
+            all_warnings.append(f"Entry-point discovery failed: {exc}")
+
     # Load current fragments and compute current checksums via composer
     # (we use the composer to get canonical checksums)
     try:
-        result = compose(current_modules_dir)
+        result = compose(current_modules_dir, include_entry_points=include_entry_points)
     except SchemaError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(2)
@@ -293,6 +314,8 @@ async def _diff_live(
     tdb_password: str,
     branch: str,
     allow_extra_live_classes: bool = False,
+    *,
+    include_entry_points: bool = True,
 ) -> list[Change]:
     """Compare the composed schema against a live TerminusDB instance."""
     # Lazy import — only when networking is actually requested
@@ -300,7 +323,7 @@ async def _diff_live(
 
     # Build the composed schema and compute id-to-module mapping
     try:
-        result = compose(current_modules_dir)
+        result = compose(current_modules_dir, include_entry_points=include_entry_points)
     except SchemaError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(2)
@@ -394,7 +417,8 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         print("=== Fragment diff (baseline comparison) ===")
         try:
             changes, violations, warnings = _diff_fragments(
-                modules_dir, baseline_modules_dir, baseline_lock
+                modules_dir, baseline_modules_dir, baseline_lock,
+                include_entry_points=not args.no_entry_points,
             )
         except SchemaError as exc:
             print(f"Error: {exc}", file=sys.stderr)
@@ -418,6 +442,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
                 tdb_password,
                 args.branch,
                 allow_extra_live_classes=args.allow_extra_live_classes,
+                include_entry_points=not args.no_entry_points,
             ))
         except Exception as exc:
             from lms_core.tdb import TdbError  # delayed import
@@ -783,6 +808,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="TerminusDB password (falls back to LMS_SCHEMA_TDB_PASSWORD env var)",
     )
     p_diff.add_argument("--branch", default="main")
+    p_diff.add_argument(
+        "--no-entry-points",
+        action="store_true",
+        default=False,
+        help="Skip discovery of installed lms.schema_modules entry points",
+    )
     p_diff.add_argument(
         "--allow-extra-live-classes",
         action="store_true",

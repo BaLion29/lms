@@ -1,4 +1,4 @@
-"""Built-in ingestd source plugins — InboxNote and InboxAudio.
+"""Ingestd source plugins — InboxNote and InboxAudio.
 
 Each source knows the TerminusDB document type, its pollable ready_status,
 the statuses for done/failed, how to extract the text that will be fed into
@@ -25,7 +25,7 @@ class InboxNoteSource:
     """Pull-source for InboxNote documents (status="new" → text from content)."""
 
     name: str = "inbox_note"
-    requires: list[ModuleRequirement] = []
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=1.0.0 <2.0.0")]
     document_type: str = "InboxNote"
     ready_status: str = "new"
     done_status: str = "processed"
@@ -59,7 +59,7 @@ class InboxAudioSource:
     """Pull-source for InboxAudio documents (status="transcribed" → text from transcription)."""
 
     name: str = "inbox_audio"
-    requires: list[ModuleRequirement] = []
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=1.0.0 <2.0.0")]
     document_type: str = "InboxAudio"
     ready_status: str = "transcribed"
     done_status: str = "processed"

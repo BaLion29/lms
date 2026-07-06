@@ -7,6 +7,9 @@ members = [
     "captured",
     "ingestd",
     "lms-core",
+    "lms-ext-inbox",
+    "lms-ext-places",
+    "lms-ext-routines",
     "lms-schema",
     "lms-workspace",
     "queryd",
@@ -324,6 +327,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "lms-ext-inbox" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "respx" },
@@ -342,6 +346,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "lms-ext-inbox", editable = "extensions/lms-ext-inbox" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "respx" },
@@ -455,6 +460,81 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "respx" },
+    { name = "ruff" },
+]
+
+[[package]]
+name = "lms-ext-inbox"
+version = "0.1.0a1"
+source = { editable = "extensions/lms-ext-inbox" }
+dependencies = [
+    { name = "lms-core" },
+    { name = "structlog" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "lms-core", editable = "packages/lms-core" },
+    { name = "structlog" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[[package]]
+name = "lms-ext-places"
+version = "0.1.0a1"
+source = { editable = "extensions/lms-ext-places" }
+dependencies = [
+    { name = "lms-core" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "lms-core", editable = "packages/lms-core" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[[package]]
+name = "lms-ext-routines"
+version = "0.1.0a1"
+source = { editable = "extensions/lms-ext-routines" }
+dependencies = [
+    { name = "lms-core" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "lms-core", editable = "packages/lms-core" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
     { name = "ruff" },
 ]
 

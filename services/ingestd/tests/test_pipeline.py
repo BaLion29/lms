@@ -18,7 +18,7 @@ from ingestd.plugins.planning_people import (
     PlanningPeoplePlugin,
     TaskProposal,
 )
-from ingestd.plugins.inbox_sources import InboxAudioSource, InboxNoteSource
+from lms_ext_inbox.sources import InboxAudioSource, InboxNoteSource
 from ingestd.pipeline import Pipeline
 from ingestd.settings import Settings
 from lms_core.tdb import TdbError

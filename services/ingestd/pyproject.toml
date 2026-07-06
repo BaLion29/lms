@@ -17,13 +17,10 @@ dependencies = [
 
 [tool.uv.sources]
 lms-core = { workspace = true }
+lms-ext-inbox = { workspace = true }
 
 [project.entry-points."lms.ingestd.extractors"]
 planning_people = "ingestd.plugins.planning_people:plugin"
-
-[project.entry-points."lms.ingestd.sources"]
-inbox_note = "ingestd.plugins.inbox_sources:inbox_note_plugin"
-inbox_audio = "ingestd.plugins.inbox_sources:inbox_audio_plugin"
 
 [project.scripts]
 ingestd = "ingestd.main:main"
@@ -37,6 +34,7 @@ packages = ["src/ingestd"]
 
 [dependency-groups]
 dev = [
+    "lms-ext-inbox",
     "pytest",
     "pytest-asyncio",
     "respx",

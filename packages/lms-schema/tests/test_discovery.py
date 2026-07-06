@@ -407,7 +407,7 @@ class TestLockSourceRecording:
     def test_repo_module_has_repo_source(self, tmp_path: Path) -> None:
         """Repo-tree modules get source = repo:<name>."""
         _make_core(tmp_path)
-        result = compose(tmp_path)
+        result = compose(tmp_path, include_entry_points=False)
         core_info = next(m for m in result.modules if m.name == "core")
         assert core_info.source == "repo:core"
 

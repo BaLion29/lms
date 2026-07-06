@@ -96,8 +96,8 @@ def test_determinism(tmp_path: Path) -> None:
         classes=[{"@id": "Bar", "@type": "Class", "@inherits": "Source", "label": "xsd:string"}],
     )
 
-    r1 = compose(tmp_path)
-    r2 = compose(tmp_path)
+    r1 = compose(tmp_path, include_entry_points=False)
+    r2 = compose(tmp_path, include_entry_points=False)
 
     assert json.dumps(r1.composed_schema) == json.dumps(r2.composed_schema)
     assert r1.modules == r2.modules
@@ -117,7 +117,7 @@ def test_cycle_detection(tmp_path: Path) -> None:
                  classes=[{"@id": "B", "@type": "Class"}])
 
     with pytest.raises(CycleError) as exc:
-        compose(tmp_path)
+        compose(tmp_path, include_entry_points=False)
     assert "Cycle" in str(exc.value)
 
 
@@ -138,7 +138,7 @@ def test_dep_range_mismatch(tmp_path: Path) -> None:
     )
 
     with pytest.raises(DepMismatchError) as exc:
-        compose(tmp_path)
+        compose(tmp_path, include_entry_points=False)
     assert ">=1.0.0" in str(exc.value)
     assert "0.9.0" in str(exc.value)
 
@@ -157,7 +157,7 @@ def test_duplicate_id(tmp_path: Path) -> None:
                  classes=[{"@id": "Foo", "@type": "Class"}])
 
     with pytest.raises(DuplicateIdError) as exc:
-        compose(tmp_path)
+        compose(tmp_path, include_entry_points=False)
     assert "Foo" in str(exc.value)
 
 
@@ -177,7 +177,7 @@ def test_non_core_abstract_allowed(tmp_path: Path) -> None:
         classes=[{"@abstract": [], "@id": "Bad", "@type": "Class"}],
     )
 
-    result = compose(tmp_path)
+    result = compose(tmp_path, include_entry_points=False)
     # Must not raise L1Error — abstracts in non-core modules are now allowed
     names = [m.name for m in result.modules]
     assert "m1" in names
@@ -202,7 +202,7 @@ def test_non_core_context_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(L1Error) as exc:
-        compose(tmp_path)
+        compose(tmp_path, include_entry_points=False)
     assert "@context" in str(exc.value)
 
 
@@ -234,7 +234,7 @@ def test_l2_non_exported_class_of_dep(tmp_path: Path) -> None:
     )
 
     with pytest.raises(L2Error) as exc:
-        compose(tmp_path)
+        compose(tmp_path, include_entry_points=False)
     assert "Internal" in str(exc.value)
     assert "m1" in str(exc.value)
 
@@ -263,7 +263,7 @@ def test_l2_undeclared_dep_reference(tmp_path: Path) -> None:
     )
 
     with pytest.raises(L2Error) as exc:
-        compose(tmp_path)
+        compose(tmp_path, include_entry_points=False)
     assert "Foo" in str(exc.value)
     assert "m2" in str(exc.value)
     assert "m1" in str(exc.value)
@@ -283,7 +283,7 @@ def test_topo_deterministic_alphabetical(tmp_path: Path) -> None:
     _make_module(tmp_path, "b", exports=["B"],
                  classes=[{"@id": "B", "@type": "Class"}])
 
-    result = compose(tmp_path)
+    result = compose(tmp_path, include_entry_points=False)
     names = [m.name for m in result.modules]
     assert names[0] == "core"
     assert names.index("a") < names.index("b")
@@ -363,6 +363,20 @@ def test_equivalence_with_monolithic() -> None:
         comp_cls = comp_classes[cid]
         assert comp_cls == mono_cls, f"Mismatch for class '{cid}'"
 
+    # Extension modules must be present with pkg: source prefix
+    extension_modules = {"inbox", "places", "routines"}
+    module_names = {m.name for m in result.modules}
+    for ext_name in extension_modules:
+        assert ext_name in module_names, (
+            f"Expected extension module '{ext_name}' is missing from composed modules. "
+            f"Present: {module_names}. Is the extension installed and discoverable?"
+        )
+        ext_info = next(m for m in result.modules if m.name == ext_name)
+        assert ext_info.source is not None and ext_info.source.startswith("pkg:"), (
+            f"Extension module '{ext_name}' has source {ext_info.source!r}, "
+            f"expected a 'pkg:' prefix (installable extension)."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Finding 1: exports validation — reject bogus exports
@@ -380,7 +394,7 @@ def test_exports_must_be_defined(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ComposerError) as exc:
-        compose(tmp_path)
+        compose(tmp_path, include_entry_points=False)
     assert "m1" in str(exc.value)
     assert "Ghost" in str(exc.value)
 
@@ -395,7 +409,7 @@ def test_enum_can_be_exported(tmp_path: Path) -> None:
         classes=[{"@id": "MyEnum", "@type": "Enum", "@value": ["a", "b"]}],
     )
 
-    result = compose(tmp_path)
+    result = compose(tmp_path, include_entry_points=False)
     names = [m.name for m in result.modules]
     assert "m1" in names
 
@@ -410,7 +424,7 @@ def test_valid_exports_no_error(tmp_path: Path) -> None:
         classes=[{"@id": "Foo", "@type": "Class"}],
     )
 
-    result = compose(tmp_path)
+    result = compose(tmp_path, include_entry_points=False)
     assert any(m.name == "m1" for m in result.modules)
 
 
@@ -498,7 +512,7 @@ def test_core_context_in_schema_json_rejected(tmp_path: Path) -> None:
     ]))
 
     with pytest.raises(L1Error) as exc:
-        compose(tmp_path)
+        compose(tmp_path, include_entry_points=False)
     assert "@context" in str(exc.value)
     assert "core" in str(exc.value)
 
@@ -518,6 +532,6 @@ def test_abstract_marker_outside_core_allowed(tmp_path: Path) -> None:
         classes=[{"@abstract": False, "@id": "Bad", "@type": "Class"}],
     )
 
-    result = compose(tmp_path)
+    result = compose(tmp_path, include_entry_points=False)
     names = [m.name for m in result.modules]
     assert "m1" in names
