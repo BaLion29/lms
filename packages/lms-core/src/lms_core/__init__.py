@@ -20,6 +20,28 @@ from lms_core.models import (
     TdbDocument,
     _format_datetime,
 )
+from lms_core.conventions import (
+    BlobRef,
+    BlobStore,
+    blob_root_from_env,
+    utc_now,
+)
+from lms_core.plugins import (
+    BuildContext,
+    CaptureContext,
+    CaptureHandler,
+    CapturePayload,
+    DiscoveryResult,
+    ExtractorPlugin,
+    IngestSourcePlugin,
+    ModuleRequirement,
+    PluginSelection,
+    ToolPlugin,
+    check_requirements,
+    discover_plugins,
+    select_plugins,
+)
+from lms_core.semver import Range, RangeError, Version, VersionError
 from lms_core.settings import TdbSettings
 from lms_core.tdb import (
     TdbClient,
@@ -52,4 +74,28 @@ __all__ = [
     "short_iri",
     # settings
     "TdbSettings",
+    # semver
+    "Range",
+    "RangeError",
+    "Version",
+    "VersionError",
+    # conventions
+    "BlobRef",
+    "BlobStore",
+    "blob_root_from_env",
+    "utc_now",
+    # plugins
+    "BuildContext",
+    "CaptureContext",
+    "CaptureHandler",
+    "CapturePayload",
+    "DiscoveryResult",
+    "ExtractorPlugin",
+    "IngestSourcePlugin",
+    "ModuleRequirement",
+    "PluginSelection",
+    "ToolPlugin",
+    "check_requirements",
+    "discover_plugins",
+    "select_plugins",
 ]
