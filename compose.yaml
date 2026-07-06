@@ -1,0 +1,229 @@
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# LMS — docker compose deployment
+#
+# Quickstart (3 commands):
+#   1. cp .env.example .env && vim .env        # edit secrets
+#   2. docker compose --profile bootstrap up bootstrap --abort-on-container-exit
+#   3. docker compose up -d                     # start captured + ingestd + queryd
+#
+# Bootstrap profile (run once per setup):
+#   docker compose --profile bootstrap run --rm bootstrap
+#
+# Extension toggling:
+#   Set LMS_EXTENSIONS in .env.  The bootstrap service installs them into
+#   the lms_ext_venv volume.  All other services mount it read-only.
+#   First-party wheels are resolved from ./dist (mounted as /extensions).
+#
+# External TerminusDB:
+#   docker compose -f compose.yaml -f compose.external-tdb.yaml up -d
+#   Requires Docker Compose >= 2.24 for !reset tag support.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+services:
+  # ── TerminusDB (SSOT database) ──────────────────────────────────────────
+  terminusdb:
+    image: terminusdb/terminusdb-server:v12.0.6
+    environment:
+      TERMINUSDB_ADMIN_PASS: ${TDB_PASSWORD:?err TDB_PASSWORD must be set (e.g. in .env)}
+    volumes:
+      - terminusdb_data:/app/terminusdb/storage
+    ports:
+      - "${TDB_HOST_PORT:-6363}:6363"
+    restart: unless-stopped
+    healthcheck:
+      # terminusdb/terminusdb-server:v12.0.6 does NOT ship curl.
+      # Use bash TCP-connect probe instead (Debian-based image includes bash).
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6363'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  # ── Bootstrap (profiles: [bootstrap]) ───────────────────────────────────
+  bootstrap:
+    profiles:
+      - bootstrap
+    build:
+      context: .
+      dockerfile: packages/lms-schema/Dockerfile
+    image: lms/lms-schema:local
+    depends_on:
+      terminusdb:
+        condition: service_healthy
+    environment:
+      LMS_EXTENSIONS: ${LMS_EXTENSIONS:-}
+      LMS_EXTENSIONS_PURGE: ${LMS_EXTENSIONS_PURGE:-false}
+      LMS_SCHEMA_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      TDB_ORG: ${TDB_ORG:-admin}
+      TDB_DB: ${TDB_DB:-lms}
+      TDB_USER: ${TDB_USER:-admin}
+      TDB_BRANCH: ${TDB_BRANCH:-main}
+    volumes:
+      - lms_ext_venv:/opt/lms-ext-venv             # writeable — installs wheels here
+      - ./schema:/work/schema:ro
+      - ./build:/work/build
+      - ./dist:/extensions:ro                       # wheel mount dir for LMS_EXTENSIONS
+    restart: "no"
+    # 1. Create the database if it does not exist (TerminusDB requires it
+    #    before any schema push; uses a Python heredoc — no extra deps besides
+    #    lms-core (httpx) which is already installed in this image).
+    # 2. Compose schema modules.
+    # 3. Apply schema + migrations (creates branch if needed; idempotent).
+    # 4. Validate the result.
+    #
+    # List form so compose passes argv directly (no parser shell-tokenization).
+    # $$ escaping prevents compose from interpolating secrets into the command.
+    command:
+      - sh
+      - -euc
+      - |
+        set -eu
+        echo "=== Ensure database exists ==="
+        python << "PYEOF"
+        import asyncio, sys
+        from lms_core.tdb import TdbClient
+        async def main():
+            async with TdbClient(
+                base_url="http://terminusdb:6363",
+                org="$${TDB_ORG:-admin}",
+                db="$${TDB_DB:-lms}",
+                user="$${TDB_USER:-admin}",
+                password="$${LMS_SCHEMA_TDB_PASSWORD}",
+            ) as c:
+                if await c.db_exists():
+                    print("Database already exists.")
+                else:
+                    await c.create_db()
+                    print("Database created.")
+        asyncio.run(main())
+        PYEOF
+        echo "=== Compose schema ==="
+        lms-schema compose --modules-dir /work/schema/modules --out-dir /work/build
+        echo "=== Apply schema ==="
+        lms-schema apply --modules-dir /work/schema/modules \
+          --tdb-url http://terminusdb:6363 \
+          --tdb-org $${TDB_ORG:-admin} \
+          --tdb-db $${TDB_DB:-lms} \
+          --tdb-user $${TDB_USER:-admin} \
+          --branch $${TDB_BRANCH:-main}
+        echo "=== Validate ==="
+        lms-schema validate --modules-dir /work/schema/modules \
+          --tdb-url http://terminusdb:6363 \
+          --tdb-org $${TDB_ORG:-admin} \
+          --tdb-db $${TDB_DB:-lms} \
+          --tdb-user $${TDB_USER:-admin} \
+          --branch $${TDB_BRANCH:-main}
+        echo "=== Bootstrap complete ==="
+
+  # ── captured — ingestion API daemon ────────────────────────────────────
+  captured:
+    build:
+      context: .
+      dockerfile: services/captured/Dockerfile
+    image: lms/captured:local
+    depends_on:
+      terminusdb:
+        condition: service_healthy
+    ports:
+      - "${CAPTURED_HOST_PORT:-8088}:8088"
+    environment:
+      CAPTURED_TDB_URL: http://terminusdb:6363
+      CAPTURED_TDB_ORG: ${TDB_ORG:-admin}
+      CAPTURED_TDB_DB: ${TDB_DB:-lms}
+      CAPTURED_TDB_BRANCH: ${TDB_BRANCH:-main}
+      CAPTURED_TDB_USER: ${TDB_USER:-admin}
+      CAPTURED_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      CAPTURED_API_TOKEN: ${CAPTURED_API_TOKEN:?err CAPTURED_API_TOKEN must be set}
+      LMS_BLOB_ROOT: /var/lib/lms/blobs
+      LMS_EXTENSIONS: ${LMS_EXTENSIONS:-}
+    volumes:
+      - lms_ext_venv:/opt/lms-ext-venv:ro
+      - blobs:/var/lib/lms/blobs
+    restart: unless-stopped
+    healthcheck:
+      # Healthz returns 200 (healthy) or 503 (degraded).
+      # urllib.urlopen raises HTTPError on non-2xx → exit 1 = unhealthy.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8088/healthz',timeout=5)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── ingestd — polling worker ───────────────────────────────────────────
+  ingestd:
+    build:
+      context: .
+      dockerfile: services/ingestd/Dockerfile
+    image: lms/ingestd:local
+    depends_on:
+      terminusdb:
+        condition: service_healthy
+    environment:
+      INGESTD_TDB_URL: http://terminusdb:6363
+      INGESTD_TDB_ORG: ${TDB_ORG:-admin}
+      INGESTD_TDB_DB: ${TDB_DB:-lms}
+      INGESTD_TDB_BRANCH: ${TDB_BRANCH:-main}
+      INGESTD_TDB_USER: ${TDB_USER:-admin}
+      INGESTD_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      INGESTD_LLM_BASE_URL: ${LMS_LLM_BASE_URL:?err LMS_LLM_BASE_URL must be set}
+      INGESTD_LLM_API_KEY: ${LMS_LLM_API_KEY:-}
+      INGESTD_LLM_MODEL: ${LMS_LLM_MODEL:-}
+      INGESTD_POLL_INTERVAL_SECONDS: ${INGESTD_POLL_INTERVAL_SECONDS:-60}
+      INGESTD_MAX_LLM_RETRIES: ${INGESTD_MAX_LLM_RETRIES:-3}
+      INGESTD_DRY_RUN: ${INGESTD_DRY_RUN:-false}
+      LMS_EXTENSIONS: ${LMS_EXTENSIONS:-}
+    volumes:
+      - lms_ext_venv:/opt/lms-ext-venv:ro
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── queryd — conversational agent API ──────────────────────────────────
+  queryd:
+    build:
+      context: .
+      dockerfile: services/queryd/Dockerfile
+    image: lms/queryd:local
+    depends_on:
+      terminusdb:
+        condition: service_healthy
+    ports:
+      - "${QUERYD_HOST_PORT:-8087}:8087"
+    environment:
+      QUERYD_TDB_URL: http://terminusdb:6363
+      QUERYD_TDB_ORG: ${TDB_ORG:-admin}
+      QUERYD_TDB_DB: ${TDB_DB:-lms}
+      QUERYD_TDB_BRANCH: ${TDB_BRANCH:-main}
+      QUERYD_TDB_USER: ${TDB_USER:-admin}
+      QUERYD_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      QUERYD_API_TOKEN: ${QUERYD_API_TOKEN:?err QUERYD_API_TOKEN must be set}
+      QUERYD_LLM_BASE_URL: ${LMS_LLM_BASE_URL:?err LMS_LLM_BASE_URL must be set}
+      QUERYD_LLM_API_KEY: ${LMS_LLM_API_KEY:-}
+      QUERYD_LLM_MODEL: ${LMS_LLM_MODEL:-}
+      QUERYD_ENABLE_WRITES: ${QUERYD_ENABLE_WRITES:-false}
+      LMS_EXTENSIONS: ${LMS_EXTENSIONS:-}
+    volumes:
+      - lms_ext_venv:/opt/lms-ext-venv:ro
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8087/healthz',timeout=5)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+# ── Volumes ───────────────────────────────────────────────────────────────
+volumes:
+  terminusdb_data:
+  lms_ext_venv:
+  blobs:

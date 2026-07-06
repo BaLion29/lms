@@ -70,9 +70,22 @@ and exits at startup by design.
 
 ## Local development
 
+For a full dockerised environment (TerminusDB + bootstrap + all services),
+see the root `compose.yaml` quickstart:
+
+```bash
+# From repo root:
+cp .env.example .env && vim .env                    # edit secrets
+docker compose --profile bootstrap up bootstrap --abort-on-container-exit
+docker compose up -d
+```
+
+If you prefer to run ingestd directly on the host (with an external TerminusDB):
+
 ```bash
 # 1. Start TerminusDB (only dependency)
-docker compose -f compose.dev.yaml up -d
+#    (no compose.dev.yaml needed — use root compose.yaml or point at an
+#     external instance via TDB_URL)
 
 # 2. Create the database and push the schema (idempotent)
 uv run python schema/bootstrap.py

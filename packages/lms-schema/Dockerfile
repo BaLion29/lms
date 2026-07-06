@@ -11,16 +11,14 @@ WORKDIR /app
 # Copy workspace root so uv can discover the workspace members.
 COPY pyproject.toml uv.lock /app/
 
-# Copy the two workspace members needed for this service.
+# Copy the two workspace members needed for this package.
 COPY packages/lms-core/ /app/packages/lms-core/
-COPY services/queryd/ /app/services/queryd/
+COPY packages/lms-schema/ /app/packages/lms-schema/
 
-WORKDIR /app/services/queryd
+WORKDIR /app/packages/lms-schema
 
-# --package queryd ensures uv only syncs this member; other workspace
-# directories (extensions/*, other services/*) are absent from the build
-# context and would cause discovery errors otherwise.
-RUN uv sync --frozen --no-dev --package queryd
+# --package lms-schema ensures uv only syncs this member.
+RUN uv sync --frozen --no-dev --package lms-schema
 
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime: slim Python image, non-root user
@@ -28,31 +26,32 @@ RUN uv sync --frozen --no-dev --package queryd
 FROM python:3.12-slim-bookworm
 
 # Create non-root user (uid 1000)
-RUN useradd -m -u 1000 queryd
+RUN useradd -m -u 1000 lmsschema
 
 # Copy the application venv + source from builder, owned by the runtime user.
-COPY --from=builder --chown=queryd:queryd /app /app
+COPY --from=builder --chown=lmsschema:lmsschema /app /app
 
-# Put the workspace venv on PATH so the queryd console script is found directly.
+# Put the workspace venv on PATH so the lms-schema CLI is found directly.
 # PYTHONPATH makes the extension overlay visible to importlib.metadata.
+# LMS_EXTENSIONS_INSTALL=true because this is the bootstrap image that
+# installs extensions into the shared overlay volume.
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/opt/lms-ext-venv/lib
+    PYTHONPATH=/opt/lms-ext-venv/lib \
+    LMS_EXTENSIONS_INSTALL=true
+
+# Pre-create overlay directory with non-root ownership so Docker does not
+# seed the named volume as root-owned (named volumes inherit image ownership).
+RUN mkdir -p /opt/lms-ext-venv/lib && chown -R lmsschema:lmsschema /opt/lms-ext-venv
 
 # Shared extension-installer entrypoint
 COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
 
-WORKDIR /app/services/queryd
+WORKDIR /app/packages/lms-schema
 
-EXPOSE 8087
+USER lmsschema
 
-USER queryd
-
-# All configuration is supplied via environment variables (QUERYD_ prefix).
-# See src/queryd/settings.py for the full list.
-
-# The entrypoint script handles extension installation, then execs CMD.
-# NOTE: With ENTRYPOINT + CMD, additional docker-run args REPLACE CMD.
-# To pass extra args:  docker run lms/queryd queryd <extra-args>
+# The entrypoint script installs extensions, then execs CMD.
+# Default CMD is the lms-schema help; compose overrides this.
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["queryd"]
+CMD ["lms-schema", "--help"]

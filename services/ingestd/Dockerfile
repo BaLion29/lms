@@ -17,7 +17,10 @@ COPY services/ingestd/ /app/services/ingestd/
 
 WORKDIR /app/services/ingestd
 
-RUN uv sync --frozen --no-dev
+# --package ingestd ensures uv only syncs this member; other workspace
+# directories (extensions/*, other services/*) are absent from the build
+# context and would cause discovery errors otherwise.
+RUN uv sync --frozen --no-dev --package ingestd
 
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime: slim Python image, non-root user
@@ -30,8 +33,14 @@ RUN useradd -m -u 1000 ingestd
 # Copy the application venv + source from builder, owned by the runtime user.
 COPY --from=builder --chown=ingestd:ingestd /app /app
 
-# Put the workspace venv on PATH so the entrypoint script is found directly
-ENV PATH="/app/.venv/bin:$PATH"
+# Put the workspace venv on PATH so the ingestd console script is found directly.
+# PYTHONPATH makes the extension overlay visible to importlib.metadata.
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/lms-ext-venv/lib
+
+# Shared extension-installer entrypoint
+COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
 
 WORKDIR /app/services/ingestd
 
@@ -40,6 +49,9 @@ USER ingestd
 # All configuration is supplied via environment variables (INGESTD_ prefix).
 # See src/ingestd/settings.py for the full list.
 
-# The entrypoint is the ingestd console script (service mode).
-# Users pass --once / --dry-run as args to override the default polling mode.
-ENTRYPOINT ["ingestd"]
+# The entrypoint script handles extension installation, then execs CMD.
+# CMD defaults to "ingestd" (polling mode).
+# NOTE: With ENTRYPOINT + CMD, additional docker-run args REPLACE CMD.
+# To pass --once / --dry-run:  docker run lms/ingestd ingestd --once
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["ingestd"]

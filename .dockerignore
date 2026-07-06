@@ -1,0 +1,21 @@
+# VCS
+.git
+
+# Python artifacts
+.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/*.egg-info
+
+# Build / dist artefacts (not needed inside images)
+dist/
+build/
+**/*.tar.gz
+
+# Runtime data (mounted at runtime, not baked in)
+storage/
+
+# OpenCode workspace
+.opencode/

@@ -67,16 +67,18 @@ uv run queryd
 
 ### Docker Compose
 
-```bash
-# TerminusDB only:
-docker compose -f compose.dev.yaml up -d
+Use the root `compose.yaml` (repository root) for a full dockerised stack:
 
-# TerminusDB + queryd (build context is the parent directory):
-docker compose -f compose.dev.yaml --profile app up -d
+```bash
+# From repo root:
+cp .env.example .env && vim .env                    # edit secrets
+docker compose --profile bootstrap up bootstrap --abort-on-container-exit
+docker compose up -d                                # TerminusDB + queryd + captured + ingestd
 ```
 
-The compose file starts TerminusDB on port 6363 and (with `--profile app`)
-builds queryd from the `Dockerfile`, exposing it on port 8087.
+The compose file starts TerminusDB on port 6363, builds queryd from the
+`Dockerfile`, and exposes it on port 8087.  See the compose header comment
+for extension toggling and external-TDB overlays.
 
 ### Bootstrapping the dev database
 
