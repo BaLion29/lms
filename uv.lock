@@ -420,18 +420,26 @@ dev = [
 name = "lms-schema"
 version = "0.1.0"
 source = { editable = "packages/lms-schema" }
+dependencies = [
+    { name = "lms-core" },
+]
 
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
     { name = "ruff" },
 ]
 
 [package.metadata]
+requires-dist = [{ name = "lms-core", editable = "packages/lms-core" }]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
     { name = "ruff" },
 ]
 
