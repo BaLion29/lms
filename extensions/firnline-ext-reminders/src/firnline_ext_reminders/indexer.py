@@ -10,7 +10,7 @@ from firnline_core.plugins import IndexerPlugin, ModuleRequirement
 class RemindersIndexerPlugin(IndexerPlugin):
     name: str = "reminders_indexer"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="reminders", range=">=1.0.0 <2.0.0"),
+        ModuleRequirement(name="reminders", range=">=0.1.0 <0.2.0"),
     ]
 
     def indexed_classes(self) -> list[str]:

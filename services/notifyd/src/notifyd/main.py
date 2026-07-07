@@ -1,0 +1,189 @@
+"""Console entrypoint for the notifyd notification delivery service."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import pathlib
+import signal
+import sys
+
+import structlog
+from typing import Any
+
+from notifyd.engine import NotifyEngine
+from notifyd.settings import NotifydSettings
+from firnline_core.plugins import discover_plugins, select_plugins, NotificationChannel
+from firnline_core.tdb import TdbClient
+
+_CHANNEL_GROUP = "firnline.notifyd.channels"
+
+
+def _configure_logging() -> None:
+    structlog.configure(
+        processors=[
+            structlog.stdlib.add_log_level,
+            structlog.dev.set_exc_info,
+            structlog.dev.ConsoleRenderer(),
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.PrintLoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+
+
+async def run_cycle_safe(engine: NotifyEngine, should_stop: asyncio.Event | None) -> bool:
+    """Run one cycle, returning False if a cycle-level exception was caught."""
+    try:
+        await engine.run_cycle(should_stop)
+    except Exception:
+        structlog.get_logger(__name__).exception("cycle_failed")
+        return False
+    return True
+
+
+async def _discover_channel_plugins_async(
+    tdb: TdbClient,
+    branch: str,
+    logger: Any,
+    strict: bool = False,
+) -> list[object]:
+    """Discover notification channel plugins, check requirements, return active ones.
+
+    Zero active channels is NOT fatal: the service idles gracefully,
+    logging a clear message once at startup.
+    """
+    discovered = discover_plugins(_CHANNEL_GROUP)
+    logger.info(
+        "channel_plugins_discovered",
+        group=_CHANNEL_GROUP,
+        count=len(discovered.active),
+        failed=len(discovered.failed),
+    )
+
+    if discovered.failed:
+        for name, err in discovered.failed:
+            logger.warning("channel_plugin_load_failed", plugin=name, error=err.split("\n")[-1])
+
+    selection = await select_plugins(
+        tdb, discovered, strict=strict, branch=branch, protocol=NotificationChannel
+    )
+
+    for name, violations in selection.skipped:
+        logger.warning(
+            "channel_plugin_skipped",
+            plugin=name,
+            violations=violations,
+        )
+
+    if not selection.active:
+        logger.info(
+            "no_notification_channels_installed",
+            message="no notification channels installed — service will idle",
+        )
+        return []
+
+    channels: list[object] = []
+    for name, obj in selection.active:
+        channels.append(obj)
+
+    return channels
+
+
+async def async_main(
+    once: bool,
+    should_stop: asyncio.Event,
+) -> None:
+    settings = NotifydSettings()  # type: ignore[call-arg]
+
+    logger = structlog.get_logger(__name__)
+    branch = settings.tdb_branch
+
+    tdb = TdbClient(
+        base_url=settings.tdb_url,
+        org=settings.tdb_org,
+        db=settings.tdb_db,
+        user=settings.tdb_user,
+        password=settings.tdb_password,
+    )
+
+    # ── Discover channel plugins ────────────────────────────────────
+    try:
+        channels = await _discover_channel_plugins_async(tdb, branch, logger)
+    except (RuntimeError, ValueError):
+        logger.exception("channel_plugin_discovery_failed")
+        sys.exit(1)
+
+    logger.info(
+        "plugin_startup_complete",
+        channel_count=len(channels),
+        channel_names=[getattr(c, "name", "?") for c in channels],
+    )
+
+    engine = NotifyEngine(tdb=tdb, settings=settings, channels=channels, logger=logger)
+
+    last_cycle_ok = True
+    liveness_path = pathlib.Path(settings.liveness_file)
+    try:
+        while not should_stop.is_set():
+            last_cycle_ok = await run_cycle_safe(engine, should_stop)
+            if last_cycle_ok:
+                try:
+                    liveness_path.touch(exist_ok=True)
+                except OSError:
+                    pass
+            if once or should_stop.is_set():
+                break
+            try:
+                await asyncio.wait_for(
+                    should_stop.wait(),
+                    timeout=settings.poll_interval_seconds,
+                )
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        await tdb.aclose()
+
+    if once and not last_cycle_ok:
+        sys.exit(1)
+
+
+def main() -> None:
+    _configure_logging()
+    logger = structlog.get_logger(__name__)
+
+    parser = argparse.ArgumentParser(description="notifyd — notification delivery daemon")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single delivery cycle and exit.",
+    )
+    args = parser.parse_args()
+
+    should_stop = asyncio.Event()
+    loop = asyncio.new_event_loop()
+
+    def _handle_signal() -> None:
+        logger.info("shutdown_signal_received")
+        should_stop.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, _handle_signal)
+        except NotImplementedError:
+            pass
+
+    try:
+        loop.run_until_complete(async_main(args.once, should_stop))
+    except Exception:
+        logger.exception("fatal_error")
+        sys.exit(1)
+    finally:
+        loop.close()
+
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

@@ -14,13 +14,13 @@ import structlog
 from pydantic_ai import RunContext, Tool
 
 from firnline_core.models import (
-    Task,
-    TaskStatus,
+    Provenance,
     _format_datetime,
 )
 from firnline_core.tdb import TdbError, short_iri
 from firnline_core.plugins import ModuleRequirement
 from firnline_core.tooling import traced, now_utc_str
+from firnline_ext_planning.models import Task, TaskStatus
 
 log = structlog.get_logger()
 
@@ -133,6 +133,14 @@ async def create_task(
         status=TaskStatus.OPEN,
         created_at=now_dt,
         updated_at=now_dt,
+        anchor_at=due_date,
+        provenance=Provenance(
+            source=None,
+            agent="queryd",
+            at=now_dt,
+            method="tool_call",
+            confidence=None,
+        ),
     )
     doc = task.to_tdb()
     branch = ctx.deps.settings.tdb_branch
@@ -213,7 +221,7 @@ class PlanningToolsPlugin:
 
     name: str = "planning_tools"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="planning", range=">=2.0.0 <3.0.0")
+        ModuleRequirement(name="planning", range=">=0.1.0 <0.2.0")
     ]
 
     def tools(self, deps: Any) -> list[Tool]:

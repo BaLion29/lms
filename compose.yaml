@@ -254,6 +254,36 @@ services:
       retries: 3
       start_period: 90s
 
+  # ── notifyd — notification delivery daemon ──────────────────────────────
+  notifyd:
+    build:
+      context: .
+      dockerfile: services/notifyd/Dockerfile
+    image: firnline/notifyd:local
+    environment:
+      NOTIFYD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
+      NOTIFYD_TDB_ORG: ${TDB_ORG:-admin}
+      NOTIFYD_TDB_DB: ${TDB_DB:-firnline}
+      NOTIFYD_TDB_BRANCH: ${TDB_BRANCH:-main}
+      NOTIFYD_TDB_USER: ${TDB_USER:-admin}
+      NOTIFYD_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      NOTIFYD_POLL_INTERVAL_SECONDS: ${NOTIFYD_POLL_INTERVAL_SECONDS:-30}
+      NOTIFYD_LIVENESS_FILE: ${NOTIFYD_LIVENESS_FILE:-/tmp/notifyd-alive}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "find /tmp/notifyd-alive -mmin -5 2>/dev/null | grep -q ."
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
   # ── queryd — conversational agent API ──────────────────────────────────
   queryd:
     build:

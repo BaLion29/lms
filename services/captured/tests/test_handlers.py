@@ -8,10 +8,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from firnline_core.conventions import utc_now
 from firnline_core.plugins import CaptureContext, CapturePayload
 
-from firnline_ext_inbox.capture import inbox_audio_handler, inbox_note_handler
+from captured.handlers import inbox_audio_handler, inbox_note_handler
 
 UTC = timezone.utc
 
@@ -59,6 +58,15 @@ class TestInboxNoteHandler:
         assert doc["content"] == "Hello world"
         assert doc["status"] == "new"
         assert doc["created_at"] == "2026-07-05T14:00:00Z"
+        assert doc["updated_at"] == "2026-07-05T14:00:00Z"
+        # Provenance subdocument
+        assert "provenance" in doc
+        prov = doc["provenance"]
+        assert prov["@type"] == "Provenance"
+        assert prov["agent"] == "captured"
+        assert prov["method"] == "capture"
+        assert prov.get("source") is None  # omitted by exclude_none
+        assert "at" in prov
 
     @pytest.mark.asyncio
     async def test_falls_back_to_ctx_now_when_no_captured_at(self) -> None:
@@ -66,10 +74,11 @@ class TestInboxNoteHandler:
         fixed_now = datetime(2026, 1, 15, 10, 30, 0, tzinfo=UTC)
         ctx = CaptureContext(tdb=tdb, blob_store=None, logger=None, now=lambda: fixed_now)
         payload = CapturePayload(kind="note", text="no timestamp")
-        iri = await inbox_note_handler.handle(payload, ctx)
+        _iri = await inbox_note_handler.handle(payload, ctx)
         tdb.insert_documents.assert_called_once()
         doc = tdb.insert_documents.call_args[0][0][0]
         assert doc["created_at"] == "2026-01-15T10:30:00Z"
+        assert doc["updated_at"] == "2026-01-15T10:30:00Z"
 
     @pytest.mark.asyncio
     async def test_empty_text_defaults_to_empty_string(self) -> None:
@@ -80,11 +89,34 @@ class TestInboxNoteHandler:
         doc = tdb.insert_documents.call_args[0][0][0]
         assert doc["content"] == ""
 
+    @pytest.mark.asyncio
+    async def test_provenance_always_present(self) -> None:
+        """Every created InboxNote has provenance set."""
+        tdb = _fake_tdb()
+        ctx = _ctx(tdb)
+        payload = CapturePayload(kind="note", text="hi")
+        await inbox_note_handler.handle(payload, ctx)
+        doc = tdb.insert_documents.call_args[0][0][0]
+        assert "provenance" in doc
+        assert doc["provenance"]["agent"] == "captured"
+        assert doc["provenance"]["method"] == "capture"
+        assert doc["provenance"].get("source") is None  # omitted by exclude_none
+
+    @pytest.mark.asyncio
+    async def test_contexts_default_empty_list(self) -> None:
+        tdb = _fake_tdb()
+        ctx = _ctx(tdb)
+        payload = CapturePayload(kind="note", text="hi")
+        await inbox_note_handler.handle(payload, ctx)
+        doc = tdb.insert_documents.call_args[0][0][0]
+        assert doc["contexts"] == []
+
     def test_metadata(self) -> None:
         assert inbox_note_handler.name == "inbox_note"
         assert inbox_note_handler.kinds == ("note",)
         assert len(inbox_note_handler.requires) == 1
         assert inbox_note_handler.requires[0].name == "inbox"
+        assert inbox_note_handler.requires[0].range == ">=0.1.0 <0.2.0"
 
 
 class TestInboxAudioHandler:
@@ -114,6 +146,15 @@ class TestInboxAudioHandler:
         assert doc["transcription"] == ""
         assert doc["created_at"] == "2026-07-05T14:00:00Z"
         assert doc["recorded_at"] == "2026-07-05T14:00:00Z"
+        assert doc["updated_at"] == "2026-07-05T14:00:00Z"
+        # Provenance subdocument
+        assert "provenance" in doc
+        prov = doc["provenance"]
+        assert prov["@type"] == "Provenance"
+        assert prov["agent"] == "captured"
+        assert prov["method"] == "capture"
+        assert prov.get("source") is None  # omitted by exclude_none
+        assert "at" in prov
 
     @pytest.mark.asyncio
     async def test_raises_when_blob_sha256_missing(self) -> None:
@@ -141,6 +182,7 @@ class TestInboxAudioHandler:
         assert inbox_audio_handler.kinds == ("file",)
         assert len(inbox_audio_handler.requires) == 1
         assert inbox_audio_handler.requires[0].name == "inbox"
+        assert inbox_audio_handler.requires[0].range == ">=0.1.0 <0.2.0"
 
     @pytest.mark.asyncio
     async def test_raises_when_blob_store_is_none(self) -> None:
@@ -160,3 +202,20 @@ class TestInboxAudioHandler:
         payload = CapturePayload(kind="file", blob_sha256="unknown_digest")
         with pytest.raises(RuntimeError, match="unknown_digest"):
             await inbox_audio_handler.handle(payload, ctx)
+
+    @pytest.mark.asyncio
+    async def test_provenance_always_present(self, tmp_path: Path) -> None:
+        """Every created InboxAudio has provenance set."""
+        tdb = _fake_tdb()
+        blob_path = tmp_path / "blobs" / "2026" / "07" / "sh" / "sha.wav"
+        blob_path.parent.mkdir(parents=True)
+        blob_path.write_text("data")
+        bs = _FakeBlobStore("sha", blob_path)
+        ctx = _ctx(tdb, blob_store=bs)
+        payload = CapturePayload(kind="file", blob_sha256="sha", filename="test.wav")
+        await inbox_audio_handler.handle(payload, ctx)
+        doc = tdb.insert_documents.call_args[0][0][0]
+        assert "provenance" in doc
+        assert doc["provenance"]["agent"] == "captured"
+        assert doc["provenance"]["method"] == "capture"
+        assert doc["provenance"].get("source") is None  # omitted by exclude_none

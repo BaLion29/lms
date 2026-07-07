@@ -81,7 +81,7 @@ def test_plugin_name_and_requires():
     reqs = reminder_plugin.requires
     assert len(reqs) == 1
     assert reqs[0].name == "reminders"
-    assert reqs[0].range == ">=1.0.0 <2.0.0"
+    assert reqs[0].range == ">=0.1.0 <0.2.0"
 
 
 def test_plugin_tools():
@@ -111,6 +111,12 @@ async def test_create_reminder_no_refers_to(respx_mock):
     assert doc["name"] == "Buy milk"
     assert doc["description"] == "don't forget"
     assert doc.get("refers_to") is None or "refers_to" not in doc
+    # provenance present (source=None excluded by to_tdb exclude_none)
+    prov = doc["provenance"]
+    assert prov["agent"] == "queryd"
+    assert prov["method"] == "tool_call"
+    assert "source" not in prov
+    assert "at" in prov
 
 
 async def test_create_reminder_with_valid_refers_to(respx_mock):
@@ -133,6 +139,10 @@ async def test_create_reminder_with_valid_refers_to(respx_mock):
     sent = json.loads(req.read())
     doc = sent[0] if isinstance(sent, list) else sent
     assert doc["refers_to"] == "Task/abc"
+    # provenance present
+    prov = doc["provenance"]
+    assert prov["agent"] == "queryd"
+    assert prov["method"] == "tool_call"
 
 
 async def test_create_reminder_refers_to_404_no_insert(respx_mock):

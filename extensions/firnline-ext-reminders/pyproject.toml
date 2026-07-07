@@ -1,6 +1,6 @@
 [project]
 name = "firnline-ext-reminders"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "Firnline reminders extension — Reminder schema module, queryd write tools, and ingest extractors"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }

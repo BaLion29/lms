@@ -5,7 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-07-07
+
+### Changed
+
+- Clean re-baseline for 0.1.0 release.
+- Kernel/extension split enforced — schema modules and handlers now live in kernel
+  packages, extensions only provide third-party integrations.
+- Per-package generated models replace hand-written Pydantic models across all
+  firnline libraries.
+- Core schema: Entity base class with Provenance tracking (created_at,
+  updated_at, provenance — no derived_from).
+- Triggerable and Anchored marker classes for structured document time handling.
+- notifyd notification delivery daemon with gotify channel extension.
+- Inbox schema module (InboxNote, InboxAudio) absorbed into kernel
+  (schema/modules/inbox/); capture handlers moved to captured, ingest sources to
+  ingestd.
+- ContextTrigger removed — replaced by ScheduleTrigger, OneShotTrigger, and
+  TriggerFiring documents handled by triggerd.
+- firnline-core client now exposes a change-feed API for polling services.
+- All package versions reset to 0.1.0.
 
 ### Added
 

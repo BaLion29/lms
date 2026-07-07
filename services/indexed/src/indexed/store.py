@@ -227,6 +227,47 @@ class Store:
     # Entity CRUD
     # ------------------------------------------------------------------
 
+    def upsert_entity(
+        self,
+        iri: str,
+        class_name: str,
+        name: str,
+        aliases: list[str],
+        text: str,
+        embedding: list[float],
+        commit_id: str,
+        branch: str,
+    ) -> None:
+        """Insert or update a single entity.
+
+        When *iri* already exists the row is updated in-place (class,
+        name, aliases, text, embedding, norm, commit_id, branch,
+        updated_at).  FTS5 content-table shadowing handles reindexing
+        automatically.
+        """
+        packed = _pack_vector(embedding)
+        norm_val = _norm(embedding)
+        aliases_json = json.dumps(aliases, ensure_ascii=False)
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            """
+            INSERT INTO entities (iri, class, name, aliases_json, text, embedding, norm, commit_id, branch, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(iri) DO UPDATE SET
+                class = excluded.class,
+                name = excluded.name,
+                aliases_json = excluded.aliases_json,
+                text = excluded.text,
+                embedding = excluded.embedding,
+                norm = excluded.norm,
+                commit_id = excluded.commit_id,
+                branch = excluded.branch,
+                updated_at = excluded.updated_at
+            """,
+            (iri, class_name, name, aliases_json, text, packed, norm_val, commit_id, branch, now),
+        )
+        self.conn.commit()
+
     def delete_entity(self, iri: str) -> None:
         self.conn.execute("DELETE FROM entities WHERE iri = ?", (iri,))
         self.conn.commit()

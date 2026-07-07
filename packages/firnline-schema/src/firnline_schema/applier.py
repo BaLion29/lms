@@ -461,6 +461,11 @@ async def apply_plan(
             "checksum": info.checksum,
             "installed_at": now_iso,
         }
+        # Include origin and description when available
+        if info.source:
+            doc["origin"] = info.source
+        if info.description:
+            doc["description"] = info.description
         # Use deterministic @id from Lexical key
         doc["@id"] = f"SchemaModule/{info.name}"
         await _upsert_registry_doc(tdb, branch, doc)

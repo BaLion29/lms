@@ -31,9 +31,18 @@ def _make_module(
         "depends_on": [],
         "exports": exports or [],
         "description": "test",
+        "models_target": f"firnline_core.generated.{name}",
     }
     (mod_dir / "manifest.json").write_text(json.dumps(manifest))
-    (mod_dir / "schema.json").write_text(json.dumps(classes or []))
+    if classes:
+        export_set = set(exports or [])
+        for cls in classes:
+            cid = cls.get("@id")
+            if cid in export_set and "@documentation" not in cls:
+                cls["@documentation"] = {"@comment": f"Test class {cid}"}
+        (mod_dir / "schema.json").write_text(json.dumps(classes))
+    else:
+        (mod_dir / "schema.json").write_text("[]")
     if context is not None:
         (mod_dir / "context.json").write_text(json.dumps(context))
     if migrations:
@@ -56,8 +65,8 @@ def _run_diff(modules_dir: Path, baseline_modules: Path | None = None, baseline_
 # Core context + classes (needed for compose)
 _CORE_CONTEXT = {"@base": "terminusdb:///data/", "@schema": "terminusdb:///schema#", "@type": "@context"}
 _CORE_CLASSES = [
-    {"@abstract": [], "@id": "Source", "@type": "Class"},
-    {"@abstract": [], "@id": "Context", "@type": "Class"},
+    {"@abstract": [], "@id": "Source", "@type": "Class", "@documentation": {"@comment": "Base source"}},
+    {"@abstract": [], "@id": "Context", "@type": "Class", "@documentation": {"@comment": "Base context"}},
 ]
 
 
@@ -390,10 +399,11 @@ def test_diff_classifies_entry_point_module_changes(tmp_path: Path) -> None:
         "name": "extmod", "version": "1.0.0",
         "depends_on": [{"name": "core", "range": ">=1.0.0"}],
         "exports": ["A", "B"], "description": "ext",
+        "models_target": "firnline_core.generated.extmod",
     }))
     (baseline_ext_dir / "schema.json").write_text(json.dumps([
-        {"@id": "A", "@type": "Class"},
-        {"@id": "B", "@type": "Class"},
+        {"@id": "A", "@type": "Class", "@documentation": {"@comment": "Class A"}},
+        {"@id": "B", "@type": "Class", "@documentation": {"@comment": "Class B"}},
     ]))
 
     # ── Current extension (provided via monkey-patched discovery)
@@ -403,9 +413,10 @@ def test_diff_classifies_entry_point_module_changes(tmp_path: Path) -> None:
         "name": "extmod", "version": "1.1.0",
         "depends_on": [{"name": "core", "range": ">=1.0.0"}],
         "exports": ["A"], "description": "ext",
+        "models_target": "firnline_core.generated.extmod",
     }))
     (pkg_dir / "schema.json").write_text(json.dumps([
-        {"@id": "A", "@type": "Class"},
+        {"@id": "A", "@type": "Class", "@documentation": {"@comment": "Class A"}},
     ]))
 
     # Baseline lock (needed for guardrails)

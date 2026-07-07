@@ -40,6 +40,7 @@ async def check_requirements(
     reqs: list[ModuleRequirement],
     *,
     branch: str = "main",
+    registry: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     """Return human-readable violations vs the SchemaModule registry docs.
 
@@ -54,11 +55,17 @@ async def check_requirements(
     * *registry unavailable* — ``"schema module registry not available"``
       returned as a single violation when ``tdb.get_documents("SchemaModule")``
       raises ``TdbError`` (e.g. legacy database without the class).
+
+    When *registry* is provided (a pre-fetched list of SchemaModule docs),
+    the database fetch is skipped and *registry* is used directly.
     """
-    try:
-        docs: list[dict[str, Any]] = await tdb.get_documents("SchemaModule", branch=branch)
-    except TdbError as exc:
-        return [f"schema module registry not available: {exc.status} {exc.body}"]
+    if registry is None:
+        try:
+            docs: list[dict[str, Any]] = await tdb.get_documents("SchemaModule", branch=branch)
+        except TdbError as exc:
+            return [f"schema module registry not available: {exc.status} {exc.body}"]
+    else:
+        docs = registry
 
     violations: list[str] = []
     installed: dict[str, Version] = {}
@@ -99,17 +106,32 @@ async def check_requirements(
 
 @dataclass
 class EntityIndex:
-    """Pre-built lookup structures for entity linking.
+    """Generic lookup structures for entity linking, keyed by class name.
 
-    ``people`` / ``locations`` are keyed by casefolded name for O(1) lookup.
-    ``people_display`` / ``locations_display`` preserve the original name
-    for use in prompt context blocks.
+    ``entities`` — ``{class_name: {casefolded_name: IRI}}``
+    ``display`` — ``{class_name: [(original_name, IRI)]}``
     """
 
-    people: dict[str, str] = field(default_factory=dict)
-    locations: dict[str, str] = field(default_factory=dict)
-    people_display: list[tuple[str, str]] = field(default_factory=list)
-    locations_display: list[tuple[str, str]] = field(default_factory=list)
+    entities: dict[str, dict[str, str]] = field(default_factory=dict)
+    display: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
+
+    def register(self, class_name: str, name: str, iri: str) -> None:
+        """Add *name* → *iri* for *class_name*.  Name is casefolded for
+        lookup, original is preserved in display."""
+        self.entities.setdefault(class_name, {})[name.casefold()] = iri
+        self.display.setdefault(class_name, []).append((name, iri))
+
+    def lookup(self, class_name: str, name: str) -> str | None:
+        """Casefolded exact-match lookup.  Returns the IRI or ``None``."""
+        return self.entities.get(class_name, {}).get(name.casefold())
+
+    def names(self, class_name: str) -> list[tuple[str, str]]:
+        """Return the display list for *class_name* (empty list if none)."""
+        return self.display.get(class_name, [])
+
+    def classes(self) -> list[str]:
+        """Return the list of registered class names."""
+        return list(self.entities.keys())
 
 
 # ---------------------------------------------------------------------------
@@ -124,8 +146,11 @@ class BuildContext:
         tdb: The TerminusDB client (``Any`` — avoids a service dep in firnline-core).
         inbox_iri: The IRI of the inbox item being processed.
         now: Callable returning ``datetime`` (default: ``datetime.now``).
-        create_or_link: Async callable ``(type_name, name, doc_factory) -> IRI``
-            that looks up an existing entity by name or inserts via *doc_factory*.
+        ensure_entity: ``async ensure_entity(type_name: str, name: str, factory: Callable[[], dict | None]) -> str | None``
+            Resolves an entity by name via the generic index / match service, or
+            creates it with a client-supplied ``@id`` and queues it in the current
+            batch; returns the IRI immediately (``None`` only if *factory* returns
+            ``None`` and no match is found).
         branch: The TDB branch for side-inserts (default: ``"main"``).
     """
 
@@ -135,13 +160,13 @@ class BuildContext:
         inbox_iri: str,
         *,
         now: Callable[[], datetime] | None = None,
-        create_or_link: Any = None,
+        ensure_entity: Any = None,
         branch: str = "main",
     ) -> None:
         self.tdb = tdb
         self.inbox_iri = inbox_iri
         self._now = now if now is not None else datetime.now
-        self.create_or_link = create_or_link
+        self.ensure_entity = ensure_entity
         self.branch = branch
 
     def now(self) -> datetime:
@@ -154,11 +179,12 @@ class ExtractorPlugin(Protocol):
 
     Duck-typing note: ``@runtime_checkable`` works for callable checks
     (``isinstance(obj, ExtractorPlugin)``) but attribute-only checks
-    (``name``, ``requires``) are verified by convention, not at runtime.
+    (``name``, ``requires``, ``produces``) are verified by convention, not at runtime.
     """
 
     name: str
     requires: list[ModuleRequirement]
+    produces: list[str]
 
     def proposal_models(self) -> list[type[BaseModel]]: ...
 
@@ -304,6 +330,8 @@ class EvalContext:
         get_occurrences: Async callable
             ``(trigger_dict, window_start, window_end, visited) -> list[datetime]``
             for CompositeTrigger recursion into operand sub-triggers.
+        changes: ``list[Any]`` — list of ``firnline_core.tdb.ChangeEvent`` for
+            the current evaluation window; EventTrigger-style evaluators consume it.
     """
 
     tdb: Any
@@ -311,6 +339,7 @@ class EvalContext:
     now: Callable[[], datetime]
     resolve_anchor: Callable[..., Awaitable[datetime | None]]
     get_occurrences: Callable[..., Awaitable[list[datetime]]]
+    changes: list[Any] = field(default_factory=list)
 
 
 @runtime_checkable
@@ -387,6 +416,101 @@ class IndexerPlugin(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# Protocol validation
+# ---------------------------------------------------------------------------
+
+
+def validate_plugin(obj: object, protocol: type) -> list[str]:
+    """Return human-readable violations when *obj* fails *protocol* conformance.
+
+    For the given ``@runtime_checkable`` Protocol, checks that every
+    non-callable protocol member exists on *obj* and every method member
+    exists and is callable.
+
+    Returns an empty list when *obj* passes all checks.
+    """
+    violations: list[str] = []
+    data_members: set[str] = set()
+
+    # Data members: from __annotations__ (skip dunders and _abc internals)
+    for attr_name in getattr(protocol, "__annotations__", {}):
+        if attr_name.startswith("__") and attr_name.endswith("__"):
+            continue
+        if attr_name.startswith("_abc_"):
+            continue
+        data_members.add(attr_name)
+        if not hasattr(obj, attr_name):
+            violations.append(f"missing attribute '{attr_name}'")
+
+    # Method members: from vars(protocol) — Protocol objects store methods
+    # in their class dict.  Skip dunders, _abc internals, and data members.
+    for member_name, member_value in vars(protocol).items():
+        if member_name.startswith("__") and member_name.endswith("__"):
+            continue
+        if member_name.startswith("_abc_"):
+            continue
+        if member_name in data_members:
+            continue  # already handled as data member
+        if callable(member_value):
+            if not hasattr(obj, member_name):
+                violations.append(f"missing method '{member_name}'")
+            elif not callable(getattr(obj, member_name)):
+                violations.append(f"attribute '{member_name}' is not callable")
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Notification channel protocol (notifyd seam)
+# ---------------------------------------------------------------------------
+# Entry-point group convention: "firnline.notifyd.channels"
+# A future notifyd service discovers and invokes these.
+
+
+@dataclass
+class DeliveryResult:
+    """Outcome of a notification delivery attempt."""
+
+    ok: bool
+    detail: str = ""
+    retryable: bool = False
+
+
+@runtime_checkable
+class NotificationChannel(Protocol):
+    """Protocol for notifyd notification channel plugins.
+
+    Each channel handles a specific delivery mechanism (email, push, etc.)
+    and is discovered under ``firnline.notifyd.channels``.
+    """
+
+    name: str
+    requires: list[ModuleRequirement]
+
+    async def deliver(
+        self,
+        firing: dict[str, Any],
+        subject: dict[str, Any] | None,
+        ctx: "NotifyContext",
+    ) -> DeliveryResult: ...
+
+
+@dataclass
+class NotifyContext:
+    """Convention carrier passed to :meth:`NotificationChannel.deliver`.
+
+    Fields:
+        tdb: A TerminusDB client (``Any`` — avoids a service dep in firnline-core).
+        logger: A ``logging.Logger``-like object.
+        now: Callable returning ``datetime`` (default: ``datetime.now``).
+    """
+
+    tdb: Any
+    logger: Any
+    now: Callable[[], datetime] | None = None
+
+
+# ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
 
@@ -451,6 +575,7 @@ async def select_plugins(
     *,
     strict: bool = False,
     branch: str = "main",
+    protocol: type | None = None,
 ) -> PluginSelection:
     """Check requirements for every discovered plugin and return the selection.
 
@@ -459,12 +584,40 @@ async def select_plugins(
 
     When *strict* is ``True`` a ``RuntimeError`` is raised if any plugin
     was skipped or any discovery failure occurred.
+
+    When *protocol* is provided, each plugin is additionally validated
+    against the given ``@runtime_checkable`` Protocol via
+    :func:`validate_plugin` — structural violations are treated like
+    requirement violations (plugin skipped, raised in strict mode).
     """
+    # Fetch the SchemaModule registry once and reuse across all plugins.
+    registry: list[dict[str, Any]] | None
+    registry_error: str | None = None
+    try:
+        registry = await tdb.get_documents("SchemaModule", branch=branch)
+    except TdbError as exc:
+        registry = None
+        registry_error = f"schema module registry not available: {exc.status} {exc.body}"
+
     selection = PluginSelection()
 
     for name, obj in discovered.active:
-        requires: list[ModuleRequirement] = getattr(obj, "requires", [])
-        violations = await check_requirements(tdb, requires, branch=branch)
+        violations: list[str] = []
+        if registry_error is not None:
+            violations.append(registry_error)
+        else:
+            requires: list[ModuleRequirement] = getattr(obj, "requires", [])
+            try:
+                violations.extend(
+                    await check_requirements(tdb, requires, branch=branch, registry=registry)
+                )
+            except TypeError:
+                # Backward compat: old mock replacements may not accept 'registry'
+                violations.extend(
+                    await check_requirements(tdb, requires, branch=branch)
+                )
+        if protocol is not None:
+            violations.extend(validate_plugin(obj, protocol))
         if violations:
             selection.skipped.append((name, violations))
         else:

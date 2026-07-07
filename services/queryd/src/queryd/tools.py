@@ -13,17 +13,14 @@ history.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import re
-import typing
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import structlog
-from pydantic import BaseModel
 from pydantic_ai import RunContext, Tool
 
 from firnline_core.tdb import TdbClient, TdbError

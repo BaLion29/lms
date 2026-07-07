@@ -2,7 +2,7 @@
 
 Generic: polls source plugins, runs extraction via the ExtractionContext (built
 at startup from ExtractorPlugins), and dispatches document building per proposal
-kind.
+kind.  One insert_documents commit per inbox item.
 """
 
 from __future__ import annotations
@@ -10,30 +10,20 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 import structlog
-from pydantic import BaseModel
 
-from ingestd.extraction import ExtractionContext, ExtractionResult, extract
+from ingestd.extraction import ExtractionContext, extract
 from ingestd.linking import (
     EntityIndex,
     LinkingConfig,
-    async_match_location,
-    async_match_person,
-    build_index,
+    async_match,
+    build_index_from_classes,
+    match,
 )
 from ingestd.settings import Settings
-from firnline_core.models import (
-    Contact,
-    Event,
-    EventStatus,
-    Location,
-    Person,
-    Reminder,
-    Task,
-    TaskStatus,
-    _format_datetime,
-)
+from firnline_core.models import _format_datetime
 from firnline_core.plugins import BuildContext
 from firnline_core.tdb import TdbClient, TdbError, short_iri
 
@@ -73,6 +63,20 @@ class Pipeline:
                 seen.add(pid)
                 self._extractor_plugins.append(plugin)
 
+        # Compute linkable classes from union of produces across active extractors
+        self._linkable_classes: list[str] = sorted(
+            {
+                cls_name
+                for p in self._extractor_plugins
+                for cls_name in getattr(p, "produces", [])
+            }
+        )
+
+        # Idempotency fallback state (reset per cycle via run_cycle)
+        self._idempotency_graphql_ok: bool = True
+        self._idempotency_fallback_cache: set[str] | None = None
+        self._idempotency_path_logged: bool = False
+
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
@@ -80,30 +84,27 @@ class Pipeline:
     async def run_cycle(self, should_stop: asyncio.Event | None = None) -> None:
         """Execute one full extraction cycle.
 
-        1. Fetch entity context (Person + Location) and build index.
+        1. Build generic EntityIndex from all ``produces`` classes.
         2. Build linking context block from all extractor plugins.
         3. Gather inbox documents from each source plugin (generic poll).
-        4. Pre-fetch Task/Event/Reminder lists for idempotency.
-        5. Process each inbox doc sequentially, respecting *should_stop*.
+        4. Process each inbox doc sequentially, respecting *should_stop*.
+           Idempotency is checked per-item via GraphQL point lookup,
+           with a cached class-scan fallback on failure.
         """
         branch = self.settings.tdb_branch
 
+        # Reset per-cycle idempotency state
+        self._idempotency_graphql_ok = True
+        self._idempotency_fallback_cache = None
+        self._idempotency_path_logged = False
+
         # ----- Entity index -----
-        people = await self.tdb.get_documents("Person", branch)
-        locations = await self.tdb.get_documents("Location", branch)
-        index = build_index(people, locations)
+        index = await build_index_from_classes(
+            self.tdb, self._linkable_classes, branch
+        )
 
         # ----- Linking context -----
         context_block = await self._build_linking_context(index)
-
-        # ----- Idempotency set -----
-        already_derived: set[str] = set()
-        for type_ in ("Task", "Event", "Reminder"):
-            docs = await self.tdb.get_documents(type_, branch)
-            for d in docs:
-                df = d.get("derived_from")
-                if df:
-                    already_derived.add(short_iri(df))
 
         # ----- Gather work from source plugins -----
         all_inbox: list[tuple[dict[str, Any], Any]] = []
@@ -136,7 +137,7 @@ class Pipeline:
             logger.info("processing_inbox_doc", iri=doc_iri, source=src.name)
 
             try:
-                await self._process_one(doc, src, index, context_block, already_derived)
+                await self._process_one(doc, src, index, context_block)
             except Exception:
                 logger.error(
                     "unexpected_error",
@@ -164,7 +165,9 @@ class Pipeline:
 
         for plugin in self._extractor_plugins:
             try:
-                lc = await plugin.linking_context(self.tdb, index=index, branch=self.settings.tdb_branch)
+                lc = await plugin.linking_context(
+                    self.tdb, index=index, branch=self.settings.tdb_branch
+                )
                 if lc and lc.strip():
                     parts.append(lc)
             except Exception:
@@ -176,8 +179,80 @@ class Pipeline:
 
         return "\n\n".join(parts)
 
-    def _make_create_or_link(self, index: EntityIndex) -> Any:
-        """Return an async ``create_or_link`` callable for ``BuildContext``.
+    # ------------------------------------------------------------------
+    # Idempotency
+    # ------------------------------------------------------------------
+
+    async def _check_idempotency(self, doc_iri: str, branch: str) -> bool:
+        """Return ``True`` if *doc_iri* was already derived from.
+
+        Primary path: per-item GraphQL point lookup using a filtered
+        ``Entity`` query on ``provenance.source``.
+
+        Fallback: single class-scan per cycle, cached after first TdbError
+        on the GraphQL path.  Logs which path was used once per cycle at
+        INFO, and each fallback-triggering failure at WARNING.
+        """
+        if self._idempotency_graphql_ok:
+            try:
+                query = (
+                    "query($src: String) {"
+                    "  Entity(filter: { provenance: { source: { eq: $src } } }) {"
+                    "    _id"
+                    "  }"
+                    "}"
+                )
+                data = await self.tdb.graphql(
+                    query, variables={"src": doc_iri}, branch=branch
+                )
+                entities = data.get("Entity", [])
+
+                if not self._idempotency_path_logged:
+                    logger.info("idempotency_path", method="graphql_point_lookup")
+                    self._idempotency_path_logged = True
+
+                return isinstance(entities, list) and len(entities) > 0
+
+            except TdbError:
+                logger.warning(
+                    "idempotency_graphql_failed",
+                    iri=doc_iri,
+                    fallback="class_scan",
+                )
+                self._idempotency_graphql_ok = False
+                self._idempotency_fallback_cache = (
+                    await self._build_fallback_idempotency_set(branch)
+                )
+                logger.info("idempotency_path", method="class_scan_fallback")
+                self._idempotency_path_logged = True
+
+        # Use fallback cache
+        return doc_iri in (self._idempotency_fallback_cache or set())
+
+    async def _build_fallback_idempotency_set(self, branch: str) -> set[str]:
+        """Fallback: scan all ``produces`` classes, read ``provenance.source``."""
+        result: set[str] = set()
+        for cls_name in self._linkable_classes:
+            try:
+                docs = await self.tdb.get_documents(cls_name, branch)
+            except TdbError:
+                continue
+            for d in docs:
+                source = (d.get("provenance") or {}).get("source")
+                if source:
+                    result.add(short_iri(source))
+        return result
+
+    # ------------------------------------------------------------------
+    # Ensure entity (per-item batch callback)
+    # ------------------------------------------------------------------
+
+    def _make_ensure_entity(
+        self,
+        index: EntityIndex,
+        batch: list[dict[str, Any]],
+    ) -> Any:
+        """Return an async ``ensure_entity`` callable for ``BuildContext``.
 
         When ``INGESTD_INDEXED_ENABLED`` is true, entity linking consults
         the indexed service on exact-match miss before creating a new entity.
@@ -191,43 +266,48 @@ class Pipeline:
             branch=self.settings.tdb_branch,
         )
 
-        async def _create_or_link(
+        index_ref = index
+
+        async def _ensure_entity(
             type_name: str,
             name: str,
             factory: Any,
         ) -> str | None:
-            if type_name == "Person":
-                iri = await async_match_person(index, name, config)
-            elif type_name == "Location":
-                iri = await async_match_location(index, name, config)
-            else:
-                iri = None
-
+            # 1. Exact index lookup
+            iri = match(index_ref, type_name, name)
             if iri:
                 return iri
 
+            # 2. Indexed fallback
+            if config.enabled and config.url:
+                try:
+                    iri = await async_match(index_ref, type_name, name, config)
+                    if iri:
+                        return iri
+                except Exception:
+                    logger.warning(
+                        "ensure_entity_indexed_failed",
+                        type_name=type_name,
+                        name=name,
+                        exc_info=True,
+                    )
+
+            # 3. Create via factory
             doc = factory() if callable(factory) else factory
             if doc is None:
                 return None
 
-            iris = await self.tdb.insert_documents(
-                [doc],
-                branch=self.settings.tdb_branch,
-                message=f"ingestd: created {type_name} '{name}'",
-            )
-            new_iri = short_iri(iris[0])
+            if "@id" not in doc:
+                doc["@id"] = f"{type_name}/{uuid4().hex}"
+            batch.append(doc)
+            index_ref.register(type_name, name, doc["@id"])
+            return doc["@id"]
 
-            key = name.casefold()
-            if type_name == "Person":
-                index.people[key] = new_iri
-                index.people_display.append((name, new_iri))
-            elif type_name == "Location":
-                index.locations[key] = new_iri
-                index.locations_display.append((name, new_iri))
+        return _ensure_entity
 
-            return new_iri
-
-        return _create_or_link
+    # ------------------------------------------------------------------
+    # Process one inbox item
+    # ------------------------------------------------------------------
 
     async def _process_one(
         self,
@@ -235,13 +315,12 @@ class Pipeline:
         src: Any,
         index: EntityIndex,
         context_block: str,
-        already_derived: set[str],
     ) -> None:
         doc_iri = short_iri(doc.get("@id", ""))
         branch = self.settings.tdb_branch
 
-        # 1. Idempotency guard
-        if doc_iri in already_derived:
+        # 1. Idempotency guard — per-item GraphQL point lookup with fallback
+        if await self._check_idempotency(doc_iri, branch):
             logger.info("already_extracted", iri=doc_iri)
             await self._flip_status(doc, src.done_status)
             return
@@ -278,45 +357,41 @@ class Pipeline:
                 await self._flip_status(doc, src.done_status)
                 return
 
-            # Build documents via plugin dispatch
+            # Build documents via plugin dispatch — one batch per item
             now = datetime.now(timezone.utc)
 
-            all_docs, new_locations, pending_loc_events = await self._build_documents_via_plugins(
+            batch, success = await self._build_and_dispatch(
                 result.proposals, doc_iri, index, now
             )
 
             if self.settings.dry_run:
-                loc_docs = [loc.to_tdb() for loc in new_locations]
                 logger.info(
                     "dry_run_would_insert",
                     iri=doc_iri,
-                    documents=loc_docs + all_docs,
+                    documents=batch,
                 )
                 return
 
+            if not success:
+                error_feedback = "One or more build_documents calls failed"
+                last_error = RuntimeError(error_feedback)
+                logger.warning(
+                    "build_documents_failed_some",
+                    iri=doc_iri,
+                    attempt=attempt,
+                )
+                continue
+
             try:
-                # Insert new locations first
-                if new_locations:
-                    loc_docs = [loc.to_tdb() for loc in new_locations]
-                    loc_ids = await self.tdb.insert_documents(
-                        loc_docs,
+                if batch:
+                    inserted = await self.tdb.insert_documents(
+                        batch,
                         branch=branch,
                         message=f"ingestd: extracted from {doc_iri}",
                     )
-                    for loc, full_id in zip(new_locations, loc_ids):
-                        short_id = short_iri(full_id)
-                        index.locations[loc.name.casefold()] = short_id
-                        for event_doc, loc_name in pending_loc_events:
-                            if loc_name.casefold() == loc.name.casefold():
-                                event_doc["location"] = short_id
-
-                # Insert main documents
-                inserted = await self.tdb.insert_documents(
-                    all_docs,
-                    branch=branch,
-                    message=f"ingestd: extracted from {doc_iri}",
-                )
-                logger.info("inserted_documents", iri=doc_iri, inserted=inserted)
+                    logger.info("inserted_documents", iri=doc_iri, count=len(inserted))
+                else:
+                    logger.info("no_documents_to_insert", iri=doc_iri)
                 break  # success → exit retry loop
 
             except TdbError as e:
@@ -338,7 +413,9 @@ class Pipeline:
             try:
                 await self._flip_status(doc, src.failed_status)
             except Exception:
-                logger.exception("failed_to_flip_status_on_retry_exhaustion", iri=doc_iri)
+                logger.exception(
+                    "failed_to_flip_status_on_retry_exhaustion", iri=doc_iri
+                )
             return
 
         # 4. Flip status to done
@@ -368,19 +445,21 @@ class Pipeline:
     # Document building — plugin-aware path
     # ------------------------------------------------------------------
 
-    async def _build_documents_via_plugins(
+    async def _build_and_dispatch(
         self,
         proposals: list[Any],
         doc_iri: str,
         index: EntityIndex,
         now: datetime,
-    ) -> tuple[list[dict[str, Any]], list[Location], list[tuple[dict[str, Any], str]]]:
-        """Build documents by dispatching each proposal to its owning plugin."""
-        create_or_link = self._make_create_or_link(index)
-        all_docs: list[dict[str, Any]] = []
-        new_locations: list[Location] = []
-        new_location_names: set[str] = set()
-        pending_loc_events: list[tuple[dict[str, Any], str]] = []
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Build documents by dispatching each proposal to its owning plugin.
+
+        Returns ``(batch_docs, success)`` — *success* is ``False`` when
+        any plugin's ``build_documents`` raises (partial-build detection).
+        """
+        batch: list[dict[str, Any]] = []
+        ensure_entity = self._make_ensure_entity(index, batch)
+        success = True
 
         for prop in proposals:
             kind = getattr(prop, "kind", None)
@@ -401,7 +480,7 @@ class Pipeline:
                 tdb=self.tdb,
                 inbox_iri=doc_iri,
                 now=lambda: now,
-                create_or_link=create_or_link,
+                ensure_entity=ensure_entity,
                 branch=self.settings.tdb_branch,
             )
             try:
@@ -413,18 +492,9 @@ class Pipeline:
                     iri=doc_iri,
                     exc_info=True,
                 )
+                success = False
                 continue
 
-            # Track new locations for events
-            if kind == "event" and hasattr(prop, "location_name") and prop.location_name:
-                for d in docs:
-                    if d.get("@type") == "Event" and not d.get("location"):
-                        name_cf = prop.location_name.casefold()
-                        if name_cf not in new_location_names:
-                            new_location_names.add(name_cf)
-                            new_locations.append(Location(name=prop.location_name))
-                        pending_loc_events.append((d, prop.location_name))
+            batch.extend(docs)
 
-            all_docs.extend(docs)
-
-        return all_docs, new_locations, pending_loc_events
+        return batch, success

@@ -1,35 +1,11 @@
 [
-  {
-    "@id": "Person",
-    "@inherits": [
-      "Source",
-      "Context"
-    ],
-    "@type": "Class",
-    "contact": {
-      "@class": "Contact",
-      "@type": "Optional"
-    },
-    "name": "xsd:string"
-  },
-  {
-    "@id": "Contact",
-    "@key": {
-      "@type": "Random"
-    },
-    "@subdocument": [],
-    "@type": "Class",
-    "domicile": {
-      "@class": "Location",
-      "@type": "Optional"
-    },
-    "email": {
-      "@class": "xsd:string",
-      "@type": "Optional"
-    },
-    "phone": {
-      "@class": "xsd:string",
-      "@type": "Optional"
-    }
-  }
+  {"@id": "Person", "@inherits": ["Entity", "Source", "Context"], "@type": "Class",
+   "@documentation": {"@comment": "A person with a name and optional contact details. Can be a source of information, a context for activities, and be derived from."},
+   "contact": {"@class": "Contact", "@type": "Optional"},
+   "name": "xsd:string"},
+  {"@id": "Contact", "@key": {"@type": "Random"}, "@subdocument": [], "@type": "Class",
+   "@documentation": {"@comment": "Contact details embedded in a Person: email, phone, and domicile location."},
+   "domicile": {"@class": "Location", "@type": "Optional"},
+   "email": {"@class": "xsd:string", "@type": "Optional"},
+   "phone": {"@class": "xsd:string", "@type": "Optional"}}
 ]

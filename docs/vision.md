@@ -33,13 +33,13 @@ its **commit graph** gives every change an author, a message, and a way back.
 |---|---|
 | **SSOT (Single Source of Truth)** | TerminusDB stores everything: tasks, events, reminders, inbox items, people, locations, routines, triggers. No scattering across apps. |
 | **Frictionless Capture** | Voice memos (`InboxAudio`) and text notes (`InboxNote`) drop in via a capture endpoint or watched directories. Capture costs < 5 seconds. |
-| **AI does the filing** | `ingestd` polls the inbox, sends text to an LLM with a typed output schema, and materializes validated `Task`/`Event`/`Reminder`/`Person` documents — dates resolved, known entities linked, `derived_from` always set. |
-| **AI acts, never invisibly** | Every AI write is a distinct TerminusDB commit with `author=ingestd`, full provenance on each document, and one commit per inbox item — attributable, auditable, and revertible. Writes can be pointed at a staging branch; dry-run mode exists for trust-building. |
+| **AI does the filing** | `ingestd` polls the inbox, sends text to an LLM with a typed output schema, and materializes validated `Task`/`Event`/`Reminder`/`Person` documents — dates resolved, known entities linked, `provenance.source` always set. |
+| **AI acts, never invisibly** | Every AI write is a distinct TerminusDB commit with `author=ingestd`, full `Provenance` on each document (source, agent, at, method, confidence), and one commit per inbox item — attributable, auditable, and revertible. Writes can be pointed at a staging branch; dry-run mode exists for trust-building. |
 | **Ask your life anything** | `queryd` exposes a conversational agent ("was steht diese Woche an?", "when did I last plan something with Anna?") over the graph, with a small set of explicitly gated write actions. |
-| **Everything is traceable** | The `Source` marker means every Task and Event knows where it came from — an audio, a note, a routine, or another entity. The source chain is always walkable. |
-| **Everything is remindable** | The `Remindable` marker means reminders can attach to anything — not just events. A rich `Trigger` model (schedule/rrule, relative offsets, context entry, entity events, boolean composition) drives when they fire. |
+| **Everything is traceable** | The `Entity` base carries an optional `Provenance` subdocument (source, agent, at, method, confidence). Every Task and Event knows where it came from — an audio, a note, a routine, or another entity. The source chain is always walkable. Type-system enforcement: `source` must reference a `Source`-marked class. |
+| **Everything is remindable** | The `Remindable` marker means reminders can attach to anything — not just events. A rich `Trigger` model (schedule/rrule, relative offsets, event-based triggers over the kernel change feed, boolean composition) drives when they fire. `triggerd` materialises `TriggerFiring` records; `notifyd` executes the nag policy (renotify, expire, snooze) and delivers via notification channels. |
 | **Multiple contexts, no hierarchies** | The `Context` marker lets a Task be tagged with `Person`, `Location`, `Event`, or custom contexts — as many as needed. |
-| **Processing pipeline** | Inbox items flow through explicit statuses (`new → transcribed → processed / failed / archived`), spawning core entities along the way. Statuses *are* the queue; the database is the only integration point. |
+| **Processing pipeline** | Inbox items flow through explicit statuses (`new → transcribed → processed / failed / archived`), spawning core entities along the way. Statuses *are* the queue; the database is the only integration point. Inbox is a kernel schema module (`schema/modules/inbox`) — the capture raison d'être ships with core. |
 | **Modular by design** | The schema is split into versioned **modules** (core, inbox, planning, people, …) composed at build time; services load **plugins** via Python entry points. New domains = new module + plugins, no core changes. |
 | **Open to contributors** | A third party can ship one installable package containing a schema module, an extractor plugin, and query tools — and the whole vertical (capture → extraction → storage → query) works. |
 
@@ -81,7 +81,7 @@ Four abstract markers structure everything:
 │                                                                    │
 │  planning:                                                         │
 │   Task      ── Remindable+Source+TaskSpec                          │
-│              derived_from · due_date · status(open/planned/done)   │
+│              provenance · due_date · status(open/planned/done)     │
 │   Event     ── Remindable+Source+Context  (an event IS a context)  │
 │              start/end · location→Location · status                │
 │   Reminder  ── refers_to→Remindable · trigger→Trigger (optional)   │
@@ -99,20 +99,24 @@ Four abstract markers structure everything:
 
 ## Key Design Decisions
 
-### Source & derived_from (traceability)
+### Source & Provenance (traceability)
 
-Every extracted Task/Event/Reminder carries `derived_from → Source`. You can
-always answer "where did this come from?" — and the frontend surfaces this as a
-one-click source chain.  `derived_from` doubles as the idempotency guard:
-before processing an inbox item, ingestd checks whether documents derived from
-it already exist.
+Every Entity carries an optional `Provenance` subdocument whose `source` field
+points back to the originating `Source`. You can always answer "where did this
+come from?" — and the frontend surfaces this as a one-click source chain.
+The `provenance.source` link doubles as the idempotency guard: before
+processing an inbox item, ingestd runs one GraphQL query over `Entity` /
+`provenance.source` to detect already-extracted documents.
 
 ### Remindable + Trigger (universal, composable reminders)
 
 Reminders are standalone entities that `refer_to` anything inheriting
 `Remindable`. *When* they fire is fully delegated to the Trigger family —
-recurring schedules (RFC 5545 rrule), offsets relative to another Remindable,
-context entry, entity lifecycle events, and boolean composition of all of these.
+recurring schedules (RFC 5545 rrule), offsets relative to an `Anchored`
+entity's `anchor_at`, event triggers over the kernel change feed, and boolean
+composition of all of these. The trigger lifecycle (pending→notified→renotify→
+expire→snoozed) is fully materialised and enforced by `triggerd` +
+`notifyd`.
 
 ### Context (flat, multi-valued tagging)
 
@@ -127,11 +131,13 @@ An Event (like "Dentist appointment") is both something that happens AND a
 context that other things can be associated with. "Buy toothpaste" can have
 `required_context: [Event:Dentist, Person:Topias]`.
 
-### Two inbox types, one pipeline
+### Two inbox types, one pipeline (kernel)
 
-**InboxAudio** (voice, transcribed via STT) and **InboxNote** (text) flow
-through the same extraction pipeline, the same provenance model, and the same
-statuses.
+**InboxAudio** (voice, transcribed via STT) and **InboxNote** (text) are
+kernel schema classes in `schema/modules/inbox`. They flow through the same
+extraction pipeline, the same provenance model, and the same statuses.
+Capture handlers ship inside `captured`; ingest sources ship inside `ingestd`
+— no extension needed for the native capture types.
 
 ### AI writes with provenance; branches are the review boundary
 
@@ -182,6 +188,11 @@ changes require migrations); plugins declare module requirements checked at
 startup against the in-database registry; unmet requirements skip the plugin
 with a warning instead of crashing the service.
 
+The **firn-line law** is machine-enforced by the **melt test** (`scripts/
+melt-test.sh`, wired into `validate-release.sh`): a kernel-only install must
+compose the schema, run codegen, pass `uv run pytest`, and idle gracefully
+— no third-party extension may be necessary for the system to start.
+
 ## Technology Foundation
 
 | Component | Role |
@@ -191,6 +202,8 @@ with a warning instead of crashing the service.
 | **firnline-schema** | Schema toolchain CLI: compose, diff, plan, apply, validate, promote, codegen. |
 | **ingestd** | AI ingestion polling worker: poll inbox → LLM extraction → entity linking → one commit per item → status flip. |
 | **queryd** | FastAPI conversational agent: read tools, guarded write tools (plugins), stateless `/v1/chat`. |
+| **triggerd** | Trigger evaluation polling worker: poll Trigger → evaluate → materialise TriggerFiring records. |
+| **notifyd** | Notification delivery daemon: consume pending TriggerFiring records, execute nag policy (pending→notified, renotify, expire, snooze wake-up), deliver via `NotificationChannel` plugins (e.g. Gotify). |
 | **captured** | Minimal FastAPI capture-ingress: `POST /v1/capture/note` and `/v1/capture/file` with pluggable handlers. |
 | **STT** | faster-whisper (via existing n8n pipeline); multilingual German/French/English. Swappable — it just flips `InboxAudio` statuses. |
 | **LLM access** | LiteLLM proxy (OpenAI-compatible) in front of any model — every service sees one interface. |
@@ -198,8 +211,9 @@ with a warning instead of crashing the service.
 
 ## Future Directions (not yet implemented)
 
-- **Reminder engine** — trigger evaluation + firing materialization now implemented
-  by `triggerd`; nag/snooze/escalation lifecycle + ntfy delivery still future.
+- **Reminder engine** — trigger evaluation and firing materialization
+  implemented by `triggerd`; nag/snooze/expiry lifecycle and notification
+  delivery implemented by `notifyd` (first channel: Gotify).
 - **Routine engine** — Routines spawning Tasks/Activities from their steps.
 - **Branch review tooling** — comfortable per-commit review + promote flow for
   staging-branch mode.

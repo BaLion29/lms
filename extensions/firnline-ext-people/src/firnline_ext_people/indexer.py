@@ -10,7 +10,7 @@ from firnline_core.plugins import IndexerPlugin, ModuleRequirement
 class PeopleIndexerPlugin(IndexerPlugin):
     name: str = "people_indexer"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="people", range=">=1.0.0 <2.0.0"),
+        ModuleRequirement(name="people", range=">=0.1.0 <0.2.0"),
     ]
 
     def indexed_classes(self) -> list[str]:

@@ -1,6 +1,6 @@
 [project]
 name = "firnline-ext-planning"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "Firnline planning extension — Task/Event schema module, queryd write tools, and ingest extractors"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
@@ -9,6 +9,8 @@ requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [
     "firnline-core",
+    "firnline-ext-people",
+    "firnline-ext-places",
     "pydantic-ai-slim",
     "structlog",
 ]
@@ -27,6 +29,8 @@ planning_indexer = "firnline_ext_planning.indexer:plugin"
 
 [tool.uv.sources]
 firnline-core = { workspace = true }
+firnline-ext-people = { workspace = true }
+firnline-ext-places = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

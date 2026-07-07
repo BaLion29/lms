@@ -1,7 +1,8 @@
 {
   "name": "reminders",
-  "version": "1.0.0",
-  "depends_on": [{"name": "core", "range": ">=2.0.0 <3.0.0"}, {"name": "triggers", "range": ">=1.0.0 <2.0.0"}],
+  "version": "0.1.0",
+  "depends_on": [{"name": "core", "range": ">=0.1.0 <0.2.0"}, {"name": "triggers", "range": ">=0.1.0 <0.2.0"}],
+  "models_target": "firnline_ext_reminders.models",
   "exports": ["Reminder"],
   "description": "Reminder entities with trigger references"
 }

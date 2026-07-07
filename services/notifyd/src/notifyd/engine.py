@@ -1,0 +1,330 @@
+"""Notification engine — consumes TriggerFiring documents and delivers via channel plugins."""
+
+from __future__ import annotations
+
+import re
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+import structlog
+
+from firnline_core.base import _format_datetime
+from firnline_core.plugins import DeliveryResult, NotifyContext
+from firnline_core.tdb import TdbConflictError
+
+logger = structlog.get_logger(__name__)
+
+_UTC = timezone.utc
+
+# ---------------------------------------------------------------------------
+# ISO-8601 duration parser (same subset as triggerd.evaluators._parse_duration)
+# TODO: promote to firnline_core (duplicated in triggerd)
+# ---------------------------------------------------------------------------
+
+_DURATION_RE = re.compile(
+    r"^(?P<sign>-?)P"
+    r"(?:(?P<days>\d+)D)?"
+    r"(?:T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?)?"
+    r"$"
+)
+
+
+def _parse_duration(raw: str) -> timedelta | None:
+    """Parse an ISO-8601 duration string into a ``timedelta``.
+
+    Supported subset: optional leading ``-``, ``P[nD][T[nH][nM][nS]]``.
+    Returns ``None`` on malformed input.
+    """
+    m = _DURATION_RE.match(raw)
+    if not m:
+        return None
+
+    days = int(m.group("days") or 0)
+    hours = int(m.group("hours") or 0)
+    minutes = int(m.group("minutes") or 0)
+    seconds = int(m.group("seconds") or 0)
+
+    # Require at least one component (reject bare "P" or trailing "T")
+    if days == 0 and hours == 0 and minutes == 0 and seconds == 0:
+        return None
+    if raw.rstrip().endswith("T"):
+        return None
+
+    td = timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
+    if m.group("sign") == "-":
+        td = -td
+    return td
+
+
+# ---------------------------------------------------------------------------
+# Datetime parsing
+# ---------------------------------------------------------------------------
+
+
+def _parse_iso_datetime(raw: str) -> datetime:
+    """Parse an ISO-8601 datetime string to a tz-aware UTC datetime.
+
+    Naive values are treated as UTC.
+    """
+    dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _strip_nones(doc: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy of *doc* with all ``None``-valued keys removed.
+
+    TerminusDB Optional fields expect ABSENCE, not JSON null.
+    """
+    return {k: v for k, v in doc.items() if v is not None}
+
+
+# ---------------------------------------------------------------------------
+# Engine
+# ---------------------------------------------------------------------------
+
+
+class NotifyEngine:
+    """Notification delivery engine.
+
+    Each cycle processes TriggerFiring documents by status:
+    1. **pending** — deliver via channels, transition to notified.
+    2. **notified** — check nag/expiry policy on the trigger doc, renotify or expire.
+    3. **snoozed** — wake up when snoozed_until has passed, deliver as pending.
+    """
+
+    def __init__(
+        self,
+        tdb: Any,
+        settings: Any,
+        channels: list[object],
+        *,
+        now: Any = None,
+        logger: Any = None,
+    ) -> None:
+        self.tdb = tdb
+        self.settings = settings
+        self.channels = channels
+        self.log = logger or structlog.get_logger(__name__)
+        self._now = now if now is not None else self._utc_now
+
+    @staticmethod
+    def _utc_now() -> datetime:
+        return datetime.now(tz=timezone.utc)
+
+    # ------------------------------------------------------------------
+    # Main cycle
+    # ------------------------------------------------------------------
+
+    async def run_cycle(self, should_stop: Any = None) -> None:
+        """Run one full notification cycle."""
+        if should_stop is not None and getattr(should_stop, "is_set", lambda: False)():
+            return
+
+        branch = self.settings.tdb_branch
+        now = self._now()
+
+        if not self.channels:
+            # Idle gracefully — log nothing on every cycle, just at startup.
+            self.log.debug("cycle_idle_no_channels")
+            return
+
+        # ── Resolve subject helper ───────────────────────────────────
+        async def _resolve_subject(subject_iri: str | None) -> dict[str, Any] | None:
+            if not subject_iri:
+                return None
+            try:
+                return await self.tdb.get_document(subject_iri, branch=branch)
+            except Exception:
+                self.log.debug("subject_resolution_failed", subject=subject_iri, exc_info=True)
+                return None
+
+        # ── Phase a: PENDING firings ─────────────────────────────────
+        try:
+            pending = await self.tdb.get_documents_by_status("TriggerFiring", "pending", branch)
+        except Exception:
+            self.log.warning("pending_fetch_failed", exc_info=True)
+            pending = []
+
+        for firing in pending:
+            subject = await _resolve_subject(firing.get("subject"))
+            ctx = NotifyContext(tdb=self.tdb, logger=self.log, now=lambda: now)
+            delivered = await self._deliver(firing, subject, ctx)
+            if delivered:
+                updates = {
+                    "status": "notified",
+                    "last_notified_at": _format_datetime(now),
+                    "notification_count": 1,
+                    "updated_at": _format_datetime(now),
+                }
+                await self._update_firing(firing, updates, branch)
+            else:
+                self.log.info("delivery_all_failed", firing=firing.get("@id"))
+
+        # ── Phase b: NOTIFIED firings (renag / expiry) ───────────────
+        try:
+            notified = await self.tdb.get_documents_by_status("TriggerFiring", "notified", branch)
+        except Exception:
+            self.log.warning("notified_fetch_failed", exc_info=True)
+            notified = []
+
+        for firing in notified:
+            trigger_doc = None
+            trigger_iri = firing.get("trigger")
+            if trigger_iri:
+                try:
+                    trigger_doc = await self.tdb.get_document(trigger_iri, branch=branch)
+                except Exception:
+                    self.log.debug("trigger_fetch_failed", trigger=trigger_iri, exc_info=True)
+
+            if trigger_doc is None:
+                continue
+
+            expire_after_raw = trigger_doc.get("expire_after")
+            renotify_every_raw = trigger_doc.get("renotify_every")
+            max_renotifications = trigger_doc.get("max_renotifications")
+
+            scheduled_for = _parse_iso_datetime(firing["scheduled_for"])
+
+            # ── Expiry check ─────────────────────────────────────────
+            if expire_after_raw:
+                expire_delta = _parse_duration(expire_after_raw)
+                if expire_delta is not None:
+                    if now >= scheduled_for + expire_delta:
+                        updates = {
+                            "status": "expired",
+                            "updated_at": _format_datetime(now),
+                        }
+                        await self._update_firing(firing, updates, branch)
+                        continue
+                else:
+                    self.log.warning(
+                        "unparseable_expire_after",
+                        trigger=trigger_iri,
+                        expire_after=expire_after_raw,
+                    )
+
+            # ── Renotify check ───────────────────────────────────────
+            if renotify_every_raw:
+                renotify_delta = _parse_duration(renotify_every_raw)
+                if renotify_delta is None:
+                    self.log.warning(
+                        "unparseable_renotify_every",
+                        trigger=trigger_iri,
+                        renotify_every=renotify_every_raw,
+                    )
+                    continue
+
+                last_notified_raw = firing.get("last_notified_at")
+                if not last_notified_raw:
+                    continue
+
+                last_notified = _parse_iso_datetime(last_notified_raw)
+                if now >= last_notified + renotify_delta:
+                    notification_count = firing.get("notification_count") or 0
+                    # notification_count counts total notifications sent.
+                    # Renotify while notification_count < 1 + max_renotifications.
+                    cap = (1 + max_renotifications) if max_renotifications is not None else None
+                    if cap is None or notification_count < cap:
+                        subject = await _resolve_subject(firing.get("subject"))
+                        ctx = NotifyContext(tdb=self.tdb, logger=self.log, now=lambda: now)
+                        redelivered = await self._deliver(firing, subject, ctx)
+                        if redelivered:
+                            new_count = notification_count + 1
+                            updates = {
+                                "notification_count": new_count,
+                                "last_notified_at": _format_datetime(now),
+                                "updated_at": _format_datetime(now),
+                            }
+                            await self._update_firing(firing, updates, branch)
+                        else:
+                            self.log.info("renotify_all_failed", firing=firing.get("@id"))
+
+        # ── Phase c: SNOOZED firings ─────────────────────────────────
+        try:
+            snoozed = await self.tdb.get_documents_by_status("TriggerFiring", "snoozed", branch)
+        except Exception:
+            self.log.warning("snoozed_fetch_failed", exc_info=True)
+            snoozed = []
+
+        for firing in snoozed:
+            snoozed_until_raw = firing.get("snoozed_until")
+            if not snoozed_until_raw:
+                continue
+            snoozed_until = _parse_iso_datetime(snoozed_until_raw)
+            if now >= snoozed_until:
+                subject = await _resolve_subject(firing.get("subject"))
+                ctx = NotifyContext(tdb=self.tdb, logger=self.log, now=lambda: now)
+                delivered = await self._deliver(firing, subject, ctx)
+                if delivered:
+                    updates = {
+                        "status": "notified",
+                        "last_notified_at": _format_datetime(now),
+                        "notification_count": (firing.get("notification_count") or 0) + 1,
+                        "snoozed_until": None,  # stripped by _strip_nones → key removed
+                        "updated_at": _format_datetime(now),
+                    }
+                    await self._update_firing(firing, updates, branch)
+                else:
+                    self.log.info("snoozed_delivery_all_failed", firing=firing.get("@id"))
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    async def _deliver(
+        self,
+        firing: dict[str, Any],
+        subject: dict[str, Any] | None,
+        ctx: NotifyContext,
+    ) -> bool:
+        """Try all channels; return True if at least one succeeds."""
+        any_ok = False
+        for channel in self.channels:
+            try:
+                result = await channel.deliver(firing, subject, ctx)
+            except Exception:
+                self.log.warning(
+                    "channel_deliver_exception",
+                    channel=getattr(channel, "name", "?"),
+                    firing=firing.get("@id"),
+                    exc_info=True,
+                )
+                continue
+            if isinstance(result, DeliveryResult) and result.ok:
+                any_ok = True
+            else:
+                self.log.info(
+                    "channel_deliver_failed",
+                    channel=getattr(channel, "name", "?"),
+                    firing=firing.get("@id"),
+                    detail=getattr(result, "detail", ""),
+                )
+        return any_ok
+
+    async def _update_firing(
+        self,
+        firing: dict[str, Any],
+        updates: dict[str, Any],
+        branch: str,
+    ) -> None:
+        """Apply updates to a firing document via replace_document."""
+        updated = _strip_nones({**firing, **updates})
+        short = firing.get("@id", "?")
+        try:
+            await self.tdb.replace_document(
+                updated,
+                branch=branch,
+                message=f"notifyd: update {short}",
+                author="notifyd",
+            )
+        except TdbConflictError:
+            self.log.warning("firing_update_conflict", firing=short)
+        except Exception:
+            self.log.warning("firing_update_failed", firing=short, exc_info=True)

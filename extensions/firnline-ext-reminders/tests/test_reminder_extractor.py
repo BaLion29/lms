@@ -68,13 +68,20 @@ class TestPluginMetadata:
     def test_name(self):
         assert ReminderExtractPlugin().name == "reminder_extract"
 
+    def test_produces(self):
+        assert ReminderExtractPlugin().produces == ["Reminder", "OneShotTrigger"]
+
     def test_requires_includes_reminders_and_triggers(self):
         req_names = {r.name for r in ReminderExtractPlugin().requires}
         assert req_names == {"reminders", "triggers"}
 
+    def test_reminders_requirement_range(self):
+        req = next(r for r in ReminderExtractPlugin().requires if r.name == "reminders")
+        assert req.range == ">=0.1.0 <0.2.0"
+
     def test_triggers_requirement_range(self):
-        trig_req = next(r for r in ReminderExtractPlugin().requires if r.name == "triggers")
-        assert trig_req.range == ">=1.1.0 <2.0.0"
+        req = next(r for r in ReminderExtractPlugin().requires if r.name == "triggers")
+        assert req.range == ">=0.1.0 <0.2.0"
 
     def test_proposal_models_count(self):
         models = ReminderExtractPlugin().proposal_models()
@@ -100,13 +107,20 @@ def _make_ctx(
 ) -> BuildContext:
     tdb = tdb_mock or AsyncMock()
     dt = now_dt or datetime(2026, 7, 6, 10, 0, 0, tzinfo=UTC)
-    return BuildContext(tdb=tdb, inbox_iri=inbox_iri, now=lambda: dt, branch=branch)
+    ensure_entity = AsyncMock()
+    return BuildContext(
+        tdb=tdb,
+        inbox_iri=inbox_iri,
+        now=lambda: dt,
+        ensure_entity=ensure_entity,
+        branch=branch,
+    )
 
 
 class TestBuildDocumentsNoFireAt:
-    """Without fire_at: no trigger insert, trigger=None, behaviour unchanged."""
+    """Without fire_at: no trigger doc, trigger=None, provenance present."""
 
-    async def test_no_trigger_inserted(self):
+    async def test_no_trigger_doc_returned(self):
         ctx = _make_ctx()
         plugin = ReminderExtractPlugin()
         proposal = ReminderProposal(name="Call doctor")
@@ -114,8 +128,15 @@ class TestBuildDocumentsNoFireAt:
         assert len(docs) == 1
         # trigger=None → excluded by to_tdb()'s exclude_none
         assert docs[0].get("trigger") is None
-        assert docs[0]["derived_from"] == "InboxNote/test1"
+        assert docs[0]["@type"] == "Reminder"
         assert docs[0]["name"] == "Call doctor"
+        # provenance instead of derived_from
+        prov = docs[0]["provenance"]
+        assert prov["agent"] == "ingestd"
+        assert prov["method"] == "llm_extraction"
+        assert prov["source"] == "InboxNote/test1"
+        assert "at" in prov
+        assert "derived_from" not in docs[0]
         ctx.tdb.insert_documents.assert_not_called()
 
     async def test_unknown_proposal_returns_empty(self):
@@ -132,80 +153,76 @@ class TestBuildDocumentsNoFireAt:
 
 
 class TestBuildDocumentsWithFireAt:
-    """With fire_at set: insert OneShotTrigger, reference its IRI on the Reminder."""
+    """With fire_at set: OneShotTrigger returned in batch with client @id, referenced by Reminder."""
 
-    async def test_trigger_inserted_and_linked(self):
-        tdb = AsyncMock()
-        tdb.insert_documents.return_value = ["terminusdb:///data/OneShotTrigger/fire1"]
-        ctx = _make_ctx(tdb)
+    async def test_trigger_in_batch_and_linked(self):
+        ctx = _make_ctx()
         plugin = ReminderExtractPlugin()
 
         fire_dt = datetime(2026, 7, 7, 9, 0, 0, tzinfo=UTC)
         proposal = ReminderProposal(name="Call doctor", fire_at=fire_dt)
         docs = await plugin.build_documents(proposal, ctx)
 
-        # tdb.insert_documents called exactly once
-        tdb.insert_documents.assert_called_once()
-        call_docs, call_kwargs = tdb.insert_documents.call_args
+        # Two docs returned: [trigger_doc, reminder_doc] — no side-insert
+        assert len(docs) == 2
+        trigger_doc, reminder_doc = docs
 
-        # The inserted doc is a OneShotTrigger
-        inserted = call_docs[0][0]
-        assert inserted["@type"] == "OneShotTrigger"
-        assert inserted["name"] == "Reminder: Call doctor"
-        assert inserted["enabled"] is True
+        # trigger doc
+        assert trigger_doc["@type"] == "OneShotTrigger"
+        assert trigger_doc["name"] == "Reminder: Call doctor"
+        assert trigger_doc["enabled"] is True
         # fire_at serialized as canonical UTC Z-suffix
-        assert inserted["fire_at"] == "2026-07-07T09:00:00Z"
+        assert trigger_doc["fire_at"] == "2026-07-07T09:00:00Z"
+        # trigger has a client-supplied @id
+        assert trigger_doc["@id"].startswith("OneShotTrigger/")
+        # trigger has provenance
+        assert trigger_doc["provenance"]["agent"] == "ingestd"
+        assert trigger_doc["provenance"]["method"] == "llm_extraction"
 
-        # Uses the correct branch and a message
-        assert call_kwargs["branch"] == "main"
-        assert call_kwargs["message"].startswith("ingestd: ")
-        assert "OneShotTrigger" in call_kwargs["message"]
-        assert "Call doctor" in call_kwargs["message"]
+        # reminder doc references the trigger by its client @id
+        assert reminder_doc["@type"] == "Reminder"
+        assert reminder_doc["trigger"] == trigger_doc["@id"]
+        assert reminder_doc["name"] == "Call doctor"
+        # provenance instead of derived_from
+        assert reminder_doc["provenance"]["agent"] == "ingestd"
+        assert reminder_doc["provenance"]["source"] == "InboxNote/test1"
+        assert "derived_from" not in reminder_doc
 
-        # Reminder references the trigger IRI
-        assert len(docs) == 1
-        assert docs[0]["trigger"] == "OneShotTrigger/fire1"
-        assert docs[0]["derived_from"] == "InboxNote/test1"
-        assert docs[0]["name"] == "Call doctor"
+        # No side-insert at all
+        ctx.tdb.insert_documents.assert_not_called()
 
     async def test_fire_at_with_offset_converts_to_utc(self):
         """fire_at=2026-07-07T09:00:00+02:00 → serializes as 2026-07-07T07:00:00Z."""
-        tdb = AsyncMock()
-        tdb.insert_documents.return_value = ["terminusdb:///data/OneShotTrigger/off1"]
-        ctx = _make_ctx(tdb)
+        ctx = _make_ctx()
         plugin = ReminderExtractPlugin()
 
         fire_dt = datetime(2026, 7, 7, 9, 0, 0, tzinfo=timezone(timedelta(hours=2)))
         proposal = ReminderProposal(name="Call dentist", fire_at=fire_dt)
         docs = await plugin.build_documents(proposal, ctx)
 
-        inserted = tdb.insert_documents.call_args[0][0][0]
+        trigger_doc = docs[0]
         # +02:00 → 07:00 UTC
-        assert inserted["fire_at"] == "2026-07-07T07:00:00Z"
-        assert docs[0]["trigger"] == "OneShotTrigger/off1"
+        assert trigger_doc["fire_at"] == "2026-07-07T07:00:00Z"
 
     async def test_naive_fire_at_treated_as_utc(self):
         """Naive datetime is serialized as-is with Z suffix (treated as UTC)."""
-        tdb = AsyncMock()
-        tdb.insert_documents.return_value = ["terminusdb:///data/OneShotTrigger/naive1"]
-        ctx = _make_ctx(tdb)
+        ctx = _make_ctx()
         plugin = ReminderExtractPlugin()
 
         naive_dt = datetime(2026, 7, 7, 9, 0, 0)  # no tzinfo
         proposal = ReminderProposal(name="Naive test", fire_at=naive_dt)
-        await plugin.build_documents(proposal, ctx)
+        docs = await plugin.build_documents(proposal, ctx)
 
-        inserted = tdb.insert_documents.call_args[0][0][0]
-        assert inserted["fire_at"] == "2026-07-07T09:00:00Z"
+        trigger_doc = docs[0]
+        assert trigger_doc["fire_at"] == "2026-07-07T09:00:00Z"
 
-    async def test_different_branch_passed_through(self):
-        """ctx.branch is forwarded to the insert call."""
-        tdb = AsyncMock()
-        tdb.insert_documents.return_value = ["terminusdb:///data/OneShotTrigger/br1"]
-        ctx = _make_ctx(tdb, branch="feature/test")
+    async def test_branch_not_used_for_side_insert(self):
+        """No side-insert happens; branch is irrelevant now."""
+        ctx = _make_ctx(branch="feature/test")
         plugin = ReminderExtractPlugin()
 
         proposal = ReminderProposal(name="Branch test", fire_at=datetime(2026, 7, 7, 9, 0, 0, tzinfo=UTC))
-        await plugin.build_documents(proposal, ctx)
+        docs = await plugin.build_documents(proposal, ctx)
 
-        assert tdb.insert_documents.call_args[1]["branch"] == "feature/test"
+        assert len(docs) == 2
+        ctx.tdb.insert_documents.assert_not_called()

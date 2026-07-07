@@ -18,7 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from firnline_core.models import _format_datetime
+from firnline_core.base import _format_datetime
 
 # ---------------------------------------------------------------------------
 # ToolTraceEntry

@@ -201,6 +201,20 @@ class QuerydClient:
         async with _make_client(self._base_url, self._token, self._timeout, self._transport) as client:
             return await _healthz_raw(client)
 
+    async def chat(self, messages: list[dict]) -> dict[str, Any]:
+        """POST /v1/chat — returns ``{"message": str, "tool_trace": [...]}``."""
+        async with _make_client(self._base_url, self._token, self._timeout, self._transport) as client:
+            try:
+                resp = await client.post("/v1/chat", json={"messages": messages})
+            except httpx.RequestError as exc:
+                raise WebuiClientError(None, f"transport error: {exc!s}") from exc
+            if resp.status_code == 200:
+                return resp.json()  # type: ignore[no-any-return]
+            raise WebuiClientError(
+                resp.status_code,
+                _safe_detail(resp),
+            )
+
 
 # ---------------------------------------------------------------------------
 # IndexedHealthClient

@@ -1,4 +1,4 @@
-"""Discovery test for firnline-ext-planning schema module + migrations."""
+"""Discovery test for firnline-ext-planning schema module."""
 
 from __future__ import annotations
 
@@ -7,16 +7,14 @@ from pathlib import Path
 
 
 def test_manifest_and_schema_present():
-    """Verify the package contains manifest.json, schema.json, and migrations/."""
+    """Verify the package contains manifest.json and schema.json."""
     pkg_dir = Path(__file__).parents[1] / "src" / "firnline_ext_planning"
     assert (pkg_dir / "manifest.json").is_file()
     assert (pkg_dir / "schema.json").is_file()
-    assert (pkg_dir / "migrations").is_dir()
-    assert (pkg_dir / "migrations" / "0001_noop_relocate_triggers_reminder.py").is_file()
 
     manifest = json.loads((pkg_dir / "manifest.json").read_text())
     assert manifest["name"] == "planning"
-    assert manifest["version"] == "2.0.0"
+    assert manifest["version"] == "0.1.0"
 
     schema = json.loads((pkg_dir / "schema.json").read_text())
     ids = {c["@id"] for c in schema}

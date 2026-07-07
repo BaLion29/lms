@@ -1,0 +1,19 @@
+[
+  {"@id": "InboxNote", "@inherits": ["Entity", "Source"], "@type": "Class",
+   "@documentation": {"@comment": "A quick-capture text note. Written before processing, later refined or promoted into domain documents."},
+   "content": "xsd:string",
+   "status": "InboxNoteStatus"},
+  {"@id": "InboxAudio", "@inherits": ["Entity", "Source"], "@type": "Class",
+   "@documentation": {"@comment": "A quick-capture audio recording. Transcribed and processed into domain documents asynchronously."},
+   "file_name": "xsd:string",
+   "file_path": "xsd:string",
+   "recorded_at": "xsd:dateTime",
+   "status": "InboxAudioStatus",
+   "transcription": "xsd:string"},
+  {"@id": "InboxNoteStatus", "@type": "Enum",
+   "@documentation": {"@comment": "Processing lifecycle of an inbox note."},
+   "@value": ["new", "processed", "failed", "archived"]},
+  {"@id": "InboxAudioStatus", "@type": "Enum",
+   "@documentation": {"@comment": "Processing lifecycle of an inbox audio recording."},
+   "@value": ["new", "transcribed", "processed", "failed", "archived"]}
+]

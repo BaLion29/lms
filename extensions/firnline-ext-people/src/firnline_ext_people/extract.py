@@ -23,9 +23,10 @@ class PeopleLinkingPlugin(ExtractorPlugin):
 
     name: str = "people_linking"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="people", range=">=1.1.0 <2.0.0"),
-        ModuleRequirement(name="places", range=">=1.0.0 <2.0.0"),
+        ModuleRequirement(name="people", range=">=0.1.0 <0.2.0"),
+        ModuleRequirement(name="places", range=">=0.1.0 <0.2.0"),
     ]
+    produces: list[str] = []
 
     def proposal_models(self) -> list[type[BaseModel]]:
         return []
@@ -57,9 +58,9 @@ def _build_context_block(index: EntityIndex) -> str:
         return f"Known {label}: {items}"
 
     return (
-        _section("people", index.people_display)
+        _section("people", index.names("Person"))
         + "\n"
-        + _section("locations", index.locations_display)
+        + _section("locations", index.names("Location"))
     )
 
 

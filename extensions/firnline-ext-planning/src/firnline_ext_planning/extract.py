@@ -8,21 +8,17 @@ Implements the ``ExtractorPlugin`` protocol.  Registered via the
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
 import structlog
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from firnline_core.models import (
-    Contact,
-    Event,
-    EventStatus,
-    Location,
-    Person,
-    Task,
-    TaskStatus,
-)
+from firnline_core.models import Provenance
 from firnline_core.plugins import BuildContext, ExtractorPlugin, ModuleRequirement
+from firnline_core.tdb import short_iri
+from firnline_ext_people.models import Contact, Person
+from firnline_ext_places.models import Location
+from firnline_ext_planning.models import Event, EventStatus, Task, TaskStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -64,10 +60,11 @@ class PlanningPlugin(ExtractorPlugin):
     """Extractor for tasks, events and people."""
 
     name: str = "planning_people"
+    produces: list[str] = ["Task", "Event", "Person", "Location"]
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="planning", range=">=2.0.0 <3.0.0"),
-        ModuleRequirement(name="people", range=">=1.1.0 <2.0.0"),
-        ModuleRequirement(name="places", range=">=1.0.0 <2.0.0"),
+        ModuleRequirement(name="planning", range=">=0.1.0 <0.2.0"),
+        ModuleRequirement(name="people", range=">=0.1.0 <0.2.0"),
+        ModuleRequirement(name="places", range=">=0.1.0 <0.2.0"),
     ]
 
     def proposal_models(self) -> list[type[BaseModel]]:
@@ -82,50 +79,80 @@ class PlanningPlugin(ExtractorPlugin):
         return ""
 
     async def linking_context(self, tdb: Any, *, index: Any, branch: str) -> str:
-        """Return additional linking context.
-
-        Person/Location context lines are provided by the people plugin;
-        this plugin returns an empty string.
-        """
-        return ""
+        """Return Person and Location names for linking context."""
+        lines: list[str] = []
+        for name, iri in index.names("Person"):
+            lines.append(f"Person|{iri}|{name}")
+        for name, iri in index.names("Location"):
+            lines.append(f"Location|{iri}|{name}")
+        return "\n".join(lines)
 
     async def build_documents(
         self, proposal: BaseModel, ctx: BuildContext
     ) -> list[dict[str, Any]]:
         """Convert a single proposal into TerminusDB document dicts."""
         now = ctx.now()
+        source_iri = short_iri(ctx.inbox_iri)
+        confidence = getattr(proposal, "confidence", None)
 
         if isinstance(proposal, TaskProposal):
-            return [
-                Task(
-                    name=proposal.name,
-                    description=proposal.description,
-                    priority=proposal.priority,
-                    estimated_duration=proposal.estimated_duration,
-                    due_date=proposal.due_date,
-                    status=TaskStatus.OPEN,
-                    derived_from=ctx.inbox_iri,
-                    created_at=now,
-                    updated_at=now,
-                ).to_tdb()
-            ]
+            task = Task(
+                name=proposal.name,
+                description=proposal.description,
+                priority=proposal.priority,
+                estimated_duration=proposal.estimated_duration,
+                due_date=proposal.due_date,
+                status=TaskStatus.OPEN,
+                created_at=now,
+                updated_at=now,
+                anchor_at=proposal.due_date,
+                provenance=Provenance(
+                    source=source_iri,
+                    agent="ingestd",
+                    at=now,
+                    method="llm_extraction",
+                    confidence=confidence,
+                ),
+            )
+            return [task.to_tdb()]
 
         if isinstance(proposal, EventProposal):
-            event_doc: dict[str, Any] = Event(
+            event = Event(
                 name=proposal.name,
                 description=proposal.description,
                 start_datetime=proposal.start_datetime,
                 end_datetime=proposal.end_datetime,
                 location=None,
                 status=EventStatus.OPEN,
-                derived_from=ctx.inbox_iri,
                 created_at=now,
                 updated_at=now,
-            ).to_tdb()
+                anchor_at=proposal.start_datetime,
+                provenance=Provenance(
+                    source=source_iri,
+                    agent="ingestd",
+                    at=now,
+                    method="llm_extraction",
+                    confidence=confidence,
+                ),
+            )
+            event_doc = event.to_tdb()
 
             if proposal.location_name:
-                loc_iri = await ctx.create_or_link(
-                    "Location", proposal.location_name, lambda: None
+                loc_iri = await ctx.ensure_entity(
+                    "Location",
+                    proposal.location_name,
+                    lambda: Location(
+                        name=proposal.location_name,
+                        created_at=now,
+                        updated_at=now,
+                        provenance=Provenance(
+                            source=source_iri,
+                            agent="ingestd",
+                            at=now,
+                            method="llm_extraction",
+                            confidence=confidence,
+                        ),
+                    ).to_tdb(),
                 )
                 if loc_iri:
                     event_doc["location"] = loc_iri
@@ -133,17 +160,30 @@ class PlanningPlugin(ExtractorPlugin):
             return [event_doc]
 
         if isinstance(proposal, PersonProposal):
-            person_iri = await ctx.create_or_link(
-                "Person", proposal.name, lambda: None
+            person_iri = await ctx.ensure_entity(
+                "Person",
+                proposal.name,
+                lambda: Person(
+                    name=proposal.name,
+                    created_at=now,
+                    updated_at=now,
+                    contact=(
+                        Contact(email=proposal.email, phone=proposal.phone)
+                        if (proposal.email or proposal.phone)
+                        else None
+                    ),
+                    provenance=Provenance(
+                        source=source_iri,
+                        agent="ingestd",
+                        at=now,
+                        method="llm_extraction",
+                        confidence=confidence,
+                    ),
+                ).to_tdb(),
             )
             if person_iri:
                 logger.info("person_linked", name=proposal.name, iri=person_iri)
                 return []
-
-            contact = None
-            if proposal.email or proposal.phone:
-                contact = Contact(email=proposal.email, phone=proposal.phone)
-            return [Person(name=proposal.name, contact=contact).to_tdb()]
 
         return []
 

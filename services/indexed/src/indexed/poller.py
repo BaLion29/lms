@@ -6,17 +6,36 @@ from typing import Any
 
 import structlog
 
+from firnline_core.tdb import ChangeEvent, TdbError
 from indexed.store import Store
 
 logger = structlog.get_logger(__name__)
+
+_SCHEMA_KEYWORDS = frozenset(
+    {
+        "schema",
+        "migration",
+        "class",
+        "property",
+        "enum",
+        "type",
+        "field",
+        "attribute",
+        "relationship",
+        "documentation",
+        "abstract",
+        "inherits",
+        "domain",
+        "range",
+    }
+)
 
 
 class Poller:
     """Incrementally mirrors TDB document classes and schema into the store.
 
-    Uses ``/api/log`` to detect new commits and reindexes only when the
-    branch head has advanced.  Document indexing is driven by
-    ``IndexerPlugin`` instances discovered via entry points.
+    Uses the kernel change feed (``changes_since``) for incremental sync,
+    falling back to a full reindex on error.
     """
 
     def __init__(
@@ -40,18 +59,62 @@ class Poller:
     # ------------------------------------------------------------------
 
     async def sync_once(self) -> bool:
-        """Run one sync cycle.  Returns ``True`` on success."""
+        """Run one sync cycle.  Returns ``True`` on success.
+
+        Decision tree
+        -------------
+        1. No stored last commit (fresh store) → full reindex.
+        2. Otherwise: call ``changes_since(last_commit)``.
+           a. ``TdbError`` → full reindex fallback.
+           b. No events → update stored head if changed; done.
+           c. Events → incremental apply.
+              - Any ``TdbError`` during incremental → full reindex fallback.
+        """
+        last = self.store.get_last_commit(self._branch)
+
+        # ---- fresh store: baseline with a full reindex ----
+        if last == "":
+            return await self._full_sync()
+
+        # ---- ask the kernel what changed since last_commit ----
+        try:
+            events, new_head = await self.tdb.changes_since(last, self._branch)
+        except TdbError:
+            logger.warning("changes_since_failed", branch=self._branch, exc_info=True)
+            return await self._full_sync()
+
+        # ---- no events: just bump the stored head if needed ----
+        if not events:
+            if new_head != last:
+                self.store.set_last_commit(self._branch, new_head)
+            return True
+
+        # ---- incremental apply ----
+        try:
+            await self._apply_changes(events, new_head)
+        except TdbError:
+            logger.warning("incremental_apply_tdberror", branch=self._branch, exc_info=True)
+            return await self._full_sync()
+        except Exception:
+            logger.warning("incremental_apply_unexpected", branch=self._branch, exc_info=True)
+            return await self._full_sync()
+
+        self.store.set_last_commit(self._branch, new_head)
+        return True
+
+    # ------------------------------------------------------------------
+    # Full sync (today's behaviour)
+    # ------------------------------------------------------------------
+
+    async def _full_sync(self) -> bool:
+        """Full reindex — fetch everything and replace store contents."""
         try:
             head = await self.tdb.get_branch_head(self._branch)
         except Exception:
             logger.warning("branch_head_fetch_failed", branch=self._branch, exc_info=True)
             return False
 
-        last = self.store.get_last_commit(self._branch)
-        if head == last:
-            return True
-
-        logger.info("new_commits_detected", last=last, head=head, branch=self._branch)
+        logger.info("full_sync_triggered", branch=self._branch, head=head)
 
         if self._indexer_plugins:
             await self._reindex_entities(head)
@@ -60,6 +123,85 @@ class Poller:
 
         self.store.set_last_commit(self._branch, head)
         return True
+
+    # ------------------------------------------------------------------
+    # Incremental apply
+    # ------------------------------------------------------------------
+
+    async def _apply_changes(
+        self, events: list[ChangeEvent], new_head: str
+    ) -> None:
+        """Apply a batch of change events incrementally.
+
+        Collects affected IRIs from all events, fetches only changed
+        documents, and upserts/deletes single entities.  Schema reindex
+        is triggered only when a commit message / author suggests a
+        schema change (keyword heuristic).
+        """
+
+        # --- collect affected IRIs & detect schema changes ---
+        all_inserted: set[str] = set()
+        all_updated: set[str] = set()
+        all_deleted: set[str] = set()
+        schema_changed = False
+
+        for event in events:
+            all_inserted.update(event.inserted)
+            all_updated.update(event.updated)
+            all_deleted.update(event.deleted)
+
+            combined = (event.message + " " + event.author).lower()
+            if any(kw in combined for kw in _SCHEMA_KEYWORDS):
+                schema_changed = True
+
+        # --- build class → plugin mapping ---
+        plugin_by_class: dict[str, Any] = {}
+        for plugin in self._indexer_plugins:
+            for cls in plugin.indexed_classes():
+                plugin_by_class[cls] = plugin
+
+        # --- upsert inserted + updated documents ---
+        for iri in sorted(all_inserted | all_updated):
+            class_name = iri.split("/", 1)[0]
+            plugin = plugin_by_class.get(class_name)
+            if plugin is None:
+                continue  # not an indexed class
+
+            doc = await self.tdb.get_document(iri, branch=self._branch)
+
+            name = plugin.entity_name(doc)
+            aliases = plugin.entity_aliases(doc)
+            text = plugin.entity_text(doc)
+
+            embeddings = await self._embed([text])
+            embedding = embeddings[0] if embeddings else []
+
+            self.store.upsert_entity(
+                iri=iri,
+                class_name=class_name,
+                name=name,
+                aliases=aliases,
+                text=text,
+                embedding=embedding,
+                commit_id=new_head,
+                branch=self._branch,
+            )
+
+        # --- delete removed documents ---
+        for iri in sorted(all_deleted):
+            self.store.delete_entity(iri)
+
+        # --- schema reindex (conditionally) ---
+        if schema_changed:
+            await self._reindex_schema(new_head)
+
+        affected = len(all_inserted) + len(all_updated) + len(all_deleted)
+        logger.info(
+            "incremental_sync_complete",
+            affected_iris=affected,
+            schema_reindexed=schema_changed,
+            new_head=new_head,
+        )
 
     # ------------------------------------------------------------------
     # Schema indexing

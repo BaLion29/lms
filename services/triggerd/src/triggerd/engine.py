@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -55,25 +57,72 @@ class Engine:
         # Per-branch schema cache: branch → set of concrete trigger class names
         self._concrete_trigger_types_cache: dict[str, set[str]] = {}
 
+        # Per-branch last-seen commit for change-feed polling (persisted)
+        self._last_commit: dict[str, str | None] = self._load_state()
+
         # Per-cycle state
         self._ctx: EvalContext | None = None
+
+        # One-shot warning flag for GraphQL abstract-Triggerable query failure
+        self._triggerable_query_warned: bool = False
+
+        # Per-cycle cache of concrete Triggerable subclass names
+        self._triggerable_subclasses: list[str] | None = None
 
     @staticmethod
     def _utc_now() -> datetime:
         return datetime.now(tz=timezone.utc)
 
     # ------------------------------------------------------------------
+    # Peristent state (last-seen commit per branch)
+    # ------------------------------------------------------------------
+
+    def _load_state(self) -> dict[str, str | None]:
+        """Load persisted ``_last_commit`` map from the state file.
+
+        Tolerates missing / corrupt files → empty dict.
+        """
+        path = getattr(self.settings, "state_file", "/tmp/triggerd-state.json")
+        if not os.path.isfile(path):
+            return {}
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return {k: (v if v is None else str(v)) for k, v in data.items()}
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            self.log.warning("state_file_load_failed", path=path, exc_info=True)
+        return {}
+
+    def _save_state(self) -> None:
+        """Persist ``_last_commit`` to the state file."""
+        path = getattr(self.settings, "state_file", "/tmp/triggerd-state.json")
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self._last_commit, f)
+        except OSError:
+            self.log.warning("state_file_save_failed", path=path, exc_info=True)
+
+    # ------------------------------------------------------------------
     # EvalContext construction (once per cycle)
     # ------------------------------------------------------------------
 
-    async def _build_ctx(self) -> EvalContext:
+    async def _build_ctx(self, branch: str) -> EvalContext:
         """Build an :class:`EvalContext` wired with late-binding closures.
 
         Closures are defined first so they exist before *ctx* construction.
         The ``_resolve_anchor`` closure references *ctx* which is bound on
         the next line (the name is resolved at call time, not definition time).
+
+        Also polls the change feed via ``changes_since`` for EventTrigger
+        evaluators.
         """
         tz = ZoneInfo(self.settings.default_timezone)
+
+        # ── Change feed ──────────────────────────────────────────────
+        last_commit = self._last_commit.get(branch)
+        changes, new_head = await self.tdb.changes_since(last_commit, branch)
+        self._last_commit[branch] = new_head
 
         # Closures defined first so they exist before ctx construction.
         async def _resolve_anchor(anchor_ref: str | dict[str, Any]) -> datetime | None:
@@ -93,6 +142,7 @@ class Engine:
             now=self._now,
             resolve_anchor=_resolve_anchor,
             get_occurrences=_get_occurrences,
+            changes=changes,
         )
         return ctx
 
@@ -105,8 +155,8 @@ class Engine:
         if should_stop is not None and getattr(should_stop, "is_set", lambda: False)():
             return
 
-        self._ctx = await self._build_ctx()
         branch = self.settings.tdb_branch
+        self._ctx = await self._build_ctx(branch)
 
         window_end = self._now()
         window_start = window_end - timedelta(seconds=self.settings.lookback_seconds)
@@ -192,13 +242,26 @@ class Engine:
         grouped: dict[str, list[dict[str, Any]]] = {}
         for entry in firings_to_write:
             trigger_iri = entry["trigger_doc"]["@id"]
+            trigger_type = entry["trigger_doc"].get("@type", "")
             scheduled = entry["scheduled_instant"]
-            occurrence_key = _format_datetime(scheduled)
+
+            # For event triggers, use commit-stable keys from the evaluator,
+            # keyed by trigger @id so multiple EventTriggers in the same
+            # cycle do not interfere with each other.
+            evaluator = self._dispatch.get(trigger_type)
+            event_keys: dict | None = getattr(evaluator, "_event_keys", None)
+            if event_keys is not None:
+                # Pop one key per firing (FIFO per instant bucket) for this trigger
+                bucket = event_keys.get(trigger_iri, {}).get(scheduled, [])
+                occurrence_key = bucket.pop(0) if bucket else _format_datetime(scheduled)
+            else:
+                occurrence_key = _format_datetime(scheduled)
 
             subject = subjects.get(trigger_iri)
             if subject is not None:
                 subjects_resolved += 1
 
+            now_val = self._now()
             firing_doc = TriggerFiring(
                 trigger=trigger_iri,
                 occurrence_key=occurrence_key,
@@ -206,6 +269,8 @@ class Engine:
                 fired_at=window_end,
                 status=FiringStatus.PENDING,
                 subject=subject,
+                created_at=now_val,
+                updated_at=now_val,
             ).to_tdb()
             grouped.setdefault(trigger_iri, []).append(firing_doc)
 
@@ -299,6 +364,9 @@ class Engine:
             subjects_resolved=subjects_resolved,
             errors=errors_count,
         )
+
+        # Persist last-seen commits so restarts don't re-baseline.
+        self._save_state()
 
     # ------------------------------------------------------------------
     # Dispatch for CompositeTrigger operand recursion
@@ -427,50 +495,123 @@ class Engine:
     # ------------------------------------------------------------------
 
     async def _resolve_subject(self, trigger_iri: str, branch: str) -> str | None:
-        """Find the single Reminder or Routine that references *trigger_iri*.
+        """Find the single Triggerable that references *trigger_iri*.
 
-        Uses GraphQL with ``filter: {trigger: {eq: $iri}}``.
-        Errors mentioning unknown types/fields (schema missing
-        Reminder/Routine) are tolerated → no subject.
+        First tries a GraphQL query over the abstract ``Triggerable`` marker.
+        On error, falls back to querying each concrete Triggerable subclass
+        individually (derived from the live schema).
+
+        Exactly-one → its ``_id``; zero/many → None (logged).
         """
-        referrer_ids: list[str] = []
+        query = "query($iri: String) { Triggerable(filter: { trigger: { eq: $iri } }) { _id } }"
+        try:
+            result = await self.tdb.graphql(query, variables={"iri": trigger_iri}, branch=branch)
+        except TdbError as exc:
+            return await self._resolve_subject_fallback(trigger_iri, branch, exc)
+        except Exception:
+            self.log.debug("subject_query_failed", trigger=trigger_iri, exc_info=True)
+            return None
 
-        for cls_name in ("Reminder", "Routine"):
-            query = f"query($iri: String) {{ {cls_name}(filter: {{trigger: {{eq: $iri}}}}) {{ _id }} }}"
+        items = result.get("Triggerable", [])
+        return self._deduce_subject(items, trigger_iri)
+
+    async def _resolve_subject_fallback(
+        self, trigger_iri: str, branch: str, original_exc: TdbError
+    ) -> str | None:
+        """Fallback: query each concrete Triggerable subclass individually."""
+        if not self._triggerable_query_warned:
+            self._triggerable_query_warned = True
+            self.log.warning(
+                "triggerable_abstract_query_failed",
+                body=str(original_exc.body)[:300],
+                hint="Falling back to per-subclass queries",
+            )
+
+        subclass_names = await self._get_triggerable_subclasses(branch)
+        if not subclass_names:
+            self.log.debug("subject_fallback_no_subclasses", trigger=trigger_iri)
+            return None
+
+        all_items: list[dict[str, Any]] = []
+        for cls_name in subclass_names:
+            query = f"query($iri: String) {{ {cls_name}(filter: {{ trigger: {{ eq: $iri }} }}) {{ _id }} }}"
             try:
                 result = await self.tdb.graphql(query, variables={"iri": trigger_iri}, branch=branch)
-            except TdbError as exc:
-                # Schema may not include Reminder/Routine — log at DEBUG
+            except (TdbError, Exception):
                 self.log.debug(
-                    "subject_query_failed",
-                    class_name=cls_name,
+                    "subject_fallback_subclass_failed",
                     trigger=trigger_iri,
-                    status=exc.status,
-                    body=str(exc.body)[:300],
+                    subclass=cls_name,
                 )
                 continue
-            except Exception:
-                self.log.debug(
-                    "subject_query_failed",
-                    class_name=cls_name,
-                    trigger=trigger_iri,
-                    exc_info=True,
-                )
-                continue
-
             items = result.get(cls_name, [])
-            for item in items:
-                rid = item.get("_id")
-                if isinstance(rid, str):
-                    referrer_ids.append(rid)
+            all_items.extend(items)
+
+        return self._deduce_subject(all_items, trigger_iri)
+
+    @staticmethod
+    def _deduce_subject(items: list[dict[str, Any]], trigger_iri: str) -> str | None:
+        """Apply exactly-one rule across a list of result dicts."""
+        referrer_ids: list[str] = [item["_id"] for item in items if isinstance(item.get("_id"), str)]
 
         if len(referrer_ids) == 1:
             return referrer_ids[0]
         if len(referrer_ids) > 1:
-            self.log.warning(
+            logger.warning(
                 "subject_ambiguous",
                 trigger=trigger_iri,
                 count=len(referrer_ids),
             )
             return None
         return None
+
+    async def _get_triggerable_subclasses(self, branch: str) -> list[str]:
+        """Return concrete (non-abstract) Triggerable subclass names from schema.
+
+        Cached per engine instance (cleared each cycle in practice).
+        """
+        if self._triggerable_subclasses is not None:
+            return self._triggerable_subclasses
+
+        try:
+            raw_schema = await self.tdb.get_schema(branch)
+        except Exception:
+            self.log.debug("triggerable_schema_fetch_failed", branch=branch)
+            self._triggerable_subclasses = []
+            return []
+
+        classes: dict[str, dict[str, Any]] = {}
+        for entry in raw_schema:
+            if not isinstance(entry, dict):
+                continue
+            cid = entry.get("@id")
+            if isinstance(cid, str) and entry.get("@type") == "Class":
+                classes[cid] = entry
+
+        def inherits_from_triggerable(cls_id: str, chain: set[str] | None = None) -> bool:
+            if chain is None:
+                chain = set()
+            if cls_id in chain:
+                return False
+            chain.add(cls_id)
+            if cls_id == "Triggerable":
+                return True
+            cls_def = classes.get(cls_id)
+            if cls_def is None:
+                return False
+            inherits = cls_def.get("@inherits")
+            if isinstance(inherits, str):
+                return inherits_from_triggerable(inherits, chain)
+            if isinstance(inherits, list):
+                return any(inherits_from_triggerable(p, chain) for p in inherits)
+            return False
+
+        concrete: list[str] = []
+        for cid, cls_def in classes.items():
+            if cls_def.get("@abstract"):
+                continue
+            if inherits_from_triggerable(cid):
+                concrete.append(cid)
+
+        self._triggerable_subclasses = concrete
+        return concrete

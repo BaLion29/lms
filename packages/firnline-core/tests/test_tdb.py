@@ -6,7 +6,14 @@ import json
 
 import httpx
 import pytest
-from firnline_core.tdb import TdbClient, TdbError, full_iri, short_iri
+from firnline_core.tdb import (
+    ChangeEvent,
+    TdbClient,
+    TdbConflictError,
+    TdbError,
+    full_iri,
+    short_iri,
+)
 
 BASE = "http://test.example.com:6363"
 ORG = "admin"
@@ -324,21 +331,30 @@ async def test_get_schema_custom_branch(client, respx_mock):
 
 
 async def test_get_documents_by_status(client, respx_mock):
-    respx_mock.get(
+    route = respx_mock.get(
         f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
     ).respond(
         json=[
             {"@id": "InboxNote/a", "status": "new"},
-            {"@id": "InboxNote/b", "status": "processed"},
-            {"@id": "InboxNote/c", "status": "new"},
+            {"@id": "InboxNote/b", "status": "new"},
         ],
     )
 
     result = await client.get_documents_by_status("InboxNote", "new")
+    assert route.called
+    req = route.calls.last.request
+    # Assert the query param is sent for server-side filtering
+    assert "query" in req.url.params
+    query_val = json.loads(req.url.params["query"])
+    assert query_val["@type"] == "InboxNote"
+    assert query_val["status"] == "new"
+    assert req.url.params["graph_type"] == "instance"
+    assert req.url.params["type"] == "InboxNote"
+    assert req.url.params["as_list"] == "true"
+
     assert len(result) == 2
     assert all(d["status"] == "new" for d in result)
     assert result[0]["@id"] == "InboxNote/a"
-    assert result[1]["@id"] == "InboxNote/c"
 
 
 # ---------------------------------------------------------------------------
@@ -705,3 +721,233 @@ async def test_async_context_manager():
         assert not c._client.is_closed
     # After exit the client is closed
     assert c._client.is_closed
+
+
+# ---------------------------------------------------------------------------
+# replace_document with expected_head
+# ---------------------------------------------------------------------------
+
+
+async def test_replace_document_expected_head_match(client, respx_mock):
+    """When expected_head matches, replace proceeds normally."""
+    # Mock the branch head check
+    log_route = respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[{"identifier": "abc123", "author": "system", "message": "commit"}],
+    )
+
+    put_route = respx_mock.put(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json=["terminusdb:///data/Task/abc"])
+
+    doc = {"@id": "Task/abc", "@type": "Task", "status": "done"}
+    await client.replace_document(doc, expected_head="abc123")
+
+    assert log_route.called
+    assert put_route.called
+
+
+async def test_replace_document_expected_head_conflict(client, respx_mock):
+    """When expected_head differs, TdbConflictError is raised and no PUT."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[{"identifier": "xyz789", "author": "other", "message": "commit"}],
+    )
+
+    put_route = respx_mock.put(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json=[])
+
+    doc = {"@id": "Task/abc", "@type": "Task", "status": "done"}
+    try:
+        await client.replace_document(doc, expected_head="abc123")
+        assert False, "should have raised"
+    except TdbConflictError as exc:
+        assert exc.expected == "abc123"
+        assert exc.actual == "xyz789"
+        assert exc.status == 409
+    except TdbError:
+        pass  # subclass is catchable as TdbError too
+
+    assert not put_route.called
+
+
+# ---------------------------------------------------------------------------
+# changes_since
+# ---------------------------------------------------------------------------
+
+
+async def test_changes_since_none_commit_baseline(client, respx_mock):
+    """commit_id=None returns ([], current_head)."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[{"identifier": "HEAD", "author": "x", "message": "m"}],
+    )
+
+    events, head = await client.changes_since(None)
+    assert events == []
+    assert head == "HEAD"
+
+
+async def test_changes_since_same_head(client, respx_mock):
+    """When commit_id == current_head, returns ([], head)."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[{"identifier": "HEAD", "author": "x", "message": "m"}],
+    )
+
+    events, head = await client.changes_since("HEAD")
+    assert events == []
+    assert head == "HEAD"
+
+
+async def test_changes_since_new_commits(client, respx_mock):
+    """New commits after commit_id are returned oldest-first."""
+    # Mock get_branch_log — newest-first
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"identifier": "C3", "author": "a", "message": "third"},
+            {"identifier": "C2", "author": "b", "message": "second"},
+            {"identifier": "C1", "author": "c", "message": "first"},
+        ],
+    )
+
+    # Mock diff endpoint for C2 (parent C1)
+    respx_mock.post(
+        f"{BASE}/api/diff/{ORG}/{DB}",
+    ).respond(
+        json={
+            "patch": [
+                {"op": "Insert", "@id": "Task/1"},
+                {"op": "Replace", "@id": "Task/2"},
+            ]
+        },
+    )
+
+    # respx matches by URL only, but we make 2 diff calls for C2 and C3.
+    # The diff response handler will match both.
+    events, head = await client.changes_since("C1")
+    assert head == "C3"
+    assert len(events) == 2
+
+    # Oldest first: C2, then C3
+    assert events[0].commit_id == "C2"
+    assert events[0].author == "b"
+    assert events[0].message == "second"
+    assert "Task/1" in events[0].inserted
+    assert "Task/2" in events[0].updated
+
+    assert events[1].commit_id == "C3"
+    assert events[1].author == "a"
+    assert events[1].message == "third"
+    # Same diff mock — both insert+replace
+    assert "Task/1" in events[1].inserted
+    assert "Task/2" in events[1].updated
+
+
+async def test_changes_since_diff_delete(client, respx_mock):
+    """Diff with delete op is classified correctly."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"identifier": "C2", "author": "a", "message": "del"},
+            {"identifier": "C1", "author": "b", "message": "base"},
+        ],
+    )
+
+    respx_mock.post(
+        f"{BASE}/api/diff/{ORG}/{DB}",
+    ).respond(
+        json={"patch": [{"op": "Delete", "@id": "Task/deleted"}]},
+    )
+
+    events, head = await client.changes_since("C1")
+    assert head == "C2"
+    assert len(events) == 1
+    assert events[0].deleted == ["Task/deleted"]
+
+
+async def test_changes_since_commit_not_found(client, respx_mock):
+    """When commit_id not in log, all available entries are returned."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"identifier": "C2", "author": "a", "message": "new"},
+            {"identifier": "C1", "author": "b", "message": "old"},
+        ],
+    )
+
+    respx_mock.post(
+        f"{BASE}/api/diff/{ORG}/{DB}",
+    ).respond(json={"patch": []})
+
+    # commit_id not in log
+    events, head = await client.changes_since("C0")
+    assert head == "C2"
+    # Both C1 and C2 are returned (oldest first)
+    assert len(events) == 2
+    assert events[0].commit_id == "C1"
+    assert events[1].commit_id == "C2"
+
+
+# ---------------------------------------------------------------------------
+# TdbConflictError
+# ---------------------------------------------------------------------------
+
+
+def test_tdbconflict_error_is_tdberror():
+    """TdbConflictError is a subclass of TdbError."""
+    e = TdbConflictError("expected", "actual")
+    assert isinstance(e, TdbError)
+    assert e.status == 409
+    assert "expected" in e.body
+    assert "actual" in e.body
+
+
+def test_tdbconflict_error_attributes():
+    """TdbConflictError stores expected and actual heads."""
+    e = TdbConflictError("abc", "xyz")
+    assert e.expected == "abc"
+    assert e.actual == "xyz"
+
+
+# ---------------------------------------------------------------------------
+# ChangeEvent dataclass
+# ---------------------------------------------------------------------------
+
+
+def test_change_event_construction():
+    """ChangeEvent can be constructed with defaults."""
+    ev = ChangeEvent(commit_id="abc", author="x", message="msg")
+    assert ev.commit_id == "abc"
+    assert ev.author == "x"
+    assert ev.message == "msg"
+    assert ev.timestamp is None
+    assert ev.inserted == []
+    assert ev.updated == []
+    assert ev.deleted == []
+
+
+def test_change_event_with_data():
+    """ChangeEvent with all fields populated."""
+    ev = ChangeEvent(
+        commit_id="abc",
+        author="x",
+        message="msg",
+        timestamp=1234567890.0,
+        inserted=["Task/1"],
+        updated=["Task/2"],
+        deleted=["Task/3"],
+    )
+    assert ev.inserted == ["Task/1"]
+    assert ev.updated == ["Task/2"]
+    assert ev.deleted == ["Task/3"]
+    assert ev.timestamp == 1234567890.0

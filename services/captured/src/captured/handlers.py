@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from firnline_core.conventions import utc_now
-from firnline_core.generated.inbox import InboxAudio, InboxAudioStatus, InboxNote, InboxNoteStatus
-from firnline_core.plugins import CaptureContext, CaptureHandler, CapturePayload, ModuleRequirement
+from firnline_core.models import InboxAudio, InboxAudioStatus, InboxNote, InboxNoteStatus, Provenance
+from firnline_core.plugins import CaptureContext, CapturePayload, ModuleRequirement
 
 
 class InboxNoteHandler:
@@ -12,7 +11,7 @@ class InboxNoteHandler:
 
     name: str = "inbox_note"
     kinds: tuple[str, ...] = ("note",)
-    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=1.0.0 <2.0.0")]
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=0.1.0 <0.2.0")]
 
     async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
         now = payload.captured_at or ctx.now()
@@ -21,9 +20,9 @@ class InboxNoteHandler:
             created_at=now,
             status=InboxNoteStatus.NEW,
             updated_at=now,
+            provenance=Provenance(agent="captured", at=ctx.now(), method="capture", source=None),
         )
         tdb_doc = doc.to_tdb()
-        # insert_documents returns list of IRIs
         iris = await ctx.tdb.insert_documents([tdb_doc])
         return iris[0] if iris else ""
 
@@ -33,12 +32,12 @@ class InboxAudioHandler:
 
     Requires ``payload.blob_sha256`` to be set by captured.  The blob digest
     is stored in ``file_path`` (the closest existing field — there is no
-    dedicated blob/sha256 column on InboxAudio as of schema 1.0.0).
+    dedicated blob/sha256 column on InboxAudio as of schema 0.1.0).
     """
 
     name: str = "inbox_audio"
     kinds: tuple[str, ...] = ("file",)
-    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=1.0.0 <2.0.0")]
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=0.1.0 <0.2.0")]
 
     async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
         if not payload.blob_sha256:
@@ -67,6 +66,7 @@ class InboxAudioHandler:
             status=InboxAudioStatus.NEW,
             transcription="",
             updated_at=now,
+            provenance=Provenance(agent="captured", at=ctx.now(), method="capture", source=None),
         )
         tdb_doc = doc.to_tdb()
         iris = await ctx.tdb.insert_documents([tdb_doc])

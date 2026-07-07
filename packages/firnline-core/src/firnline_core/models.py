@@ -1,42 +1,63 @@
 """Stable public facade — re-exports generated models and base utilities.
 
-This module is hand-maintained.  When the generated set expands, add new
-symbols here only if they should be part of the public API.
+This module is hand-maintained.  Kernel-only: core base types, generated
+kernel models (core, triggers, inbox), and trigger-related enums.
+Extension domain models (Task, Person, Location, Event, Reminder, etc.)
+live in their respective extension packages.
 """
 
-from firnline_core.base import TdbDateTime, TdbDocument, _format_datetime  # noqa: F401
-from firnline_core.generated.inbox import (  # noqa: F401
+# flake8: noqa: F401
+
+# Base utilities
+from firnline_core.base import TdbDateTime, TdbDocument, _format_datetime
+
+# Core generated models
+from firnline_core.generated.core import ExternalRef, Provenance, SchemaMigration, SchemaModule
+
+# Trigger generated models (concrete triggers + enums + TriggerFiring)
+from firnline_core.generated.triggers import (
+    CompositeMode,
+    CompositeTrigger,
+    EventKind,
+    EventTrigger,
+    FiringStatus,
+    OneShotTrigger,
+    RelativeTrigger,
+    ScheduleTrigger,
+    TriggerFiring,
+)
+
+# Inbox generated models
+from firnline_core.generated.inbox import (
     InboxAudio,
     InboxAudioStatus,
     InboxNote,
     InboxNoteStatus,
 )
-from firnline_core.generated.people import Contact, Person  # noqa: F401
-from firnline_core.generated.places import Location  # noqa: F401
-from firnline_core.generated.planning import (  # noqa: F401
-    Event,
-    EventStatus,
-    Task,
-    TaskSpec,
-    TaskStatus,
-)
-from firnline_core.generated.reminders import Reminder  # noqa: F401
 
 __all__ = [
+    # base
     "TdbDateTime",
     "TdbDocument",
     "_format_datetime",
-    "Contact",
-    "Event",
-    "EventStatus",
+    # core
+    "ExternalRef",
+    "Provenance",
+    "SchemaMigration",
+    "SchemaModule",
+    # triggers
+    "CompositeMode",
+    "CompositeTrigger",
+    "EventKind",
+    "EventTrigger",
+    "FiringStatus",
+    "OneShotTrigger",
+    "RelativeTrigger",
+    "ScheduleTrigger",
+    "TriggerFiring",
+    # inbox
     "InboxAudio",
     "InboxAudioStatus",
     "InboxNote",
     "InboxNoteStatus",
-    "Location",
-    "Person",
-    "Reminder",
-    "Task",
-    "TaskSpec",
-    "TaskStatus",
 ]

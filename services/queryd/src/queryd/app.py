@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import secrets
 import tempfile
 from contextlib import asynccontextmanager
@@ -16,7 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from firnline_core.conventions import blob_root_from_env
-from firnline_core.tdb import TdbClient, TdbError
+from firnline_core.tdb import TdbClient
 from firnline_core.plugins import discover_plugins, select_plugins
 from pydantic_ai import Tool
 from pydantic_ai.exceptions import (
@@ -38,6 +37,7 @@ from queryd.agent import build_agent, usage_limits
 from queryd.schema_briefing import (
     fetch_introspection,
     fetch_module_list,
+    fetch_schema_meta_or_none,
     render_module_briefing,
     render_prompt_briefing,
     render_schema_summary,
@@ -131,8 +131,9 @@ async def _ensure_briefing(app: FastAPI) -> None:
 
 def _rebuild_briefings(app: FastAPI, intro: dict) -> None:
     """Rebuild summary + prompt briefing from introspection + stored module data."""
+    schema_docs = getattr(app.state, "schema_docs", None)
     schema_summary = render_schema_summary(intro)
-    prompt_briefing = render_prompt_briefing(intro)
+    prompt_briefing = render_prompt_briefing(intro, schema_docs=schema_docs)
 
     modules = getattr(app.state, "modules", [])
     active_plugins = getattr(app.state, "active_plugins", [])
@@ -315,6 +316,14 @@ async def _lifespan(
     except Exception:
         log.warning("schema introspection failed at startup", exc_info=True)
         intro = None
+
+    # ── Schema @documentation annotations ──────────────────────────────
+    schema_docs: dict[str, str] | None = None
+    try:
+        schema_docs = await fetch_schema_meta_or_none(tdb, branch=settings.tdb_branch)
+    except Exception:
+        log.warning("schema meta fetch failed", exc_info=True)
+    app.state.schema_docs = schema_docs
 
     # ── Module registry ────────────────────────────────────────────────
     modules: list[dict] = []

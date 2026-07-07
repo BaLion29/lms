@@ -73,7 +73,7 @@ def test_plugin_name_and_requires():
     reqs = planning_plugin.requires
     assert len(reqs) == 1
     assert reqs[0].name == "planning"
-    assert reqs[0].range == ">=2.0.0 <3.0.0"
+    assert reqs[0].range == ">=0.1.0 <0.2.0"
 
 
 def test_plugin_tools():
@@ -217,6 +217,15 @@ async def test_create_task(respx_mock):
     assert "created_at" in doc
     assert "updated_at" in doc
     assert doc["created_at"] == doc["updated_at"]
+    # No due_date → anchor_at should be None → excluded by exclude_none
+    assert "anchor_at" not in doc
+    assert "derived_from" not in doc
+    prov = doc["provenance"]
+    assert prov["@type"] == "Provenance"
+    assert prov["agent"] == "queryd"
+    assert prov["method"] == "tool_call"
+    # source=None should be excluded
+    assert "source" not in prov
 
     params = req.url.params
     assert params["author"] == "queryd"
@@ -244,6 +253,10 @@ async def test_create_task_with_all_fields(respx_mock):
     assert doc["description"] == "desc"
     assert doc["due_date"] == "2026-12-31T12:00:00Z"
     assert doc["priority"] == 5
+    assert doc["anchor_at"] == "2026-12-31T12:00:00Z"
+    assert doc["provenance"]["@type"] == "Provenance"
+    assert doc["provenance"]["agent"] == "queryd"
+    assert "source" not in doc["provenance"]
 
 
 # ---------------------------------------------------------------------------

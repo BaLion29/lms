@@ -19,3 +19,4 @@ class Settings(TdbSettings):
     dry_run: bool = False
     strict_plugins: bool = False
     liveness_file: str = "/tmp/triggerd-alive"
+    state_file: str = "/tmp/triggerd-state.json"

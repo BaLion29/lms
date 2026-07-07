@@ -17,7 +17,7 @@ def test_pages_registered():
     from firnline_webui.firnline_webui import app
 
     page_routes = list(app._unevaluated_pages.keys())
-    expected = {"index", "capture", "inbox", "browse", "browse/[class_name]", "health", "modules", "login"}
+    expected = {"index", "capture", "inbox", "chat", "browse", "browse/[class_name]", "calendar", "health", "modules", "login"}
     assert set(page_routes) == expected
 
 
@@ -29,6 +29,8 @@ def test_pages_registered():
         ("inbox", "Firnline — Inbox"),
         ("browse", "Firnline — Browse"),
         ("browse/[class_name]", "Firnline — Browse"),
+        ("chat", "Firnline — Chat"),
+        ("calendar", "Firnline — Calendar"),
         ("health", "Firnline — Health"),
         ("modules", "Firnline — Modules"),
         ("login", "Firnline — Sign in"),
@@ -56,7 +58,9 @@ def test_on_load_events():
     from firnline_webui.firnline_webui import app
 
     from firnline_webui.state.browse import BrowseClassState, BrowseState
+    from firnline_webui.state.calendar import CalendarState
     from firnline_webui.state.capture import CaptureState
+    from firnline_webui.state.chat import ChatState
     from firnline_webui.state.health import HealthState
     from firnline_webui.state.inbox import InboxState
     from firnline_webui.state.modules import ModulesState
@@ -73,8 +77,10 @@ def test_on_load_events():
         "index": (HealthState, "refresh"),
         "capture": (CaptureState, "load"),
         "inbox": (InboxState, "load"),
+        "chat": (ChatState, "init_from_query"),
         "browse": (BrowseState, "load"),
         "browse/[class_name]": (BrowseClassState, "load"),
+        "calendar": (CalendarState, "load"),
         "health": (HealthState, "refresh"),
         "modules": (ModulesState, "load"),
     }

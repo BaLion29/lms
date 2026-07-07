@@ -10,7 +10,7 @@ from firnline_core.plugins import IndexerPlugin, ModuleRequirement
 class PlanningIndexerPlugin(IndexerPlugin):
     name: str = "planning_indexer"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="planning", range=">=2.0.0 <3.0.0"),
+        ModuleRequirement(name="planning", range=">=0.1.0 <0.2.0"),
     ]
 
     def indexed_classes(self) -> list[str]:

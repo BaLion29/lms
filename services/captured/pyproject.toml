@@ -1,6 +1,6 @@
 [project]
 name = "captured"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "FastAPI capture-ingress daemon"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
@@ -22,6 +22,10 @@ firnline-core = { workspace = true }
 
 [project.scripts]
 captured = "captured.main:main"
+
+[project.entry-points."firnline.captured.handlers"]
+inbox_note = "captured.handlers:inbox_note_handler"
+inbox_audio = "captured.handlers:inbox_audio_handler"
 
 [build-system]
 requires = ["hatchling"]

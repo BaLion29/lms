@@ -11,12 +11,16 @@ from firnline_core.plugins import (
     CaptureContext,
     CaptureHandler,
     CapturePayload,
+    DeliveryResult,
     DiscoveryResult,
-    IngestSourcePlugin,
+    EntityIndex,
     ModuleRequirement,
+    NotificationChannel,
+    NotifyContext,
     check_requirements,
     discover_plugins,
     select_plugins,
+    validate_plugin,
 )
 from firnline_core.tdb import TdbError
 
@@ -320,3 +324,244 @@ class TestIngestSourcePluginProtocol:
         source = MySource()
         assert len(source.requires) == 1
         assert source.requires[0].name == "inbox"
+
+
+# ---------------------------------------------------------------------------
+# EntityIndex — generic + backward compat
+# ---------------------------------------------------------------------------
+
+
+class TestEntityIndex:
+    def test_register_and_lookup(self) -> None:
+        index = EntityIndex()
+        index.register("Person", "Anna Meier", "Person/1")
+        index.register("Person", "Bob Müller", "Person/2")
+        assert index.lookup("Person", "anna meier") == "Person/1"
+        assert index.lookup("Person", "BOB MÜLLER") == "Person/2"
+        assert index.lookup("Person", "unknown") is None
+        assert index.lookup("Location", "any") is None
+
+    def test_names_and_classes(self) -> None:
+        index = EntityIndex()
+        index.register("Person", "Anna", "Person/1")
+        index.register("Person", "Bob", "Person/2")
+        index.register("Location", "Zürich", "Location/1")
+        assert index.names("Person") == [("Anna", "Person/1"), ("Bob", "Person/2")]
+        assert index.names("Location") == [("Zürich", "Location/1")]
+        assert sorted(index.classes()) == ["Location", "Person"]
+
+
+# ---------------------------------------------------------------------------
+# validate_plugin
+# ---------------------------------------------------------------------------
+
+
+class TestValidatePlugin:
+    def test_valid_plugin_passes(self) -> None:
+        from typing import Protocol, runtime_checkable
+
+        @runtime_checkable
+        class MyProto(Protocol):
+            name: str
+            def do_it(self) -> str: ...
+
+        class GoodImpl:
+            name = "test"
+            def do_it(self) -> str:
+                return "done"
+
+        violations = validate_plugin(GoodImpl(), MyProto)
+        assert violations == []
+
+    def test_missing_attribute(self) -> None:
+        from typing import Protocol, runtime_checkable
+
+        @runtime_checkable
+        class MyProto(Protocol):
+            name: str
+            def do_it(self) -> str: ...
+
+        class BadImpl:
+            def do_it(self) -> str:
+                return "done"
+
+        violations = validate_plugin(BadImpl(), MyProto)
+        assert len(violations) == 1
+        assert "missing attribute 'name'" in violations[0]
+
+    def test_missing_method(self) -> None:
+        from typing import Protocol, runtime_checkable
+
+        @runtime_checkable
+        class MyProto(Protocol):
+            name: str
+            def do_it(self) -> str: ...
+
+        class BadImpl:
+            name = "test"
+
+        violations = validate_plugin(BadImpl(), MyProto)
+        assert any("missing method 'do_it'" in v for v in violations)
+
+    def test_method_not_callable(self) -> None:
+        from typing import Protocol, runtime_checkable
+
+        @runtime_checkable
+        class MyProto(Protocol):
+            name: str
+            def do_it(self) -> str: ...
+
+        class BadImpl:
+            name = "test"
+            do_it = "not_a_function"  # type: ignore[assignment]
+
+        violations = validate_plugin(BadImpl(), MyProto)
+        assert any("is not callable" in v for v in violations)
+
+    def test_skips_dunders(self) -> None:
+        from typing import Protocol, runtime_checkable
+
+        @runtime_checkable
+        class MyProto(Protocol):
+            name: str
+
+        class Impl:
+            name = "ok"
+
+        violations = validate_plugin(Impl(), MyProto)
+        assert violations == []
+
+
+# ---------------------------------------------------------------------------
+# select_plugins — registry caching
+# ---------------------------------------------------------------------------
+
+
+class TestSelectPluginsCaching:
+    """Test that select_plugins fetches the registry once and passes it down."""
+
+    @pytest.fixture
+    def tdb(self) -> AsyncMock:
+        return AsyncMock()
+
+    def _plugin(self, name: str, requires: list[ModuleRequirement] | None = None) -> object:
+        plugin = type(f"Plugin_{name}", (), {})()
+        plugin.name = name  # type: ignore[attr-defined]
+        plugin.requires = requires or []  # type: ignore[attr-defined]
+        return plugin
+
+    async def test_registry_fetched_once(self, tdb: AsyncMock) -> None:
+        """When selecting multiple plugins, get_documents should be called once."""
+        tdb.get_documents.return_value = [
+            {"name": "mod1", "version": "1.0.0"},
+            {"name": "mod2", "version": "2.0.0"},
+        ]
+        p1 = self._plugin("p1", [ModuleRequirement(name="mod1", range=">=1.0.0")])
+        p2 = self._plugin("p2", [ModuleRequirement(name="mod2", range=">=1.0.0")])
+        discovered = DiscoveryResult(
+            active=[("p1", p1), ("p2", p2)], failed=[]
+        )
+        sel = await select_plugins(tdb, discovered)
+        assert len(sel.active) == 2
+        # get_documents should be called exactly once for SchemaModule
+        tdb.get_documents.assert_called_once_with("SchemaModule", branch="main")
+
+    async def test_registry_unavailable_per_plugin(self, tdb: AsyncMock) -> None:
+        """When registry fetch fails, each plugin gets registry-unavailable violation."""
+        tdb.get_documents.side_effect = TdbError(400, "no class")
+        p1 = self._plugin("p1", [ModuleRequirement(name="mod1", range=">=1.0.0")])
+        p2 = self._plugin("p2", [ModuleRequirement(name="mod2", range=">=1.0.0")])
+        discovered = DiscoveryResult(
+            active=[("p1", p1), ("p2", p2)], failed=[]
+        )
+        sel = await select_plugins(tdb, discovered)
+        assert len(sel.skipped) == 2
+        # get_documents still called once (then the TdbError is raised)
+        assert tdb.get_documents.call_count == 1
+
+    async def test_select_with_protocol_validation(self, tdb: AsyncMock) -> None:
+        """Protocol validation violations cause plugin skip."""
+        from typing import Protocol, runtime_checkable
+
+        @runtime_checkable
+        class MyProto(Protocol):
+            name: str
+            extra: str  # missing attribute
+            def do_it(self) -> str: ...
+
+        class MyPlugin:
+            name = "test"
+            requires: list[ModuleRequirement] = []
+
+            def do_it(self) -> str:
+                return "ok"
+
+        tdb.get_documents.return_value = []
+        discovered = DiscoveryResult(active=[("p1", MyPlugin())], failed=[])
+        sel = await select_plugins(tdb, discovered, protocol=MyProto)
+        assert len(sel.skipped) == 1
+        violations = sel.skipped[0][1]
+        assert any("missing attribute 'extra'" in v for v in violations)
+
+    async def test_select_strict_with_protocol_violation_raises(self, tdb: AsyncMock) -> None:
+        """Strict mode + protocol violation → RuntimeError."""
+        from typing import Protocol, runtime_checkable
+
+        @runtime_checkable
+        class MyProto(Protocol):
+            name: str
+            def do_it(self) -> str: ...
+
+        class MyPlugin:
+            name = "test"
+            requires: list[ModuleRequirement] = []
+
+        tdb.get_documents.return_value = []
+        discovered = DiscoveryResult(active=[("p1", MyPlugin())], failed=[])
+        with pytest.raises(RuntimeError, match="Strict plugin mode"):
+            await select_plugins(tdb, discovered, strict=True, protocol=MyProto)
+
+
+# ---------------------------------------------------------------------------
+# NotificationChannel structural conformance
+# ---------------------------------------------------------------------------
+
+
+class TestNotificationChannelProtocol:
+    """A minimal class should satisfy the NotificationChannel Protocol."""
+
+    async def test_isinstance_check(self) -> None:
+        class EmailChannel:
+            name = "email"
+            requires: list[ModuleRequirement] = []
+
+            async def deliver(
+                self,
+                firing: dict,
+                subject: dict | None,
+                ctx: NotifyContext,
+            ) -> DeliveryResult:
+                return DeliveryResult(ok=True, detail="sent")
+
+        channel = EmailChannel()
+        assert isinstance(channel, NotificationChannel)
+
+    async def test_deliver_returns_delivery_result(self) -> None:
+        class EmailChannel:
+            name = "email"
+            requires: list[ModuleRequirement] = []
+
+            async def deliver(
+                self,
+                firing: dict,
+                subject: dict | None,
+                ctx: NotifyContext,
+            ) -> DeliveryResult:
+                return DeliveryResult(ok=False, detail="rate limited", retryable=True)
+
+        channel = EmailChannel()
+        ctx = NotifyContext(tdb=None, logger=None)
+        result = await channel.deliver({"msg": "hi"}, None, ctx)
+        assert result.ok is False
+        assert result.detail == "rate limited"
+        assert result.retryable is True

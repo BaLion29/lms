@@ -1,6 +1,6 @@
 [project]
 name = "firnline-ext-routines"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "Firnline routines extension — Routine/RoutineStep/Activity/ActivitySpec schema module"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
@@ -9,6 +9,7 @@ requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [
     "firnline-core",
+    "firnline-ext-planning",
 ]
 
 [project.entry-points."firnline.schema_modules"]
@@ -19,6 +20,7 @@ routines_indexer = "firnline_ext_routines.indexer:plugin"
 
 [tool.uv.sources]
 firnline-core = { workspace = true }
+firnline-ext-planning = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

@@ -120,6 +120,7 @@ async def _lifespan(app: FastAPI, settings: Settings):
                 discovered,
                 strict=settings.strict_plugins,
                 branch=settings.tdb_branch,
+                protocol=CaptureHandler,
             )
         except RuntimeError:
             raise

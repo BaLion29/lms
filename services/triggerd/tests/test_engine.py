@@ -11,6 +11,7 @@ import structlog
 from triggerd.engine import Engine
 from triggerd.evaluators import (
     CompositeEvaluator,
+    EventTriggerEvaluator,
     OneShotEvaluator,
     ScheduleEvaluator,
 )
@@ -56,6 +57,7 @@ def _make_engine(
     tdb.get_schema = AsyncMock()
     tdb.graphql = AsyncMock()
     tdb.insert_documents = AsyncMock()
+    tdb.changes_since = AsyncMock()
 
     async def _get_docs(type_: str, branch: str = "main"):
         if trigger_docs:
@@ -68,6 +70,7 @@ def _make_engine(
         return schema_entries or _default_schema()
 
     tdb.get_schema.side_effect = _get_schema
+    tdb.changes_since.return_value = ([], "head")
 
     if insert_side_effect:
         tdb.insert_documents.side_effect = insert_side_effect
@@ -99,7 +102,6 @@ def _default_schema() -> list[dict]:
         {"@id": "ScheduleTrigger", "@type": "Class", "@inherits": "Trigger"},
         {"@id": "CompositeTrigger", "@type": "Class", "@inherits": "Trigger"},
         {"@id": "EventTrigger", "@type": "Class", "@inherits": "Trigger"},
-        {"@id": "ContextTrigger", "@type": "Class", "@inherits": "Trigger"},
         {"@id": "AbstractMid", "@type": "Class", "@abstract": True, "@inherits": "Trigger"},
         {"@id": "ConcreteMid", "@type": "Class", "@inherits": "AbstractMid"},
     ]
@@ -139,7 +141,6 @@ class TestSchemaScan:
         assert "ScheduleTrigger" in types
         assert "CompositeTrigger" in types
         assert "EventTrigger" in types
-        assert "ContextTrigger" in types
         assert "AbstractMid" not in types  # abstract
         assert "Trigger" not in types  # abstract
         # Transitive inheritance
@@ -227,15 +228,20 @@ class TestUnsupportedType:
 
     @pytest.mark.asyncio
     async def test_unsupported_type_logged_once_per_type(self):
-        """Two EventTrigger + two ContextTrigger docs → one log event per type."""
+        """Two UnknownTrigger + two FoobarTrigger docs → one log event per type."""
         now = _frozen_now_2026()
         engine = _make_engine(
             now=lambda: now,
             trigger_docs=[
-                {"@id": "EventTrigger/e1", "@type": "EventTrigger", "enabled": True},
-                {"@id": "EventTrigger/e2", "@type": "EventTrigger", "enabled": True},
-                {"@id": "ContextTrigger/c1", "@type": "ContextTrigger", "enabled": True},
-                {"@id": "ContextTrigger/c2", "@type": "ContextTrigger", "enabled": True},
+                {"@id": "UnknownTrigger/u1", "@type": "UnknownTrigger", "enabled": True},
+                {"@id": "UnknownTrigger/u2", "@type": "UnknownTrigger", "enabled": True},
+                {"@id": "FoobarTrigger/f1", "@type": "FoobarTrigger", "enabled": True},
+                {"@id": "FoobarTrigger/f2", "@type": "FoobarTrigger", "enabled": True},
+            ],
+            schema_entries=[
+                {"@id": "Trigger", "@type": "Class", "@abstract": True},
+                {"@id": "UnknownTrigger", "@type": "Class", "@inherits": "Trigger"},
+                {"@id": "FoobarTrigger", "@type": "Class", "@inherits": "Trigger"},
             ],
         )
         with structlog.testing.capture_logs() as captured:
@@ -244,18 +250,18 @@ class TestUnsupportedType:
         # One warning per unique unsupported type
         assert len(unsupported) == 2
         types_logged = {e["type"] for e in unsupported}
-        assert types_logged == {"EventTrigger", "ContextTrigger"}
+        assert types_logged == {"UnknownTrigger", "FoobarTrigger"}
         # Summary dict populated
         summary = [e for e in captured if e.get("event") == "cycle_complete"]
-        assert summary[0]["skipped_by_type"] == {"EventTrigger": 2, "ContextTrigger": 2}
+        assert summary[0]["skipped_by_type"] == {"UnknownTrigger": 2, "FoobarTrigger": 2}
 
 
 class TestSubjectResolution:
     """GraphQL subject resolution — one/none/ambiguous/error-tolerated."""
 
     @pytest.mark.asyncio
-    async def test_exactly_one_reminder_returns_subject(self):
-        """One Reminder referencing the trigger → subject set."""
+    async def test_exactly_one_triggerable_returns_subject(self):
+        """One Triggerable referencing the trigger → subject set."""
         now = _frozen_now_2026()
         fire_at = _utc_iso(now - timedelta(seconds=60))
         engine = _make_engine(
@@ -270,9 +276,7 @@ class TestSubjectResolution:
             ],
         )
         engine.tdb.graphql = AsyncMock(
-            side_effect=lambda query, variables, branch=None: (
-                {"Reminder": [{"_id": "Reminder/r1"}]} if "Reminder" in query else {"Routine": []}
-            )
+            return_value={"Triggerable": [{"_id": "Reminder/r1"}]}
         )
         subject = await engine._resolve_subject("OneShotTrigger/t1", "main")
         assert subject == "Reminder/r1"
@@ -290,11 +294,7 @@ class TestSubjectResolution:
         """Two referrers → None + subject_ambiguous logged."""
         engine = _make_engine()
         engine.tdb.graphql = AsyncMock(
-            side_effect=lambda query, variables, branch=None: (
-                {"Reminder": [{"_id": "Reminder/r1"}, {"_id": "Reminder/r2"}]}
-                if "Reminder" in query
-                else {"Routine": []}
-            )
+            return_value={"Triggerable": [{"_id": "Reminder/r1"}, {"_id": "Reminder/r2"}]}
         )
         with structlog.testing.capture_logs() as captured:
             subject = await engine._resolve_subject("OneShotTrigger/t1", "main")
@@ -305,14 +305,16 @@ class TestSubjectResolution:
 
     @pytest.mark.asyncio
     async def test_graphql_unknown_type_tolerated(self):
-        """GraphQL error about unknown type → no subject, no crash."""
+        """GraphQL error → fallback to triggerable subclasses, then no subject, no crash."""
         engine = _make_engine()
         engine.tdb.graphql = AsyncMock(side_effect=TdbError(400, '{"errors":[{"message":"Cannot query field"}]}'))
         with structlog.testing.capture_logs() as captured:
             subject = await engine._resolve_subject("OneShotTrigger/t1", "main")
         assert subject is None
-        debug_events = [e for e in captured if e.get("event") == "subject_query_failed"]
-        assert len(debug_events) == 2  # one per class_name
+        # Old path logged subject_query_failed; now the fallback path logs
+        # triggerable_abstract_query_failed (since the abstract query fails).
+        warn_events = [e for e in captured if e.get("event") == "triggerable_abstract_query_failed"]
+        assert len(warn_events) == 1
 
 
 class TestDryRun:
@@ -428,9 +430,7 @@ class TestIdempotency:
         )
         eng.tdb.insert_documents.side_effect = _insert
         eng.tdb.graphql = AsyncMock(
-            side_effect=lambda query, variables, branch=None: (
-                {"Reminder": [{"_id": "Reminder/r1"}]} if "Reminder" in query else {"Routine": []}
-            )
+            return_value={"Triggerable": [{"_id": "Reminder/r1"}]}
         )
 
         # Cycle 1
@@ -452,9 +452,7 @@ class TestIdempotency:
         )
         eng2.tdb.insert_documents.side_effect = _insert
         eng2.tdb.graphql = AsyncMock(
-            side_effect=lambda query, variables, branch=None: (
-                {"Reminder": [{"_id": "Reminder/r1"}]} if "Reminder" in query else {"Routine": []}
-            )
+            return_value={"Triggerable": [{"_id": "Reminder/r1"}]}
         )
 
         with structlog.testing.capture_logs() as cap2:
@@ -527,8 +525,8 @@ class TestCompositePath:
     """Composite triggers recurse through the engine's get_occurrences dispatch."""
 
     @pytest.mark.asyncio
-    async def test_composite_or_operand_fires(self):
-        """Composite(or) over a OneShot fires via full engine cycle."""
+    async def test_composite_any_operand_fires(self):
+        """Composite(any) over a OneShot fires via full engine cycle."""
         now = _frozen_now_2026()
         fire_at = _utc_iso(now - timedelta(seconds=60))
 
@@ -542,7 +540,7 @@ class TestCompositePath:
             "@id": "CompositeTrigger/outer",
             "@type": "CompositeTrigger",
             "enabled": True,
-            "mode": "or",
+            "mode": "any",
             "operands": ["OneShotTrigger/inner"],
         }
 
@@ -586,7 +584,7 @@ class TestCompositePath:
             "@id": "CompositeTrigger/outer",
             "@type": "CompositeTrigger",
             "enabled": True,
-            "mode": "or",
+            "mode": "any",
             "operands": ["OneShotTrigger/inner"],
         }
 
@@ -612,7 +610,7 @@ class TestCycleCompleteSummary:
 
     @pytest.mark.asyncio
     async def test_summary_mixed_scenario(self):
-        """Mixed scenario: one active OneShot, one disabled, one unsupported."""
+        """Mixed scenario: one active OneShot, one disabled, one unsupported (UnknownTrigger)."""
         now = _frozen_now_2026()
         fire_at = _utc_iso(now - timedelta(seconds=60))
         engine = _make_engine(
@@ -631,11 +629,13 @@ class TestCycleCompleteSummary:
                     "fire_at": fire_at,
                 },
                 {
-                    "@id": "EventTrigger/unsupported",
-                    "@type": "EventTrigger",
+                    "@id": "UnknownTrigger/unsupported",
+                    "@type": "UnknownTrigger",
                     "enabled": True,
                 },
             ],
+            schema_entries=_default_schema()
+            + [{"@id": "UnknownTrigger", "@type": "Class", "@inherits": "Trigger"}],
         )
         inserted_docs = []
 
@@ -653,7 +653,7 @@ class TestCycleCompleteSummary:
         assert summary["triggers_dispatched"] == 1
         # 1 active evaluated, 1 disabled not dispatched, 1 unsupported
         assert summary["evaluated"] == 1
-        assert summary["skipped_by_type"] == {"EventTrigger": 1}
+        assert summary["skipped_by_type"] == {"UnknownTrigger": 1}
         assert summary["firings_written"] == 1
         assert summary["duplicates_suppressed"] == 0
         assert summary["errors"] == 0
@@ -784,3 +784,282 @@ class TestBatchAtomicityFallback:
         s3 = [e for e in cap3 if e.get("event") == "cycle_complete"][0]
         assert s3["firings_written"] == 1  # 11:59 is new
         assert s3["duplicates_suppressed"] == 2  # 11:57 and 11:58 suppressed
+
+
+class TestFiringDocEntityFields:
+    """TriggerFiring documents carry created_at/updated_at (Entity requirement)."""
+
+    @pytest.mark.asyncio
+    async def test_firing_doc_has_created_updated_at(self):
+        """Inserted firing doc includes created_at and updated_at as ISO strings."""
+        now = _frozen_now_2026()
+        fire_at = _utc_iso(now - timedelta(seconds=60))
+        inserted: list[dict] = []
+
+        async def _record(docs, branch="main", message="", author=""):
+            inserted.extend(docs)
+            return ["fake"]
+
+        engine = _make_engine(
+            now=lambda: now,
+            trigger_docs=[
+                {
+                    "@id": "OneShotTrigger/t1",
+                    "@type": "OneShotTrigger",
+                    "enabled": True,
+                    "fire_at": fire_at,
+                },
+            ],
+        )
+        engine.tdb.insert_documents.side_effect = _record
+
+        await engine.run_cycle()
+        assert len(inserted) == 1
+        doc = inserted[0]
+        assert "created_at" in doc
+        assert "updated_at" in doc
+        assert isinstance(doc["created_at"], str)
+        assert isinstance(doc["updated_at"], str)
+        assert doc["created_at"].endswith("Z")
+        assert doc["updated_at"].endswith("Z")
+
+
+class TestBaselineFirstCycle:
+    """First cycle with no prior commit baselines head, produces no change events."""
+
+    @pytest.mark.asyncio
+    async def test_baseline_cycle_no_event_firings(self):
+        """changes_since returns ([], head) → EventTrigger produces no firings."""
+        now = _frozen_now_2026()
+
+        engine = _make_engine(
+            now=lambda: now,
+            trigger_docs=[
+                {
+                    "@id": "EventTrigger/ev1",
+                    "@type": "EventTrigger",
+                    "enabled": True,
+                    "event": "created",
+                },
+            ],
+            evaluators=[EventTriggerEvaluator()],
+        )
+        # changes_since returns ([], 'head') — baseline
+        engine.tdb.changes_since = AsyncMock(return_value=([], "head"))
+
+        inserted_docs = []
+
+        async def _record(docs, branch="main", message="", author=""):
+            inserted_docs.extend(docs)
+            return ["fake"]
+
+        engine.tdb.insert_documents.side_effect = _record
+
+        with structlog.testing.capture_logs() as captured:
+            await engine.run_cycle()
+
+        summary = [e for e in captured if e.get("event") == "cycle_complete"][0]
+        assert summary["firings_written"] == 0
+        assert len(inserted_docs) == 0
+
+
+class TestEventTriggerFiringKeys:
+    """EventTrigger firings use commit_id-based occurrence_keys."""
+
+    @pytest.mark.asyncio
+    async def test_event_trigger_occurrence_key_contains_commit_id(self):
+        """When EventTrigger fires from a change event, occurrence_key encodes commit_id."""
+        now = _frozen_now_2026()
+        ts = now.timestamp()
+
+        from firnline_core.tdb import ChangeEvent
+
+        change = ChangeEvent(
+            commit_id="commit-abc",
+            author="tester",
+            message="test",
+            timestamp=ts,
+            inserted=["Task/new"],
+            updated=[],
+            deleted=[],
+        )
+
+        engine = _make_engine(
+            now=lambda: now,
+            trigger_docs=[
+                {
+                    "@id": "EventTrigger/ev1",
+                    "@type": "EventTrigger",
+                    "enabled": True,
+                    "event": "created",
+                },
+            ],
+            evaluators=[EventTriggerEvaluator()],
+        )
+        engine.tdb.changes_since = AsyncMock(return_value=([change], "head2"))
+
+        inserted_docs = []
+
+        async def _record(docs, branch="main", message="", author=""):
+            inserted_docs.extend(docs)
+            return ["fake"]
+
+        engine.tdb.insert_documents.side_effect = _record
+
+        await engine.run_cycle()
+
+        assert len(inserted_docs) == 1
+        key = inserted_docs[0]["occurrence_key"]
+        # New format: commit-abc[:12]-sha256[:12]
+        assert key.startswith("commit-abc")
+        assert "-" in key
+        # Key is stable and deterministically derived from commit_id + IRI
+        from triggerd.evaluators import _make_event_key
+        assert key == _make_event_key("commit-abc", "Task/new")
+
+
+class TestStateFilePersistence:
+    """The _last_commit map is persisted across restarts via state_file."""
+
+    @pytest.mark.asyncio
+    async def test_restart_does_not_rebaseline(self):
+        """Two engines sharing the same state file; second sees existing head."""
+        import json
+        import tempfile
+        from pathlib import Path
+
+        state_file = Path(tempfile.gettempdir()) / f"test-triggerd-state-{id(self)}.json"
+        # Cleanup before
+        state_file.unlink(missing_ok=True)
+
+        try:
+            # Write a state file with a known last commit
+            initial_state = {"main": "commit-aaa"}
+            state_file.write_text(json.dumps(initial_state))
+
+            now = _frozen_now_2026()
+
+            # Engine 1: should load the persisted commit
+            eng1 = _make_engine(now=lambda: now)
+            eng1.settings = eng1.settings.model_copy(update={"state_file": str(state_file)})
+            eng1._last_commit = eng1._load_state()
+
+            assert eng1._last_commit == {"main": "commit-aaa"}
+
+            # Simulate a cycle: changes_since should be called with "commit-aaa"
+            eng1.tdb.changes_since = AsyncMock(return_value=([], "head2"))
+            await eng1.run_cycle()
+
+            # After the cycle, last_commit should be "head2"
+            assert eng1._last_commit == {"main": "head2"}
+
+            # Engine 2: new instance, same state file — should load "head2"
+            eng2 = _make_engine(now=lambda: now)
+            eng2.settings = eng2.settings.model_copy(update={"state_file": str(state_file)})
+            loaded = eng2._load_state()
+            assert loaded == {"main": "head2"}, f"Expected head2, got {loaded}"
+        finally:
+            state_file.unlink(missing_ok=True)
+
+    @pytest.mark.asyncio
+    async def test_corrupt_state_file_tolerated(self):
+        """A corrupt/missing state file is tolerated → no crash, empty dict."""
+        import json
+        import tempfile
+        from pathlib import Path
+
+        state_file = Path(tempfile.gettempdir()) / f"test-triggerd-corrupt-{id(self)}.json"
+        state_file.unlink(missing_ok=True)
+
+        try:
+            # Corrupt JSON
+            state_file.write_text("not json {{{")
+
+            now = _frozen_now_2026()
+            eng = _make_engine(now=lambda: now)
+            eng.settings = eng.settings.model_copy(update={"state_file": str(state_file)})
+            loaded = eng._load_state()
+            assert loaded == {}
+        finally:
+            state_file.unlink(missing_ok=True)
+
+
+class TestGraphQLFallback:
+    """GraphQL abstract Triggerable query failure falls back to per-subclass queries."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_resolves_via_concrete_subclasses(self):
+        """When abstract Triggerable query fails, fallback queries each concrete subclass."""
+        now = _frozen_now_2026()
+        fire_at = _utc_iso(now - timedelta(seconds=60))
+        engine = _make_engine(
+            now=lambda: now,
+            trigger_docs=[
+                {
+                    "@id": "OneShotTrigger/t1",
+                    "@type": "OneShotTrigger",
+                    "enabled": True,
+                    "fire_at": fire_at,
+                },
+            ],
+            schema_entries=[
+                {"@id": "Triggerable", "@type": "Class", "@abstract": True},
+                {"@id": "Reminder", "@type": "Class", "@inherits": "Triggerable"},
+                {"@id": "Routine", "@type": "Class", "@inherits": "Triggerable"},
+                {"@id": "AbstractTriggerable", "@type": "Class", "@abstract": True, "@inherits": "Triggerable"},
+            ],
+        )
+
+        # First GraphQL call (abstract) fails, then per-subclass queries succeed
+        call_count = 0
+
+        async def _graphql(query, variables=None, branch="main"):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Abstract Triggerable query → fail
+                raise TdbError(400, '{"errors":[{"message":"Cannot query field"}]}')
+            elif "Reminder" in query:
+                return {"Reminder": [{"_id": "Reminder/r1"}]}
+            elif "Routine" in query:
+                return {"Routine": []}
+            return {}
+
+        engine.tdb.graphql = _graphql
+
+        with structlog.testing.capture_logs() as captured:
+            subject = await engine._resolve_subject("OneShotTrigger/t1", "main")
+
+        assert subject == "Reminder/r1"
+        warn_events = [e for e in captured if e.get("event") == "triggerable_abstract_query_failed"]
+        assert len(warn_events) == 1
+
+    @pytest.mark.asyncio
+    async def test_fallback_zero_or_many_returns_none(self):
+        """Fallback path: zero subclasses or ambiguous results → None."""
+        engine = _make_engine(
+            schema_entries=[
+                {"@id": "Triggerable", "@type": "Class", "@abstract": True},
+                {"@id": "Reminder", "@type": "Class", "@inherits": "Triggerable"},
+            ],
+        )
+
+        # Abstract query fails, Reminder query returns 2 results → ambiguous
+        call_count = 0
+
+        async def _graphql(query, variables=None, branch="main"):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise TdbError(400, "fail")
+            return {"Reminder": [{"_id": "Reminder/r1"}, {"_id": "Reminder/r2"}]}
+
+        engine.tdb.graphql = _graphql
+
+        with structlog.testing.capture_logs() as captured:
+            subject = await engine._resolve_subject("OneShotTrigger/t1", "main")
+
+        assert subject is None
+        ambiguous = [e for e in captured if e.get("event") == "subject_ambiguous"]
+        assert len(ambiguous) == 1
+        assert ambiguous[0]["count"] == 2

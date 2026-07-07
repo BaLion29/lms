@@ -76,9 +76,11 @@ def _cmd_compose(args: argparse.Namespace) -> int:
     lock_path = out_dir / "modules.lock.json"
     lock_path.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n")
 
-    # Write meta file (class → module mapping, sorted for determinism)
+    # Write meta file (class → module mapping, sorted for determinism, + targets + imports)
     meta: dict[str, dict[str, str]] = {
         "classes": dict(sorted(result.class_id_to_module.items())),
+        "targets": dict(sorted(result.module_to_target.items())),
+        "imports": dict(sorted(result.module_to_import.items())),
     }
     meta_path = out_dir / "composed.meta.json"
     meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
@@ -117,17 +119,42 @@ def _cmd_codegen(args: argparse.Namespace) -> int:
     composed_schema = json.loads(composed_path.read_text())
     meta = json.loads(meta_path.read_text())
     class_id_to_module = meta.get("classes", {})
+    module_to_target = meta.get("targets", {})
+    module_to_import = meta.get("imports", {})
 
     from .codegen import schema_checksum, write_generated
 
     checksum = schema_checksum(composed_schema)
-    out_dir = Path(args.out)
 
-    paths = write_generated(out_dir, composed_schema, class_id_to_module, checksum)
+    # Filter to --only if provided
+    if args.only:
+        filtered_targets = {}
+        for mod_name in args.only:
+            if mod_name in module_to_target:
+                filtered_targets[mod_name] = module_to_target[mod_name]
+            else:
+                print(
+                    f"Error: --only module '{mod_name}' not found in meta targets ({sorted(module_to_target)})",
+                    file=sys.stderr,
+                )
+                return 1
+        # Also filter class_id_to_module
+        filtered_classes = {
+            cid: mod for cid, mod in class_id_to_module.items()
+            if mod in filtered_targets
+        }
+        module_to_target = filtered_targets
+        class_id_to_module = filtered_classes
 
-    print(f"Generated {len(paths)} files → {out_dir}")
-    for p in paths:
-        print(f"  {p.name}")
+    try:
+        paths = write_generated(composed_schema, class_id_to_module, module_to_target, checksum, module_to_import=module_to_import)
+    except SchemaError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Generated {len(paths)} files")
+    for p in sorted(paths):
+        print(f"  {p}")
     return 0
 
 
@@ -775,9 +802,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to composed meta mapping (default: build/composed.meta.json)",
     )
     p_codegen.add_argument(
-        "--out",
-        default="packages/firnline-core/src/firnline_core/generated",
-        help="Output directory for generated models (default: packages/firnline-core/src/firnline_core/generated)",
+        "--only",
+        nargs="*",
+        default=None,
+        help="Only generate code for listed module names (default: all)",
     )
 
     # diff

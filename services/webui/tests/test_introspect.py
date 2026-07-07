@@ -231,7 +231,7 @@ def test_row_from_doc_stringifies():
 
 def test_row_from_doc_none_value():
     doc = {"name": None}
-    assert row_from_doc(doc, ["name"]) == {"name": ""}
+    assert row_from_doc(doc, ["name"]) == {"@id": "", "name": ""}
 
 
 # ── format_iri ──────────────────────────────────────────────────────────

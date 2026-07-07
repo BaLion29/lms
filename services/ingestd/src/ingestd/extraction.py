@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import re
-import typing
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, get_args, get_origin
@@ -121,7 +120,7 @@ def _model_schema_entry(model_cls: type[BaseModel]) -> dict[str, Any]:
         if fname == "kind":
             entry["kind"] = finfo.default
             continue
-        origin = get_origin(finfo.annotation)
+        _origin = get_origin(finfo.annotation)
         args = get_args(finfo.annotation)
         is_optional = type(None) in args if args else False
         if is_optional:

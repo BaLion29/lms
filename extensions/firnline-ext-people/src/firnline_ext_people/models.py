@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import Field
 from firnline_core.base import TdbDateTime, TdbDocument
-from firnline_core.generated.core import ExternalRef, Provenance
+from firnline_core.models import ExternalRef, Provenance
 
 # --- forward references for local nested types ---
 

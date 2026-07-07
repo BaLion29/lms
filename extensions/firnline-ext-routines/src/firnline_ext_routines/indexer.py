@@ -10,7 +10,7 @@ from firnline_core.plugins import IndexerPlugin, ModuleRequirement
 class RoutinesIndexerPlugin(IndexerPlugin):
     name: str = "routines_indexer"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="routines", range=">=1.0.0 <2.0.0"),
+        ModuleRequirement(name="routines", range=">=0.1.0 <0.2.0"),
     ]
 
     def indexed_classes(self) -> list[str]:

@@ -14,7 +14,6 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from ingestd.extraction import (
-    ExtractionContext,
     ExtractionError,
     ExtractionResult,
     build_agent,

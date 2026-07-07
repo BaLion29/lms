@@ -67,6 +67,10 @@ class DepMismatchError(ComposerError):
     """A dependency version does not satisfy the declared range."""
 
 
+class DocumentationError(ComposerError):
+    """L3 law violation — exported class/enum missing @documentation with @comment."""
+
+
 # ---------------------------------------------------------------------------
 # Canonical serialization helpers
 # ---------------------------------------------------------------------------
@@ -97,6 +101,7 @@ class ModuleInfo:
     version: str
     checksum: str
     source: str | None = None  # "repo:<name>" or "pkg:<dist>==<version>"
+    description: str | None = None  # from manifest
 
 
 @dataclass
@@ -104,6 +109,8 @@ class ComposeResult:
     modules: list[ModuleInfo]
     composed_schema: list[dict[str, Any]]
     class_id_to_module: dict[str, str]  # @id → module name
+    module_to_target: dict[str, str]    # module name → models_target
+    module_to_import: dict[str, str]    # module name → models_import (for cross-target imports)
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +362,9 @@ def _validate_all(
     # L2: reference traversal
     _validate_l2(modules, all_classes_per_module, class_to_module)
 
+    # L3: every exported class/enum must have @documentation with @comment
+    _validate_documentation(modules, all_classes_per_module)
+
     return all_classes_per_module, class_to_module
 
 
@@ -494,6 +504,43 @@ def _validate_l2(
                 )
 
 
+def _validate_documentation(
+    modules: dict[str, Manifest],
+    all_classes: dict[str, list[dict[str, Any]]],
+) -> None:
+    """L3: every class/enum listed in a module's ``exports`` must carry
+    ``@documentation`` with a non-empty ``@comment`` string.
+    """
+    missing: list[str] = []  # "module:@id"
+
+    for name in sorted(modules):
+        m = modules[name]
+        classes = all_classes.get(name, [])
+        by_id: dict[str, dict[str, Any]] = {
+            cls["@id"]: cls
+            for cls in classes
+            if "@id" in cls and cls.get("@type") != "@context"
+        }
+        for export_id in m.exports:
+            cls_def = by_id.get(export_id)
+            if cls_def is None:
+                continue  # already caught by export validation
+            doc = cls_def.get("@documentation")
+            if not isinstance(doc, dict):
+                missing.append(f"{name}:{export_id}")
+                continue
+            comment = doc.get("@comment")
+            if not isinstance(comment, str) or not comment.strip():
+                missing.append(f"{name}:{export_id}")
+
+    if missing:
+        raise DocumentationError(
+            "L3: the following exported @ids are missing "
+            "@documentation with a non-empty @comment:\n  "
+            + "\n  ".join(sorted(missing))
+        )
+
+
 # ---------------------------------------------------------------------------
 # Assembly
 # ---------------------------------------------------------------------------
@@ -524,6 +571,8 @@ def _assemble(
     # Collect classes in order
     composed: list[dict[str, Any]] = [context]
     infos: list[ModuleInfo] = []
+    module_to_target: dict[str, str] = {}
+    module_to_import: dict[str, str] = {}
 
     sources = module_sources or {}
 
@@ -538,10 +587,19 @@ def _assemble(
             version=m.version,
             checksum=checksum,
             source=sources.get(name),
+            description=m.description,
         ))
+        module_to_target[name] = m.models_target
+        module_to_import[name] = m.models_import
 
         # Sort classes by @id for deterministic composed output
         classes_sorted = sorted(classes, key=lambda c: c.get("@id", ""))
         composed.extend(classes_sorted)
 
-    return ComposeResult(modules=infos, composed_schema=composed, class_id_to_module=class_to_module)
+    return ComposeResult(
+        modules=infos,
+        composed_schema=composed,
+        class_id_to_module=class_to_module,
+        module_to_target=module_to_target,
+        module_to_import=module_to_import,
+    )

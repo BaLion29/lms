@@ -356,7 +356,130 @@ def test_search_schema_lexical_name_match(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# 12. vector helpers — unit tests
+# 12. upsert_entity — insert & update
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_entity_insert_new(tmp_path: Path):
+    store = Store(tmp_path / "store.db")
+    store.open()
+    try:
+        store.upsert_entity(
+            iri="test://alpha",
+            class_name="Person",
+            name="Alpha",
+            aliases=["a"],
+            text="Alpha person",
+            embedding=_make_embedding(0.2, 0.3),
+            commit_id="c001",
+            branch="main",
+        )
+
+        results = store.search_entities("Alpha", _make_embedding(0.2, 0.3))
+        assert len(results) == 1
+        r = results[0]
+        assert r.iri == "test://alpha"
+        assert r.name == "Alpha"
+        assert r.aliases == ["a"]
+        assert r.class_name == "Person"
+        assert r.commit_id == "c001"
+    finally:
+        store.close()
+
+
+def test_upsert_entity_update_existing(tmp_path: Path):
+    store = Store(tmp_path / "store.db")
+    store.open()
+    try:
+        # Insert initial
+        store.upsert_entity(
+            iri="test://beta",
+            class_name="Task",
+            name="Beta",
+            aliases=["b1"],
+            text="Beta task v1",
+            embedding=_make_embedding(1.0),
+            commit_id="c001",
+            branch="main",
+        )
+
+        # Update same IRI — name, text, embedding, commit change
+        store.upsert_entity(
+            iri="test://beta",
+            class_name="Task",
+            name="Beta Updated",
+            aliases=["b2"],
+            text="Beta task v2",
+            embedding=_make_embedding(0.5),
+            commit_id="c002",
+            branch="main",
+        )
+
+        results = store.search_entities("Beta", _make_embedding(0.5))
+        assert len(results) == 1
+        r = results[0]
+        assert r.iri == "test://beta"
+        assert r.name == "Beta Updated"
+        assert r.aliases == ["b2"]
+        assert r.commit_id == "c002"
+    finally:
+        store.close()
+
+
+def test_upsert_and_search_fts_consistency(tmp_path: Path):
+    """Upserting should keep FTS and content rows in sync (no rebuild needed)."""
+    store = Store(tmp_path / "store.db")
+    store.open()
+    try:
+        store.upsert_entity(
+            iri="test://gamma",
+            class_name="Note",
+            name="Gamma Ray",
+            aliases=["g-ray"],
+            text="A gamma radiation note",
+            embedding=_make_embedding(0.7),
+            commit_id="c003",
+            branch="main",
+        )
+
+        # Lexical search via FTS should find it
+        results = store.search_entities("Gamma", _make_embedding(0.7))
+        assert len(results) == 1
+        assert results[0].iri == "test://gamma"
+    finally:
+        store.close()
+
+
+def test_delete_entity_removes_row_and_fts(tmp_path: Path):
+    store = Store(tmp_path / "store.db")
+    store.open()
+    try:
+        store.upsert_entity(
+            iri="test://delta",
+            class_name="Item",
+            name="Delta",
+            aliases=[],
+            text="Delta item",
+            embedding=_make_embedding(0.9),
+            commit_id="c004",
+            branch="main",
+        )
+
+        # Pre-condition: search finds it
+        results = store.search_entities("Delta", _make_embedding(0.9))
+        assert len(results) == 1
+
+        store.delete_entity("test://delta")
+
+        # Post-condition: gone from search results
+        results = store.search_entities("Delta", _make_embedding(0.9))
+        assert len(results) == 0
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# 13. vector helpers — unit tests
 # ---------------------------------------------------------------------------
 
 

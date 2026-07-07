@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -121,7 +120,7 @@ def _fake_discover_factory(result: DiscoveryResult):
 
 def _fake_select_factory(result: PluginSelection):
     """Return an **async** function (select_plugins is async)."""
-    async def _inner(tdb, discovered, *, strict=False, branch="main"):
+    async def _inner(tdb, discovered, *, strict=False, branch="main", protocol=None):
         if strict and result.skipped:
             skipped_names = [n for n, _ in result.skipped]
             raise RuntimeError(

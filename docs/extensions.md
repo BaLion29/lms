@@ -7,7 +7,9 @@ touching kernel code.
 An extension package may contain any subset of:
 
 - A **schema module** — contributes class/enum definitions to the composed
-  schema (discovers via `firnline.schema_modules` entry point).
+  schema (discovers via `firnline.schema_modules` entry point). Third-party
+  extension models are emitted into the extension's own package via
+  `models_target`.
 - **Ingest sources** — tell ingestd which document types and statuses to poll
   (`firnline.ingestd.sources`).
 - **Extractor plugins** — LLM extraction logic for turning text into typed
@@ -18,6 +20,8 @@ An extension package may contain any subset of:
    mirror into the hybrid search index (`firnline.indexed.indexers`).
 - **Capture handlers** — handler for captured's `/v1/capture/note` and
    `/v1/capture/file` endpoints (`firnline.captured.handlers`).
+- **Notification channels** — deliver `TriggerFiring` records via external
+   notification services (`firnline.notifyd.channels`).
 
 ## Package Layout
 
@@ -44,7 +48,7 @@ Register entry points in `pyproject.toml`:
 planning = "firnline_ext_planning"
 
 [project.entry-points."firnline.ingestd.sources"]
-inbox_note = "firnline_ext_inbox.sources:inbox_note_plugin"
+inbox_note = "ingestd.sources:inbox_note_plugin"
 
 [project.entry-points."firnline.ingestd.extractors"]
 planning_people = "firnline_ext_planning.extract:plugin"
@@ -53,10 +57,13 @@ planning_people = "firnline_ext_planning.extract:plugin"
 planning_tools = "firnline_ext_planning.tools:plugin"
 
 [project.entry-points."firnline.captured.handlers"]
-inbox_note = "firnline_ext_inbox.capture:inbox_note_handler"
+inbox_note = "captured.handlers:inbox_note_handler"
 
 [project.entry-points."firnline.triggerd.evaluators"]
 oneshot = "firnline_ext_reminders.evaluators:oneshot_plugin"
+
+[project.entry-points."firnline.notifyd.channels"]
+gotify = "firnline_ext_gotify.channel:plugin"
 ```
 
 ### `firnline.schema_modules`
@@ -106,6 +113,7 @@ ingestd polls `document_type` documents with `status == ready_status`. The
 class ExtractorPlugin(Protocol):
     name: str
     requires: list[ModuleRequirement]
+    produces: list[str]  # class @id values this extractor creates (e.g. ["Task", "Event"])
 
     def proposal_models(self) -> list[type[BaseModel]]: ...
     def prompt_snippet(self) -> str: ...
@@ -113,9 +121,30 @@ class ExtractorPlugin(Protocol):
     async def build_documents(self, proposal: BaseModel, ctx: BuildContext) -> list[dict]: ...
 ```
 
+`produces` declares which TDB class `@id` values the extractor creates.
+An empty list is valid (e.g. for a linking-only extractor like
+`firnline-ext-people`).
+
 Proposal model `kind` literals must be globally unique across all extractors
 (collisions are startup errors). `BuildContext` provides `tdb`, `inbox_iri`,
-`now()`, and `create_or_link` (lookup-or-insert helper).
+`now()`, `branch`, and `ensure_entity` — a type-agnostic entity-linker
+contract (see below).
+
+### `BuildContext.ensure_entity` contract
+
+Extractors build documents via `build_documents(proposal, ctx)`. The
+`ctx.ensure_entity` async callable is the type-agnostic entity linker:
+
+```
+async def ensure_entity(type_name: str, name: str, factory: Callable[[], dict | None]) -> str | None
+```
+
+It consults the generic `EntityIndex` + `indexed` service (if enabled) to
+resolve an entity by `name`, or creates one via a client-supplied `factory()`
+that returns a `dict` with an `@id` (e.g. `"Person/anna-meier"`). All
+inserts are queued in a single batch; exactly **one commit per inbox item**
+is made. Returns the IRI immediately (only `None` if `factory()` returns
+`None` and no match was found).
 
 ### `firnline.queryd.tools` — ToolPlugin
 
@@ -200,6 +229,35 @@ window.  The engine handles deduplication and insertion.
 - **`get_occurrences(trigger_dict, window_start, window_end, visited)`** —
   async, dispatches a sub-trigger through the same evaluation pipeline
   (used by composite evaluators)
+- **`changes`** — list of `ChangeEvent` from the kernel change feed
+  (`TdbClient.changes_since`), consumed by `EventTrigger` evaluators
+
+### `firnline.notifyd.channels` — NotificationChannel
+
+```python
+class NotificationChannel(Protocol):
+    name: str
+    requires: list[ModuleRequirement]
+
+    async def deliver(
+        self,
+        firing: dict[str, Any],
+        subject: dict[str, Any] | None,
+        ctx: NotifyContext,
+    ) -> DeliveryResult: ...
+```
+
+Each channel plugin delivers a `TriggerFiring` dict (and its resolved
+`subject` document if available) to an external notification service. It
+returns a `DeliveryResult(ok, detail, retryable)`. Duplicate channel
+`name` values across active plugins are a startup error.
+
+`NotifyContext` provides `tdb`, `logger`, and `now()`.
+
+Example: `firnline-ext-gotify` registers a `firnline.notifyd.channels`
+entry point that forwards firings to a Gotify server. Configure via
+`GOTIFY_URL`, `GOTIFY_TOKEN`, `GOTIFY_PRIORITY`, `GOTIFY_TIMEOUT_SECONDS`
+(see [Configuration](configuration.md)).
 
 ## Schema Module Format
 
@@ -208,8 +266,9 @@ window.  The engine handles deduplication and insertion.
 ```json
 {
   "name": "planning",
-  "version": "2.0.0",
-  "depends_on": [{"name": "places", "range": ">=1.0.0 <2.0.0"}],
+  "version": "0.1.0",
+  "depends_on": [{"name": "places", "range": ">=0.1.0 <0.2.0"}],
+  "models_target": "firnline_ext_planning.models",
   "exports": ["Task", "TaskSpec", "Event", "TaskStatus", "EventStatus"],
   "description": "Tasks, events and their specs"
 }
@@ -220,6 +279,10 @@ Fields:
 - `version` — semver. Additive changes bump MINOR; breaking changes bump MAJOR
   and require a migration file.
 - `depends_on` — modules this module depends on with semver ranges.
+- `models_target` — **required**. Dotted Python module path for codegen output.
+  Kernel modules use `firnline_core.generated.<name>`; extension modules use
+  `firnline_ext_<name>.models` (the owning package). Codegen resolves this
+  via `importlib` and writes the generated Pydantic models there.
 - `exports` — class/enum `@id` values this module makes available to others.
 - `description` — human-readable.
 
@@ -227,11 +290,33 @@ Fields:
 standard WOQL schema format. The `@context` object is owned by the `core`
 module only; domain modules must not include it.
 
+Every class/enum listed in `exports` **must** carry an `@documentation` key
+with a non-empty `@comment` string — "the schema is a prompt". The
+`firnline-schema compose` step enforces this (L3 lint violation raises
+`ComposeL3Error`).  `queryd` derives its agent briefing from these
+`@documentation` comments.
+
 `migrations/` — optional directory of `NNNN_description.py` files, each
 exporting `async def up(tdb, branch)`. Migrations are **data** migrations
 (backfills, copies, status rewrites), not schema shape changes.
 
-## Startup Behaviour (all three host services)
+## How Third-Party Extensions Get Typed Models
+
+1. The extension's `manifest.json` declares `models_target`, e.g.
+   `"models_target": "firnline_ext_myapp.models"`.
+2. When `firnline-schema compose` discovers the extension via the
+   `firnline.schema_modules` entry point, it records the
+   `module_name → models_target` mapping in `ComposeResult.module_to_target`.
+3. `firnline-schema codegen` resolves each `models_target` to a filesystem
+   path using `importlib` (locating the owning package), classifies classes
+   by owning module, and emits one `models.py` per owning package.
+4. At runtime, the extension's code imports from its own `models.py` like
+   any other Python module — no central registry, no `firnline-core`
+   dependency needed for the generated code. Kernel modules land in
+   `firnline_core.generated/`; extension models land in the extension's
+   own package tree.
+
+## Startup Behaviour (all host services)
 
 1. Discover all plugins for the service's entry-point group.
 2. Load each plugin; a plugin that fails to import is logged at ERROR.
@@ -256,9 +341,9 @@ volume (`firnline_ext_venv`):
    reinstalling (e.g. after removing extensions from the list).
 
 Accepted specifier formats:
-- PyPI name: `firnline_ext_inbox>=0.1.0`
+- PyPI name: `firnline_ext_people>=0.1.0`
 - Git URL: `git+https://github.com/user/firnline-ext-foo.git`
-- Wheel filename: `firnline_ext_inbox-0.1.0a1-py3-none-any.whl` (resolved
+- Wheel filename: `firnline_ext_people-0.1.0-py3-none-any.whl` (resolved
   against `/extensions/` in the image)
 
 First-party extension wheels are baked into service images at build time —
@@ -277,9 +362,10 @@ extensions/firnline-ext-people/
 ├── pyproject.toml
 └── src/firnline_ext_people/
     ├── __init__.py       # SCHEMA_MODULE_DIR = str(importlib.resources.files(…))
-    ├── manifest.json     # name: "people", depends_on: [{places, >=1.0.0 <2.0.0}]
+    ├── manifest.json     # name: "people", depends_on: [{places, >=0.1.0 <0.2.0}], models_target: "firnline_ext_people.models"
     ├── schema.json       # Person (Source+Context), Contact (@subdocument)
-    └── extract.py        # PeopleExtractor: linking_context providing known person names
+    ├── models.py         # generated by firnline-schema codegen (never hand-edit)
+    └── extract.py        # PeopleLinkingPlugin: linking_context providing known person names
 ```
 
 ### Entry points in pyproject.toml

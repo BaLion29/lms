@@ -14,6 +14,7 @@ from triggerd.evaluators import (
     RelativeEvaluator,
     ScheduleEvaluator,
     CompositeEvaluator,
+    EventTriggerEvaluator,
     _parse_duration,
     _parse_iso_datetime,
     resolve_anchor,
@@ -21,8 +22,10 @@ from triggerd.evaluators import (
     schedule_plugin,
     relative_plugin,
     composite_plugin,
+    event_plugin,
 )
 from firnline_core.plugins import EvalContext, TriggerEvaluator
+from firnline_core.tdb import ChangeEvent
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,7 +48,7 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def _make_ctx(tdb=None, default_tz=ZURICH, now=None, resolve_anchor=None, get_occurrences=None):
+def _make_ctx(tdb=None, default_tz=ZURICH, now=None, resolve_anchor=None, get_occurrences=None, changes=None):
     """Build a minimal EvalContext for testing."""
     if tdb is None:
         tdb = AsyncMock()
@@ -55,12 +58,15 @@ def _make_ctx(tdb=None, default_tz=ZURICH, now=None, resolve_anchor=None, get_oc
         resolve_anchor = AsyncMock(return_value=None)
     if get_occurrences is None:
         get_occurrences = AsyncMock(return_value=[])
+    if changes is None:
+        changes = []
     return EvalContext(
         tdb=tdb,
         default_tz=default_tz,
         now=now,
         resolve_anchor=resolve_anchor,
         get_occurrences=get_occurrences,
+        changes=changes,
     )
 
 
@@ -385,24 +391,22 @@ class TestRelativeEvaluator:
         assert any("relative_offset_invalid" in r.get("event", "") for r in captured)
 
     @pytest.mark.asyncio
-    async def test_anchor_resolve_unsupported_class_warns(self):
-        """resolve_anchor for Reminder → warning + None."""
-        tdb = AsyncMock()
-        tdb.get_document = AsyncMock(return_value={"@type": "Reminder", "@id": "doc/Reminder/x", "name": "x"})
-        ctx = _make_ctx(tdb=tdb)
-
-        with structlog.testing.capture_logs() as captured:
-            result = await resolve_anchor(ctx, "doc/Reminder/x")
-
-        assert result is None
-        assert any("anchor_unsupported" in r.get("event", "") for r in captured)
-
-    @pytest.mark.asyncio
-    async def test_anchor_missing_field_warns(self):
-        """Event without start_datetime → warning + None."""
+    async def test_anchor_resolve_uses_anchor_at(self):
+        """resolve_anchor reads anchor_at from any doc (class-agnostic)."""
         tdb = AsyncMock()
         tdb.get_document = AsyncMock(
-            return_value={"@type": "Event", "@id": "doc/Event/e", "name": "e", "start_datetime": None}
+            return_value={"@type": "Reminder", "@id": "doc/Reminder/x", "anchor_at": "2026-07-06T09:00:00Z"}
+        )
+        ctx = _make_ctx(tdb=tdb)
+        result = await resolve_anchor(ctx, "doc/Reminder/x")
+        assert result == datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_anchor_missing_field_returns_none(self):
+        """Doc without anchor_at → None (debug logged)."""
+        tdb = AsyncMock()
+        tdb.get_document = AsyncMock(
+            return_value={"@type": "Event", "@id": "doc/Event/e", "name": "e"}
         )
         ctx = _make_ctx(tdb=tdb)
 
@@ -413,50 +417,45 @@ class TestRelativeEvaluator:
         assert any("anchor_field_missing" in r.get("event", "") for r in captured)
 
     @pytest.mark.asyncio
-    async def test_anchor_unknown_type_warns(self):
-        """Unknown @type → warning + None."""
+    async def test_anchor_null_returns_none(self):
+        """anchor_at explicitly null → None."""
         tdb = AsyncMock()
-        tdb.get_document = AsyncMock(return_value={"@type": "Foobar", "@id": "doc/Foobar/f"})
+        tdb.get_document = AsyncMock(
+            return_value={"@type": "Foobar", "@id": "doc/Foobar/f", "anchor_at": None}
+        )
         ctx = _make_ctx(tdb=tdb)
 
         with structlog.testing.capture_logs() as captured:
             result = await resolve_anchor(ctx, "doc/Foobar/f")
 
         assert result is None
-        assert any("anchor_unsupported" in r.get("event", "") for r in captured)
+        assert any("anchor_field_missing" in r.get("event", "") for r in captured)
 
     @pytest.mark.asyncio
-    async def test_anchor_event_start_datetime(self):
-        """Event → start_datetime is resolved."""
+    async def test_anchor_malformed_value_returns_none(self):
+        """Malformed anchor_at value → None (debug logged)."""
         tdb = AsyncMock()
         tdb.get_document = AsyncMock(
-            return_value={"@type": "Event", "@id": "doc/Event/e", "start_datetime": "2026-07-06T09:00:00Z"}
+            return_value={"@type": "Task", "@id": "doc/Task/t", "anchor_at": "not-a-date"}
+        )
+        ctx = _make_ctx(tdb=tdb)
+
+        with structlog.testing.capture_logs() as captured:
+            result = await resolve_anchor(ctx, "doc/Task/t")
+
+        assert result is None
+        assert any("anchor_parse_failed" in r.get("event", "") for r in captured)
+
+    @pytest.mark.asyncio
+    async def test_anchor_present(self):
+        """anchor_at → resolved correctly."""
+        tdb = AsyncMock()
+        tdb.get_document = AsyncMock(
+            return_value={"@type": "Event", "@id": "doc/Event/e", "anchor_at": "2026-07-06T09:00:00Z"}
         )
         ctx = _make_ctx(tdb=tdb)
         result = await resolve_anchor(ctx, "doc/Event/e")
         assert result == datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)
-
-    @pytest.mark.asyncio
-    async def test_anchor_task_due_date(self):
-        """Task → due_date is resolved."""
-        tdb = AsyncMock()
-        tdb.get_document = AsyncMock(
-            return_value={"@type": "Task", "@id": "doc/Task/t", "due_date": "2026-12-01T12:00:00Z"}
-        )
-        ctx = _make_ctx(tdb=tdb)
-        result = await resolve_anchor(ctx, "doc/Task/t")
-        assert result == datetime(2026, 12, 1, 12, 0, 0, tzinfo=UTC)
-
-    @pytest.mark.asyncio
-    async def test_anchor_activity_start_datetime(self):
-        """Activity → start_datetime is resolved."""
-        tdb = AsyncMock()
-        tdb.get_document = AsyncMock(
-            return_value={"@type": "Activity", "@id": "doc/Activity/a", "start_datetime": "2026-01-01T00:00:00Z"}
-        )
-        ctx = _make_ctx(tdb=tdb)
-        result = await resolve_anchor(ctx, "doc/Activity/a")
-        assert result == datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -466,13 +465,13 @@ class TestRelativeEvaluator:
 
 class TestCompositeEvaluator:
     @pytest.mark.asyncio
-    async def test_or_mode_union(self):
-        """Two OneShot operands in or mode → union of fire times."""
+    async def test_any_mode_union(self):
+        """Two OneShot operands in any mode → union of fire times."""
         ev = CompositeEvaluator()
         trigger = {
             "@type": "CompositeTrigger",
             "@id": "doc/CompositeTrigger/main",
-            "mode": "or",
+            "mode": "any",
             "operands": ["doc/OneShotTrigger/a", "doc/OneShotTrigger/b"],
         }
 
@@ -505,7 +504,7 @@ class TestCompositeEvaluator:
         trigger = {
             "@type": "CompositeTrigger",
             "@id": "doc/CompositeTrigger/self",
-            "mode": "or",
+            "mode": "any",
             "operands": ["doc/CompositeTrigger/self"],
         }
         tdb = AsyncMock()
@@ -528,13 +527,13 @@ class TestCompositeEvaluator:
         trigger_a = {
             "@type": "CompositeTrigger",
             "@id": "doc/CompositeTrigger/a",
-            "mode": "or",
+            "mode": "any",
             "operands": ["doc/CompositeTrigger/b"],
         }
         trigger_b = {
             "@type": "CompositeTrigger",
             "@id": "doc/CompositeTrigger/b",
-            "mode": "or",
+            "mode": "any",
             "operands": ["doc/CompositeTrigger/a"],
         }
 
@@ -559,13 +558,34 @@ class TestCompositeEvaluator:
         assert "doc/CompositeTrigger/a" in called_visited
 
     @pytest.mark.asyncio
-    async def test_and_mode_unsupported_warning(self):
-        """mode=and → composite_mode_unsupported warning + empty."""
+    async def test_all_mode_missing_window_warning(self):
+        """mode=all without window → warning + empty."""
         ev = CompositeEvaluator()
         trigger = {
             "@type": "CompositeTrigger",
-            "@id": "doc/CompositeTrigger/and",
-            "mode": "and",
+            "@id": "doc/CompositeTrigger/allnowin",
+            "mode": "all",
+            "operands": ["doc/OneShotTrigger/a", "doc/OneShotTrigger/b"],
+        }
+        ctx = _make_ctx()
+
+        ws = datetime(2026, 7, 6, 0, 0, 0, tzinfo=UTC)
+        we = datetime(2026, 7, 7, 0, 0, 0, tzinfo=UTC)
+
+        with structlog.testing.capture_logs() as captured:
+            result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
+
+        assert result == []
+        assert any("composite_all_missing_window" in r.get("event", "") for r in captured)
+
+    @pytest.mark.asyncio
+    async def test_unsupported_mode_warning(self):
+        """Unsupported mode → composite_mode_unsupported warning + empty."""
+        ev = CompositeEvaluator()
+        trigger = {
+            "@type": "CompositeTrigger",
+            "@id": "doc/CompositeTrigger/bad",
+            "mode": "or",
             "operands": ["doc/OneShotTrigger/a"],
         }
         ctx = _make_ctx()
@@ -580,25 +600,70 @@ class TestCompositeEvaluator:
         assert any("composite_mode_unsupported" in r.get("event", "") for r in captured)
 
     @pytest.mark.asyncio
-    async def test_not_mode_unsupported_warning(self):
-        """mode=not → composite_mode_unsupported warning + empty."""
+    async def test_all_mode_coincidence_window(self):
+        """mode=all with window: coincidence working correctly."""
         ev = CompositeEvaluator()
         trigger = {
             "@type": "CompositeTrigger",
-            "@id": "doc/CompositeTrigger/not",
-            "mode": "not",
-            "operands": ["doc/OneShotTrigger/a"],
+            "@id": "doc/CompositeTrigger/all",
+            "mode": "all",
+            "window": "PT5M",
+            "operands": ["doc/OneShotTrigger/a", "doc/OneShotTrigger/b"],
         }
-        ctx = _make_ctx()
+
+        # a has instants at 09:00, 09:10; b at 09:02, 10:00
+        t_a = {"@type": "OneShotTrigger", "@id": "doc/OneShotTrigger/a", "fire_at": "2026-07-06T09:00:00Z"}
+        t_b = {"@type": "OneShotTrigger", "@id": "doc/OneShotTrigger/b", "fire_at": "2026-07-06T09:02:00Z"}
+
+        tdb = AsyncMock()
+        tdb.get_document = AsyncMock(side_effect=[t_a, t_b])
+
+        ctx = _make_ctx(tdb=tdb)
+
+        # Provide a get_occurrences that returns what OneShot would produce
+        async def fake_get_occurrences(trig, ws, we, visited):
+            ev2 = OneShotEvaluator()
+            return await ev2.occurrences(trig, window_start=ws, window_end=we, ctx=_make_ctx())
+
+        ctx = _make_ctx(tdb=tdb, get_occurrences=fake_get_occurrences)
 
         ws = datetime(2026, 7, 6, 0, 0, 0, tzinfo=UTC)
         we = datetime(2026, 7, 7, 0, 0, 0, tzinfo=UTC)
+        result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
 
-        with structlog.testing.capture_logs() as captured:
-            result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
+        # 09:00 qualifies because b has 09:02 within [09:00, 09:05]
+        assert result == [datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)]
 
+    @pytest.mark.asyncio
+    async def test_all_mode_no_coincidence(self):
+        """mode=all: no coincidence when operands are too far apart."""
+        ev = CompositeEvaluator()
+        trigger = {
+            "@type": "CompositeTrigger",
+            "@id": "doc/CompositeTrigger/all",
+            "mode": "all",
+            "window": "PT5M",
+            "operands": ["doc/OneShotTrigger/a", "doc/OneShotTrigger/b"],
+        }
+
+        t_a = {"@type": "OneShotTrigger", "@id": "doc/OneShotTrigger/a", "fire_at": "2026-07-06T09:00:00Z"}
+        t_b = {"@type": "OneShotTrigger", "@id": "doc/OneShotTrigger/b", "fire_at": "2026-07-06T10:00:00Z"}
+
+        tdb = AsyncMock()
+        tdb.get_document = AsyncMock(side_effect=[t_a, t_b])
+
+        async def fake_get_occurrences(trig, ws, we, visited):
+            ev2 = OneShotEvaluator()
+            return await ev2.occurrences(trig, window_start=ws, window_end=we, ctx=_make_ctx())
+
+        ctx = _make_ctx(tdb=tdb, get_occurrences=fake_get_occurrences)
+
+        ws = datetime(2026, 7, 6, 0, 0, 0, tzinfo=UTC)
+        we = datetime(2026, 7, 7, 0, 0, 0, tzinfo=UTC)
+        result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
+
+        # 09:00 doesn't qualify: b's 10:00 is not within [09:00, 09:05]
         assert result == []
-        assert any("composite_mode_unsupported" in r.get("event", "") for r in captured)
 
     @pytest.mark.asyncio
     async def test_operand_fetch_failure_warning(self):
@@ -607,7 +672,7 @@ class TestCompositeEvaluator:
         trigger = {
             "@type": "CompositeTrigger",
             "@id": "doc/CompositeTrigger/main",
-            "mode": "or",
+            "mode": "any",
             "operands": ["doc/OneShotTrigger/broken", "doc/OneShotTrigger/ok"],
         }
         ok_trigger = {"@type": "OneShotTrigger", "@id": "doc/OneShotTrigger/ok", "fire_at": "2026-07-06T10:00:00Z"}
@@ -640,19 +705,19 @@ class TestCompositeEvaluator:
         trigger_b = {
             "@type": "CompositeTrigger",
             "@id": "doc/CompositeTrigger/b",
-            "mode": "or",
+            "mode": "any",
             "operands": ["doc/OneShotTrigger/d"],
         }
         trigger_c = {
             "@type": "CompositeTrigger",
             "@id": "doc/CompositeTrigger/c",
-            "mode": "or",
+            "mode": "any",
             "operands": ["doc/OneShotTrigger/d"],
         }
         trigger_a = {
             "@type": "CompositeTrigger",
             "@id": "doc/CompositeTrigger/a",
-            "mode": "or",
+            "mode": "any",
             "operands": ["doc/CompositeTrigger/b", "doc/CompositeTrigger/c"],
         }
 
@@ -661,7 +726,7 @@ class TestCompositeEvaluator:
 
         async def fake_get_occurrences(trig, ws, we, visited):
             if trig.get("@type") == "CompositeTrigger":
-                return await ev._eval_or(
+                return await ev._eval_any(
                     trig, ws, we, _make_ctx(tdb=tdb, get_occurrences=fake_get_occurrences), visited
                 )
             ev2 = OneShotEvaluator()
@@ -684,6 +749,203 @@ class TestCompositeEvaluator:
 
 
 # ---------------------------------------------------------------------------
+# EventTriggerEvaluator
+# ---------------------------------------------------------------------------
+
+
+class TestEventTriggerEvaluator:
+    """EventTrigger evaluator — created/updated/status_changed, subject matching, commit keys."""
+
+    def _make_change(
+        self,
+        commit_id: str = "abc123",
+        timestamp: float = 1718234567.0,
+        inserted: list[str] | None = None,
+        updated: list[str] | None = None,
+    ) -> ChangeEvent:
+        return ChangeEvent(
+            commit_id=commit_id,
+            author="tester",
+            message="test commit",
+            timestamp=timestamp,
+            inserted=inserted or [],
+            updated=updated or [],
+            deleted=[],
+        )
+
+    @pytest.mark.asyncio
+    async def test_created_matches_inserted(self):
+        """kind=created: fires on inserted IRIs."""
+        ev = EventTriggerEvaluator()
+        trigger = {"@type": "EventTrigger", "@id": "EventTrigger/ev1", "event": "created"}
+        change = self._make_change(inserted=["Task/t1", "Project/p1"])
+        ctx = _make_ctx(changes=[change])
+
+        ws = datetime(2026, 1, 1, tzinfo=UTC)
+        we = datetime(2026, 12, 31, tzinfo=UTC)
+        result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
+
+        assert len(result) == 2
+        # Both instants are equal (same change timestamp), dict has one key
+        instant = result[0]
+        keys = ev._event_keys.get("EventTrigger/ev1", {}).get(instant, [])
+        assert len(keys) == 2
+        # New key format: commit_id[:12]-sha256[:12]
+        assert all("abc123" in k for k in keys)
+        # Verify determinism: same candidate IRI → same hash
+        from triggerd.evaluators import _make_event_key
+        assert _make_event_key("abc123", "Task/t1") == _make_event_key("abc123", "Task/t1")
+
+    @pytest.mark.asyncio
+    async def test_updated_matches_updated(self):
+        """kind=updated: fires on updated IRIs."""
+        ev = EventTriggerEvaluator()
+        trigger = {"@type": "EventTrigger", "@id": "EventTrigger/ev2", "event": "updated"}
+        change = self._make_change(updated=["Reminder/r1"])
+        ctx = _make_ctx(changes=[change])
+
+        ws = datetime(2026, 1, 1, tzinfo=UTC)
+        we = datetime(2026, 12, 31, tzinfo=UTC)
+        result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
+
+        assert len(result) == 1
+        instant = result[0]
+        keys = ev._event_keys.get("EventTrigger/ev2", {}).get(instant, [])
+        assert len(keys) == 1
+        assert keys[0].startswith("abc123")
+
+    @pytest.mark.asyncio
+    async def test_subject_iri_filter(self):
+        """Only matching subject IRI fires."""
+        ev = EventTriggerEvaluator()
+        trigger = {"@type": "EventTrigger", "event": "created", "subject": "Task/t1"}
+        change = self._make_change(inserted=["Task/t1", "Task/t2"])
+        ctx = _make_ctx(changes=[change])
+
+        ws = datetime(2026, 1, 1, tzinfo=UTC)
+        we = datetime(2026, 12, 31, tzinfo=UTC)
+        result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
+
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_subject_class_prefix_filter(self):
+        """subject_class filtering via prefix match."""
+        ev = EventTriggerEvaluator()
+        trigger = {"@type": "EventTrigger", "event": "created", "subject_class": "Task"}
+        change = self._make_change(inserted=["Task/t1", "Project/p1"])
+        ctx = _make_ctx(changes=[change])
+
+        ws = datetime(2026, 1, 1, tzinfo=UTC)
+        we = datetime(2026, 12, 31, tzinfo=UTC)
+        result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
+
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_status_changed_with_field_to_value(self):
+        """status_changed with field/to_value: fetches doc and checks equality."""
+        ev = EventTriggerEvaluator()
+        trigger = {
+            "@type": "EventTrigger",
+            "event": "status_changed",
+            "field": "status",
+            "to_value": "done",
+        }
+        change = self._make_change(updated=["Task/t1", "Task/t2"])
+
+        tdb = AsyncMock()
+        tdb.get_document = AsyncMock(side_effect=[
+            {"@id": "Task/t1", "status": "done"},
+            {"@id": "Task/t2", "status": "open"},
+        ])
+        ctx = _make_ctx(tdb=tdb, changes=[change])
+
+        ws = datetime(2026, 1, 1, tzinfo=UTC)
+        we = datetime(2026, 12, 31, tzinfo=UTC)
+        result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
+
+        # Only Task/t1 has status=done
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_changes_empty(self):
+        """Empty changes list → no firings."""
+        ev = EventTriggerEvaluator()
+        trigger = {"@type": "EventTrigger", "event": "created"}
+        ctx = _make_ctx(changes=[])
+
+        ws = datetime(2026, 1, 1, tzinfo=UTC)
+        we = datetime(2026, 12, 31, tzinfo=UTC)
+        result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_timestamp_fallback_to_window_end(self):
+        """ChangeEvent with no timestamp → falls back to window_end."""
+        ev = EventTriggerEvaluator()
+        trigger = {"@type": "EventTrigger", "event": "created"}
+        change = ChangeEvent(
+            commit_id="def456",
+            author="tester",
+            message="test",
+            timestamp=None,
+            inserted=["Task/t1"],
+            updated=[],
+            deleted=[],
+        )
+        ctx = _make_ctx(changes=[change])
+
+        ws = datetime(2026, 1, 1, tzinfo=UTC)
+        we = datetime(2026, 7, 7, 12, 0, 0, tzinfo=UTC)
+        result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
+
+        assert len(result) == 1
+        assert result[0] == we
+
+    @pytest.mark.asyncio
+    async def test_unsupported_event_kind_empty(self):
+        """Unknown event kind → empty list."""
+        ev = EventTriggerEvaluator()
+        trigger = {"@type": "EventTrigger", "event": "completed"}
+        change = self._make_change(inserted=["Task/t1"])
+        ctx = _make_ctx(changes=[change])
+
+        ws = datetime(2026, 1, 1, tzinfo=UTC)
+        we = datetime(2026, 12, 31, tzinfo=UTC)
+        result = await ev.occurrences(trigger, window_start=ws, window_end=we, ctx=ctx)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_multiple_triggers_isolated_keys(self):
+        """Two EventTriggers in one cycle do not clobber each other's keys."""
+        ev = EventTriggerEvaluator()
+        t1 = {"@type": "EventTrigger", "@id": "EventTrigger/a", "event": "created"}
+        t2 = {"@type": "EventTrigger", "@id": "EventTrigger/b", "event": "created"}
+        change = self._make_change(inserted=["Task/x"])
+        ctx = _make_ctx(changes=[change])
+
+        r1 = await ev.occurrences(t1, window_start=datetime(2026, 1, 1, tzinfo=UTC),
+                                  window_end=datetime(2026, 12, 31, tzinfo=UTC), ctx=ctx)
+        r2 = await ev.occurrences(t2, window_start=datetime(2026, 1, 1, tzinfo=UTC),
+                                  window_end=datetime(2026, 12, 31, tzinfo=UTC), ctx=ctx)
+
+        # Both triggers should have fired.
+        assert len(r1) == 1
+        assert len(r2) == 1
+
+        # Each trigger's keys are isolated.
+        keys_a = ev._event_keys.get("EventTrigger/a", {}).get(r1[0], [])
+        keys_b = ev._event_keys.get("EventTrigger/b", {}).get(r2[0], [])
+        assert len(keys_a) == 1
+        assert len(keys_b) == 1
+        # Keys should be identical (same commit_id, same candidate IRI)
+        assert keys_a == keys_b
+
+
+# ---------------------------------------------------------------------------
 # Protocol conformance
 # ---------------------------------------------------------------------------
 
@@ -701,9 +963,12 @@ class TestProtocolConformance:
     def test_composite_isinstance_trigger_evaluator(self):
         assert isinstance(composite_plugin, TriggerEvaluator)
 
+    def test_event_isinstance_trigger_evaluator(self):
+        assert isinstance(event_plugin, TriggerEvaluator)
+
     @pytest.mark.parametrize(
         "plugin",
-        [oneshot_plugin, schedule_plugin, relative_plugin, composite_plugin],
+        [oneshot_plugin, schedule_plugin, relative_plugin, composite_plugin, event_plugin],
     )
     def test_plugin_has_required_attributes(self, plugin):
         assert hasattr(plugin, "name")
@@ -716,12 +981,12 @@ class TestProtocolConformance:
         assert callable(plugin.occurrences)
 
     def test_all_have_trigger_module_requirement(self):
-        for plugin in [oneshot_plugin, schedule_plugin, relative_plugin, composite_plugin]:
+        for plugin in [oneshot_plugin, schedule_plugin, relative_plugin, composite_plugin, event_plugin]:
             assert any(r.name == "triggers" for r in plugin.requires)
 
     def test_duck_type_compatible_with_main_py(self):
         """Verify each plugin passes main.py's duck-type check filters."""
-        for plugin in [oneshot_plugin, schedule_plugin, relative_plugin, composite_plugin]:
+        for plugin in [oneshot_plugin, schedule_plugin, relative_plugin, composite_plugin, event_plugin]:
             assert hasattr(plugin, "name")
             trigger_types = plugin.trigger_types
             assert isinstance(trigger_types, (tuple, list))

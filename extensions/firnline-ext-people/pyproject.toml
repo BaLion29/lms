@@ -1,6 +1,6 @@
 [project]
 name = "firnline-ext-people"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "Firnline people extension — Person/Contact schema module and entity linking extractors"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }

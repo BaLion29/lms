@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Literal
 from unittest.mock import AsyncMock
 
 import structlog
@@ -14,18 +14,13 @@ import pytest
 from pydantic import BaseModel
 
 from ingestd.extraction import (
-    ExtractionResult,
     build_extraction_context,
     parse_extraction,
 )
 from ingestd.main import _discover_extractor_plugins_async, _discover_source_plugins_async
 from firnline_core.plugins import (
     DiscoveryResult,
-    ExtractorPlugin,
-    IngestSourcePlugin,
     ModuleRequirement,
-    PluginSelection,
-    discover_plugins,
     select_plugins,
 )
 

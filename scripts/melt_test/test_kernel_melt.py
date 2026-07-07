@@ -1,0 +1,518 @@
+"""Kernel melt tests — verify every service boots with zero extensions installed.
+
+All tests are database-free: TdbClient is replaced with AsyncMock, and
+entry-point discovery is monkeypatched to return empty where needed.
+"""
+
+from __future__ import annotations
+
+from datetime import timezone
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+UTC = timezone.utc
+
+# ---------------------------------------------------------------------------
+# 1. ingestd — Pipeline with zero source + zero extractor plugins
+# ---------------------------------------------------------------------------
+
+
+class TestIngestdMelt:
+    """Pipeline completes a cycle with zero plugins."""
+
+    @pytest.mark.asyncio
+    async def test_pipeline_cycle_zero_plugins(self) -> None:
+        from ingestd.pipeline import Pipeline
+        from ingestd.settings import Settings
+        from ingestd.extraction import ExtractionContext
+
+        tdb = AsyncMock()
+        tdb.graphql.return_value = {}
+        tdb.get_documents = AsyncMock(return_value=[])
+        tdb.get_documents_by_status = AsyncMock(return_value=[])
+
+        agent = AsyncMock()
+
+        settings = Settings(tdb_db="test", tdb_password="test")  # type: ignore[call-arg]
+
+        extraction_ctx = ExtractionContext(
+            system_prompt="",
+            kind_to_model={},
+            kind_to_plugin={},
+            plugins=[],
+        )
+
+        pipeline = Pipeline(
+            tdb=tdb,
+            agent=agent,
+            settings=settings,
+            source_plugins=[],
+            extraction_ctx=extraction_ctx,
+        )
+
+        await pipeline.run_cycle()
+
+        # No exceptions = pass. Cycle completed with inbox_count=0.
+        # tdb.graphql may be called for idempotency set (primary path),
+        # but should not fail.
+        assert True
+
+
+# ---------------------------------------------------------------------------
+# 2. triggerd — Engine with zero evaluators
+# ---------------------------------------------------------------------------
+
+
+class TestTriggerdMelt:
+    """Engine completes a cycle with zero evaluator plugins."""
+
+    @pytest.mark.asyncio
+    async def test_engine_cycle_zero_evaluators(self) -> None:
+        from triggerd.engine import Engine
+        from triggerd.settings import Settings
+
+        tdb = AsyncMock()
+        tdb.get_schema = AsyncMock(return_value=[])  # no trigger types
+        tdb.changes_since = AsyncMock(return_value=([], "head"))
+        tdb.get_documents = AsyncMock(return_value=[])
+
+        settings = Settings(tdb_db="test", tdb_password="x")  # type: ignore[call-arg]
+
+        engine = Engine(
+            tdb=tdb,
+            settings=settings,
+            evaluators=[],
+        )
+
+        await engine.run_cycle()
+
+        # No evaluators, no trigger types → cycle completes with
+        # triggers_scanned=0, no firings.
+        assert True
+
+
+# ---------------------------------------------------------------------------
+# 3. queryd — render_prompt_briefing with kernel-only introspection
+# ---------------------------------------------------------------------------
+
+
+class TestQuerydMelt:
+    """Schema briefing renders correctly with only kernel types."""
+
+    def test_render_prompt_briefing_kernel_only(self) -> None:
+        from queryd.schema_briefing import render_prompt_briefing
+
+        # Synthetic introspection with only kernel classes:
+        # InboxNote, InboxAudio, TriggerFiring + their enums.
+        introspection: dict[str, Any] = {
+            "__schema": {
+                "queryType": {"name": "Query"},
+                "mutationType": {"name": "TerminusMutation"},
+                "types": [
+                    # --- Query type ---
+                    {
+                        "name": "Query",
+                        "kind": "OBJECT",
+                        "fields": [],
+                    },
+                    # --- Domain classes ---
+                    {
+                        "name": "InboxNote",
+                        "kind": "OBJECT",
+                        "fields": [
+                            {"name": "_id", "type": {"name": "ID", "kind": "SCALAR"}},
+                            {"name": "content", "type": {"name": "String", "kind": "SCALAR"}},
+                            {"name": "status", "type": {"name": "InboxNoteStatus", "kind": "ENUM"}},
+                            {
+                                "name": "provenance",
+                                "type": {"name": "Provenance", "kind": "OBJECT"},
+                            },
+                            {
+                                "name": "created_at",
+                                "type": {"name": "DateTime", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "updated_at",
+                                "type": {"name": "DateTime", "kind": "SCALAR"},
+                            },
+                        ],
+                    },
+                    {
+                        "name": "InboxAudio",
+                        "kind": "OBJECT",
+                        "fields": [
+                            {"name": "_id", "type": {"name": "ID", "kind": "SCALAR"}},
+                            {"name": "file_name", "type": {"name": "String", "kind": "SCALAR"}},
+                            {
+                                "name": "file_path",
+                                "type": {"name": "String", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "recorded_at",
+                                "type": {"name": "DateTime", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "status",
+                                "type": {"name": "InboxAudioStatus", "kind": "ENUM"},
+                            },
+                            {
+                                "name": "transcription",
+                                "type": {"name": "String", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "provenance",
+                                "type": {"name": "Provenance", "kind": "OBJECT"},
+                            },
+                            {
+                                "name": "created_at",
+                                "type": {"name": "DateTime", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "updated_at",
+                                "type": {"name": "DateTime", "kind": "SCALAR"},
+                            },
+                        ],
+                    },
+                    {
+                        "name": "TriggerFiring",
+                        "kind": "OBJECT",
+                        "fields": [
+                            {"name": "_id", "type": {"name": "ID", "kind": "SCALAR"}},
+                            {
+                                "name": "trigger",
+                                "type": {"name": "String", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "occurrence_key",
+                                "type": {"name": "String", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "scheduled_for",
+                                "type": {"name": "DateTime", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "fired_at",
+                                "type": {"name": "DateTime", "kind": "SCALAR"},
+                            },
+                            {"name": "status", "type": {"name": "FiringStatus", "kind": "ENUM"}},
+                            {
+                                "name": "subject",
+                                "type": {"name": "String", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "last_notified_at",
+                                "type": {"name": "DateTime", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "notification_count",
+                                "type": {"name": "Integer", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "snoozed_until",
+                                "type": {"name": "DateTime", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "created_at",
+                                "type": {"name": "DateTime", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "updated_at",
+                                "type": {"name": "DateTime", "kind": "SCALAR"},
+                            },
+                        ],
+                    },
+                    # --- Enums ---
+                    {
+                        "name": "InboxNoteStatus",
+                        "kind": "ENUM",
+                        "fields": None,
+                        "enumValues": [
+                            {"name": "new"},
+                            {"name": "processed"},
+                            {"name": "failed"},
+                            {"name": "archived"},
+                        ],
+                    },
+                    {
+                        "name": "InboxAudioStatus",
+                        "kind": "ENUM",
+                        "fields": None,
+                        "enumValues": [
+                            {"name": "new"},
+                            {"name": "transcribed"},
+                            {"name": "processed"},
+                            {"name": "failed"},
+                            {"name": "archived"},
+                        ],
+                    },
+                    {
+                        "name": "FiringStatus",
+                        "kind": "ENUM",
+                        "fields": None,
+                        "enumValues": [
+                            {"name": "pending"},
+                            {"name": "notified"},
+                            {"name": "acknowledged"},
+                            {"name": "snoozed"},
+                            {"name": "expired"},
+                        ],
+                    },
+                    # --- Sub-document types (skipped by briefing) ---
+                    {
+                        "name": "Provenance",
+                        "kind": "OBJECT",
+                        "fields": [
+                            {"name": "source", "type": {"name": "String", "kind": "SCALAR"}},
+                            {"name": "agent", "type": {"name": "String", "kind": "SCALAR"}},
+                            {"name": "at", "type": {"name": "DateTime", "kind": "SCALAR"}},
+                            {
+                                "name": "method",
+                                "type": {"name": "String", "kind": "SCALAR"},
+                            },
+                            {
+                                "name": "confidence",
+                                "type": {"name": "Float", "kind": "SCALAR"},
+                            },
+                        ],
+                    },
+                ],
+            }
+        }
+
+        briefing = render_prompt_briefing(introspection)
+
+        # Must be non-empty and contain key elements.
+        assert "Universal Entity Fields" in briefing
+        assert "InboxNote" in briefing
+        assert "InboxAudio" in briefing
+        assert "TriggerFiring" in briefing
+        assert "FiringStatus" in briefing
+        assert "Query Conventions" in briefing
+        assert len(briefing) > 200  # substantial output
+
+
+# ---------------------------------------------------------------------------
+# 4. captured — built-in handlers only
+# ---------------------------------------------------------------------------
+
+
+class TestCapturedMelt:
+    """Captured app works with only built-in handlers."""
+
+    def test_note_capture_succeeds_with_builtin_handler(self, monkeypatch) -> None:
+        from unittest.mock import AsyncMock
+
+        from fastapi.testclient import TestClient
+
+        from captured.app import create_app
+        from captured.handlers import inbox_note_handler
+        from captured.settings import Settings
+
+        import captured.app as app_mod
+        from firnline_core.plugins import (
+            DiscoveryResult,
+            PluginSelection,
+        )
+
+        # Fake TdbClient — returns a valid IRI on insert
+        fake_tdb = AsyncMock()
+        fake_tdb.insert_documents = AsyncMock(
+            return_value=["terminusdb:///data/InboxNote/test1"]
+        )
+        fake_tdb.db_exists = AsyncMock(return_value=True)
+        fake_tdb.get_documents = AsyncMock(return_value=[])
+
+        monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: fake_tdb)
+
+        # Kernel-only: discover only built-in inbox_note handler
+        monkeypatch.setattr(
+            app_mod,
+            "discover_plugins",
+            lambda group: DiscoveryResult(
+                active=[("inbox_note", inbox_note_handler)],
+                failed=[],
+            ),
+        )
+        monkeypatch.setattr(
+            app_mod,
+            "select_plugins",
+            _make_async_select(
+                PluginSelection(
+                    active=[("inbox_note", inbox_note_handler)],
+                    skipped=[],
+                )
+            ),
+        )
+
+        settings = Settings(api_token="melt-token", tdb_db="test", tdb_password="x")  # type: ignore[call-arg]
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            # Note capture succeeds
+            resp = client.post(
+                "/v1/capture/note",
+                json={"text": "melt test note"},
+                headers={"Authorization": "Bearer melt-token"},
+            )
+            assert resp.status_code == 201
+            data = resp.json()
+            assert data["kind"] == "note"
+            assert "id" in data
+
+    def test_unknown_kind_returns_404_with_hint(self, monkeypatch) -> None:
+        from unittest.mock import AsyncMock
+
+        from fastapi.testclient import TestClient
+
+        from captured.app import create_app
+        from captured.handlers import inbox_note_handler
+        from captured.settings import Settings
+
+        import captured.app as app_mod
+        from firnline_core.plugins import (
+            DiscoveryResult,
+            PluginSelection,
+        )
+
+        fake_tdb = AsyncMock()
+        fake_tdb.insert_documents = AsyncMock(return_value=["fake-iri"])
+        fake_tdb.db_exists = AsyncMock(return_value=True)
+        fake_tdb.get_documents = AsyncMock(return_value=[])
+
+        monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: fake_tdb)
+        monkeypatch.setattr(
+            app_mod,
+            "discover_plugins",
+            lambda group: DiscoveryResult(
+                active=[("inbox_note", inbox_note_handler)],
+                failed=[],
+            ),
+        )
+        monkeypatch.setattr(
+            app_mod,
+            "select_plugins",
+            _make_async_select(
+                PluginSelection(
+                    active=[("inbox_note", inbox_note_handler)],
+                    skipped=[],
+                )
+            ),
+        )
+
+        settings = Settings(api_token="melt-token", tdb_db="test", tdb_password="x")  # type: ignore[call-arg]
+        app = create_app(settings)
+
+        with TestClient(app) as client:
+            resp = client.post(
+                "/v1/capture/note",
+                json={"text": "hi", "kind": "unknown-kind"},
+                headers={"Authorization": "Bearer melt-token"},
+            )
+            assert resp.status_code == 404
+            detail = resp.json()["detail"]
+            assert "no handler for kind" in detail["message"]
+            assert "hint" in detail
+            assert "Install a captured handler" in detail["hint"]
+
+
+# ---------------------------------------------------------------------------
+# 5. notifyd — zero channels
+# ---------------------------------------------------------------------------
+
+
+class TestNotifydMelt:
+    """NotifyEngine completes a cycle with zero channel plugins."""
+
+    @pytest.mark.asyncio
+    async def test_run_cycle_zero_channels(self) -> None:
+        from notifyd.engine import NotifyEngine
+        from notifyd.settings import NotifydSettings
+
+        tdb = AsyncMock()
+        tdb.get_documents_by_status = AsyncMock(return_value=[])
+
+        settings = NotifydSettings(tdb_db="test", tdb_password="x")  # type: ignore[call-arg]
+
+        engine = NotifyEngine(
+            tdb=tdb,
+            settings=settings,
+            channels=[],  # zero channels → idles
+        )
+
+        await engine.run_cycle()
+
+        # No exceptions, writes nothing.
+        tdb.insert_documents.assert_not_called()
+        tdb.replace_document.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 6. discovery melt — empty entry-point groups
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoveryMelt:
+    """Plugin discovery and selection work with zero installed extensions."""
+
+    def test_discover_plugins_returns_empty(self) -> None:
+
+        from firnline_core.plugins import discover_plugins
+
+        target_group = "firnline.melt.nonexistent"
+
+        # Monkeypatch entry_points to return empty for this group.
+        # entry_points is imported inside discover_plugins(), so we patch
+        # the original source in importlib.metadata.
+        with patch(
+            "importlib.metadata.entry_points",
+            return_value=[],
+        ):
+            result = discover_plugins(target_group)
+
+        assert isinstance(result.active, list)
+        assert isinstance(result.failed, list)
+        assert len(result.active) == 0
+        assert len(result.failed) == 0
+
+    @pytest.mark.asyncio
+    async def test_select_plugins_empty_discovery(self) -> None:
+        from firnline_core.plugins import (
+            DiscoveryResult,
+            PluginSelection,
+            select_plugins,
+        )
+
+        tdb = AsyncMock()
+        tdb.get_documents = AsyncMock(return_value=[])
+
+        discovered = DiscoveryResult(active=[], failed=[])
+        selection = await select_plugins(tdb, discovered)
+
+        assert isinstance(selection, PluginSelection)
+        assert len(selection.active) == 0
+        assert len(selection.skipped) == 0
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_async_select(result):
+    """Return an async function matching select_plugins' signature."""
+
+    async def _inner(tdb, discovered, *, strict=False, branch="main", protocol=None):
+        if strict and result.skipped:
+            skipped_names = [n for n, _ in result.skipped]
+            raise RuntimeError(
+                f"Strict plugin mode: skipped={skipped_names}, failed=[]"
+            )
+        return result
+
+    return _inner

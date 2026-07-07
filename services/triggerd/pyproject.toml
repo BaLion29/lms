@@ -1,6 +1,6 @@
 [project]
 name = "triggerd"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "Firnline trigger evaluation daemon — polls Trigger documents and materializes TriggerFiring records"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
@@ -26,6 +26,7 @@ oneshot = "triggerd.evaluators:oneshot_plugin"
 schedule = "triggerd.evaluators:schedule_plugin"
 relative = "triggerd.evaluators:relative_plugin"
 composite = "triggerd.evaluators:composite_plugin"
+event = "triggerd.evaluators:event_plugin"
 
 [build-system]
 requires = ["hatchling"]

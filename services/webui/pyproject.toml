@@ -1,6 +1,6 @@
 [project]
 name = "firnline-webui"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "Reflex-based web UI for Firnline"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }

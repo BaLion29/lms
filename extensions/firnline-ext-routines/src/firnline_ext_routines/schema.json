@@ -1,68 +1,19 @@
 [
-  {
-    "@id": "Routine",
-    "@inherits": [
-      "Remindable",
-      "Source"
-    ],
-    "@type": "Class",
-    "created_at": "xsd:dateTime",
-    "name": "xsd:string",
-    "required_context": {
-      "@class": "Context",
-      "@type": "Set"
-    },
-    "steps": {
-      "@class": "RoutineStep",
-      "@type": "List"
-    },
-    "trigger": "Trigger",
-    "updated_at": "xsd:dateTime"
-  },
-  {
-    "@id": "RoutineStep",
-    "@inherits": "Source",
-    "@oneOf": {
-      "activity": "ActivitySpec",
-      "task": "TaskSpec"
-    },
-    "@type": "Class",
-    "cadence_days": {
-      "@class": "xsd:integer",
-      "@type": "Optional"
-    }
-  },
-  {
-    "@id": "Activity",
-    "@inherits": [
-      "Remindable",
-      "Source",
-      "Context",
-      "ActivitySpec"
-    ],
-    "@type": "Class",
-    "created_at": "xsd:dateTime",
-    "derived_from": {
-      "@class": "Source",
-      "@type": "Optional"
-    },
-    "end_datetime": {
-      "@class": "xsd:dateTime",
-      "@type": "Optional"
-    },
-    "start_datetime": {
-      "@class": "xsd:dateTime",
-      "@type": "Optional"
-    },
-    "updated_at": "xsd:dateTime"
-  },
-  {
-    "@id": "ActivitySpec",
-    "@type": "Class",
-    "description": {
-      "@class": "xsd:string",
-      "@type": "Optional"
-    },
-    "name": "xsd:string"
-  }
+  {"@id": "Routine", "@inherits": ["Entity", "Source", "Remindable", "Triggerable"], "@type": "Class",
+   "@documentation": {"@comment": "A named, repeating routine composed of ordered steps. Can be reminded and triggered."},
+   "name": "xsd:string",
+   "required_context": {"@class": "Context", "@type": "Set"},
+   "steps": {"@class": "RoutineStep", "@type": "List"}},
+  {"@id": "RoutineStep", "@inherits": ["Entity", "Source"], "@type": "Class",
+   "@oneOf": {"activity": "ActivitySpec", "task": "TaskSpec"},
+   "@documentation": {"@comment": "A single step in a routine, referencing either an ActivitySpec or TaskSpec with an optional cadence in days."},
+   "cadence_days": {"@class": "xsd:integer", "@type": "Optional"}},
+  {"@id": "Activity", "@inherits": ["Entity", "Remindable", "Source", "Context", "Anchored", "ActivitySpec"], "@type": "Class",
+   "@documentation": {"@comment": "A concrete instance of an activity from a routine, with scheduled start/end datetimes."},
+   "end_datetime": {"@class": "xsd:dateTime", "@type": "Optional"},
+   "start_datetime": {"@class": "xsd:dateTime", "@type": "Optional"}},
+  {"@id": "ActivitySpec", "@type": "Class",
+   "@documentation": {"@comment": "Shared template for activity-like documents: name and description."},
+   "description": {"@class": "xsd:string", "@type": "Optional"},
+   "name": "xsd:string"}
 ]

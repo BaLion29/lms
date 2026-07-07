@@ -29,13 +29,15 @@ def _make_compose_result(
         modules=modules,
         composed_schema=schema,
         class_id_to_module={},
+        module_to_target={},
+        module_to_import={},
     )
 
 
 def _core_classes() -> list[dict]:
     return [
-        {"@abstract": [], "@id": "Source", "@type": "Class"},
-        {"@abstract": [], "@id": "Context", "@type": "Class"},
+        {"@abstract": [], "@id": "Source", "@type": "Class", "@documentation": {"@comment": "Base source class"}},
+        {"@abstract": [], "@id": "Context", "@type": "Class", "@documentation": {"@comment": "Base context class"}},
     ]
 
 
@@ -358,10 +360,9 @@ class TestPlanExitCode:
     def test_exit_0_up_to_date(self):
         """No changes, no errors → exit code 0."""
         classes = [{"@abstract": [], "@id": "Source", "@type": "Class"}]
-        cr = ComposeResult(
+        cr = _make_compose_result(
             modules=[ModuleInfo(name="core", version="1.0.0", checksum="abc")],
-            composed_schema=[self._ctx()] + classes,
-            class_id_to_module={},
+            schema=[self._ctx()] + classes,
         )
         plan = build_action_plan(
             compose_result=cr,
@@ -378,10 +379,9 @@ class TestPlanExitCode:
     def test_exit_1_actions_pending(self):
         """Actions pending, no errors → exit code 1."""
         classes = [{"@abstract": [], "@id": "Source", "@type": "Class"}]
-        cr = ComposeResult(
+        cr = _make_compose_result(
             modules=[ModuleInfo(name="core", version="1.0.0", checksum="abc")],
-            composed_schema=[self._ctx()] + classes,
-            class_id_to_module={},
+            schema=[self._ctx()] + classes,
         )
         plan = build_action_plan(
             compose_result=cr,
@@ -398,10 +398,9 @@ class TestPlanExitCode:
     def test_exit_2_errors(self):
         """Plan has errors → exit code 2."""
         classes = [{"@abstract": [], "@id": "Source", "@type": "Class"}]
-        cr = ComposeResult(
+        cr = _make_compose_result(
             modules=[ModuleInfo(name="core", version="1.0.0", checksum="abc")],
-            composed_schema=[self._ctx()] + classes,
-            class_id_to_module={},
+            schema=[self._ctx()] + classes,
         )
         plan = build_action_plan(
             compose_result=cr,
@@ -428,10 +427,9 @@ class TestPlanExitCode:
     def test_errors_take_priority_over_actions(self):
         """When both errors and actions exist, errors take priority (exit 2)."""
         classes = [{"@abstract": [], "@id": "Source", "@type": "Class"}]
-        cr = ComposeResult(
+        cr = _make_compose_result(
             modules=[ModuleInfo(name="core", version="1.0.0", checksum="abc")],
-            composed_schema=[self._ctx()] + classes,
-            class_id_to_module={},
+            schema=[self._ctx()] + classes,
         )
         plan = build_action_plan(
             compose_result=cr,

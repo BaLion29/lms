@@ -1,29 +1,8 @@
 [
-  {
-    "@id": "Reminder",
-    "@type": "Class",
-    "created_at": "xsd:dateTime",
-    "derived_from": {
-      "@class": "Source",
-      "@type": "Optional"
-    },
-    "description": {
-      "@class": "xsd:string",
-      "@type": "Optional"
-    },
-    "name": "xsd:string",
-    "priority": {
-      "@class": "xsd:integer",
-      "@type": "Optional"
-    },
-    "refers_to": {
-      "@class": "Remindable",
-      "@type": "Optional"
-    },
-    "trigger": {
-      "@class": "Trigger",
-      "@type": "Optional"
-    },
-    "updated_at": "xsd:dateTime"
-  }
+  {"@id": "Reminder", "@inherits": ["Entity", "Triggerable"], "@type": "Class",
+   "@documentation": {"@comment": "A user-created reminder bound to a trigger and optionally referring to a remindable entity."},
+   "description": {"@class": "xsd:string", "@type": "Optional"},
+   "name": "xsd:string",
+   "priority": {"@class": "xsd:integer", "@type": "Optional"},
+   "refers_to": {"@class": "Remindable", "@type": "Optional"}}
 ]

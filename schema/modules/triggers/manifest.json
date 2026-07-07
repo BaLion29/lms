@@ -1,7 +1,9 @@
 {
   "name": "triggers",
-  "version": "1.1.0",
-  "depends_on": [{"name": "core", "range": ">=2.0.0 <3.0.0"}],
-  "exports": ["Trigger", "ScheduleTrigger", "RelativeTrigger", "ContextTrigger", "EventTrigger", "CompositeTrigger", "OneShotTrigger", "TriggerFiring", "CompositeMode", "EventKind", "FiringStatus"],
-  "description": "Trigger abstract and concrete trigger types, plus firing records"
+  "version": "0.1.0",
+  "depends_on": [{"name": "core", "range": ">=0.1.0 <0.2.0"}],
+  "models_target": "firnline_core.generated.triggers",
+  "models_import": "firnline_core.models",
+  "exports": ["Trigger", "Triggerable", "OneShotTrigger", "ScheduleTrigger", "RelativeTrigger", "EventTrigger", "CompositeTrigger", "TriggerFiring", "CompositeMode", "EventKind", "FiringStatus"],
+  "description": "Trigger abstract and concrete trigger types, triggerable mixin, and firing records"
 }

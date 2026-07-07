@@ -1,6 +1,6 @@
 [project]
 name = "firnline-ext-places"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "Firnline places extension — Location schema module"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }

@@ -119,6 +119,79 @@ def format_iri(iri: str) -> str:
     return short_iri(iri)
 
 
+def extract_edges(docs: list[dict], known_ids: set[str]) -> list[dict]:
+    """Return deduplicated edge triples linking docs whose field values reference *known_ids*.
+
+    For each doc (which must contain ``"@id"``) walk all non‑``"@"`` fields.
+    An edge is created when a field value is:
+
+    * A string present in *known_ids*.
+    * A dict containing an ``"@id"`` key whose value is in *known_ids*.
+    * A list of values of the above kinds — each matching element yields an edge.
+
+    Self‑loops (``source == target``) and docs without ``"@id"`` are skipped.
+    The result is deduplicated on ``(source, target, prop)``; order is
+    insertion order of the first occurrence.
+    """
+    edges: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    for doc in docs:
+        doc_id = doc.get("@id")
+        if not isinstance(doc_id, str) or not doc_id:
+            continue
+
+        for field, value in doc.items():
+            if field.startswith("@"):
+                continue
+            _collect_edges(doc_id, field, value, known_ids, edges, seen)
+
+    return edges
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers for extract_edges
+# ---------------------------------------------------------------------------
+
+
+def _collect_edges(
+    source: str,
+    prop: str,
+    value: object,
+    known_ids: set[str],
+    edges: list[dict],
+    seen: set[tuple[str, str, str]],
+) -> None:
+    if isinstance(value, str):
+        _maybe_add_edge(source, prop, value, known_ids, edges, seen)
+    elif isinstance(value, dict):
+        target = value.get("@id")
+        if isinstance(target, str):
+            _maybe_add_edge(source, prop, target, known_ids, edges, seen)
+    elif isinstance(value, list):
+        for item in value:
+            _collect_edges(source, prop, item, known_ids, edges, seen)
+
+
+def _maybe_add_edge(
+    source: str,
+    prop: str,
+    target: str,
+    known_ids: set[str],
+    edges: list[dict],
+    seen: set[tuple[str, str, str]],
+) -> None:
+    if target not in known_ids:
+        return
+    if source == target:
+        return
+    triple = (source, target, prop)
+    if triple in seen:
+        return
+    seen.add(triple)
+    edges.append({"source": source, "target": target, "prop": prop})
+
+
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------

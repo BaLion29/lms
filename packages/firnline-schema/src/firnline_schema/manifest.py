@@ -1,16 +1,22 @@
 """Manifest loading and validation for schema modules.
 
 A manifest.json describes a schema module: its name, version, what it
-depends on, what classes it exports, and a human-readable description.
+depends on, what classes it exports, a human-readable description, and
+where generated models should be written.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from . import SchemaError
 from .semver import Version, Range, VersionError, RangeError
+
+# Must be a non-empty dotted Python module path like "a.b.c" —
+# not "a", not "a..b".
+_MODELS_TARGET_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$")
 
 
 class ManifestError(SchemaError):
@@ -20,7 +26,7 @@ class ManifestError(SchemaError):
 class Manifest:
     """Parsed representation of a module's manifest.json."""
 
-    __slots__ = ("name", "version", "version_obj", "depends_on", "exports", "description", "module_dir")
+    __slots__ = ("name", "version", "version_obj", "depends_on", "exports", "description", "models_target", "models_import", "module_dir")
 
     def __init__(
         self,
@@ -29,7 +35,9 @@ class Manifest:
         depends_on: list[dict[str, str]],
         exports: list[str],
         description: str,
+        models_target: str,
         module_dir: Path,
+        models_import: str | None = None,
     ) -> None:
         self.name = name
         self.version = version
@@ -37,6 +45,8 @@ class Manifest:
         self.depends_on = depends_on
         self.exports = exports
         self.description = description
+        self.models_target = models_target
+        self.models_import = models_import if models_import is not None else models_target
         self.module_dir = module_dir
 
     @classmethod
@@ -98,13 +108,33 @@ class Manifest:
         if not isinstance(description, str):
             raise ManifestError(f"{manifest_path}: 'description' must be a string")
 
+        # models_target (required, non-empty dotted Python module path)
+        models_target = raw.get("models_target")
+        if not isinstance(models_target, str) or not _MODELS_TARGET_RE.match(models_target):
+            raise ManifestError(
+                f"{manifest_path}: 'models_target' must be a non-empty dotted Python "
+                f"module path (e.g. 'firnline_core.generated.core')"
+            )
+
+        # models_import (optional, defaults to models_target)
+        # The module path OTHER packages use to import this module's generated classes.
+        models_import = raw.get("models_import")
+        if models_import is not None:
+            if not isinstance(models_import, str) or not _MODELS_TARGET_RE.match(models_import):
+                raise ManifestError(
+                    f"{manifest_path}: 'models_import' must be a non-empty dotted Python "
+                    f"module path (e.g. 'firnline_core.models')"
+                )
+
         return cls(
             name=name,
             version=version,
             depends_on=depends_on,
             exports=exports,
             description=description,
+            models_target=models_target,
             module_dir=module_dir,
+            models_import=models_import,
         )
 
     def _inject_core_dep(self) -> None:
@@ -116,7 +146,7 @@ class Manifest:
             return
         names = {d["name"] for d in self.depends_on}
         if "core" not in names:
-            self.depends_on = [{"name": "core", "range": ">=1.0.0"}] + self.depends_on
+            self.depends_on = [{"name": "core", "range": ">=0.1.0"}] + self.depends_on
 
     @property
     def dep_names(self) -> set[str]:

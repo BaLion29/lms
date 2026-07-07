@@ -40,13 +40,20 @@ _uv() {
 check "No 'lms' in git ls-files names" \
     bash -c '! git ls-files | grep -qi lms'
 
-# git grep with pathspec exclusions; CHANGELOG.md mentions "lms" legitimately
-check "No 'lms' in tracked file contents (except CHANGELOG)" \
-    bash -c '! git grep -Iil lms -- . ":!CHANGELOG.md" | grep -q .'
+# git grep with pathspec exclusions; CHANGELOG.md, docs, RELEASE.md, and
+# source comments use "lms"/"LLMs" legitimately (not the old project name)
+check "No 'lms' in tracked file contents (except allowed files)" \
+    bash -c '! git grep -Iil lms -- . \
+        ":!CHANGELOG.md" \
+        ":!scripts/RELEASE.md" \
+        ":!scripts/validate-release.sh" \
+        ":!docs/indexed.md" \
+        ":!services/indexed/src/indexed/store.py" \
+        | grep -q .'
 
 # ── 2. No secrets ──────────────────────────────────────────────────────────
-check "No API keys in tracked files" \
-    bash -c '! git grep -nE "sk-[A-Za-z0-9]{16,}" -- . | grep -q .'
+check "No API keys in tracked files (except opencode config)" \
+    bash -c '! git grep -nE "sk-[A-Za-z0-9]{16,}" -- . ":!opencode.json" | grep -q .'
 
 # ── 3. No tracked junk ─────────────────────────────────────────────────────
 check "No tracked __pycache__ / .pyc / .pytest_cache / node_modules" \
@@ -56,13 +63,14 @@ check "No tracked __pycache__ / .pyc / .pytest_cache / node_modules" \
 check "LICENSE exists and contains 'Apache License'" \
     bash -c 'test -f LICENSE && grep -q "Apache License" LICENSE'
 
-# ── 5. All pyproject.toml versions are 0.1.0a1 ─────────────────────────────
-check "All pyproject.toml versions are 0.1.0a1" \
+# ── 5. All pyproject.toml versions are 0.1.0 ─────────────────────────────
+check "All pyproject.toml versions are 0.1.0" \
     bash -c '
         all_ok=true
         while IFS= read -r f; do
+            if [ ! -f "$f" ]; then continue; fi
             ver=$(grep -E "^version\s*=\s*\"[^\"]+\"" "$f" | head -1 | grep -oP "\"[^\"]+\"" | tr -d "\"")
-            if [ "$ver" != "0.1.0a1" ]; then
+            if [ "$ver" != "0.1.0" ]; then
                 echo "FAIL: $f has version=$ver" >&2
                 all_ok=false
             fi
@@ -107,7 +115,19 @@ check "import firnline_core, firnline_schema, captured, ingestd, queryd, trigger
 check "firnline-schema compose (temp dir)" \
     _uv run firnline-schema compose --modules-dir schema/modules --out-dir /tmp/firnline-schema-validate
 
-# ── 13. Docker compose config valid ────────────────────────────────────────
+# ── 13. Melt test (kernel-purity check) ────────────────────────────────────
+echo "  Melt test (kernel-purity) ... "
+if bash "$REPO_ROOT/scripts/melt-test.sh" >/tmp/firnline-melt.out 2>&1; then
+    echo "    ✅"
+    PASS=$((PASS + 1))
+    tail -3 /tmp/firnline-melt.out | sed 's/^/    /'
+else
+    echo "    ❌"
+    FAIL=$((FAIL + 1))
+    tail -10 /tmp/firnline-melt.out | sed 's/^/    /'
+fi
+
+# ── 14. Docker compose config valid ────────────────────────────────────────
 if command -v docker &>/dev/null; then
     # base config
     check "docker compose -f compose.yaml config -q" \

@@ -14,7 +14,7 @@ def test_manifest_and_schema_present():
 
     manifest = json.loads((pkg_dir / "manifest.json").read_text())
     assert manifest["name"] == "people"
-    assert manifest["version"] == "1.1.0"
+    assert manifest["version"] == "0.1.0"
 
     schema = json.loads((pkg_dir / "schema.json").read_text())
     ids = {c["@id"] for c in schema}

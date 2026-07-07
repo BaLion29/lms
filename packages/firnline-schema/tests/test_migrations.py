@@ -30,6 +30,7 @@ def _make_module_with_migrations(base: Path, name: str, files: dict[str, str]) -
         "depends_on": [],
         "exports": [],
         "description": "test",
+        "models_target": f"firnline_core.generated.{name}",
     }
     (mod_dir / "manifest.json").write_text(json.dumps(manifest))
     (mod_dir / "schema.json").write_text("[]")

@@ -33,6 +33,7 @@ def _make_module(
     depends_on: list[dict[str, str]] | None = None,
     exports: list[str] | None = None,
     description: str = "Test module",
+    models_target: str | None = None,
     classes: list[dict] | None = None,
     context: dict | None = None,
 ) -> Path:
@@ -45,9 +46,16 @@ def _make_module(
         "depends_on": depends_on if depends_on is not None else [],
         "exports": exports if exports is not None else [],
         "description": description,
+        "models_target": models_target or f"firnline_core.generated.{name}",
     }
     (mod_dir / "manifest.json").write_text(json.dumps(manifest))
     if classes is not None:
+        # Auto-inject @documentation for exported classes that lack it
+        export_set = set(exports or [])
+        for cls in classes:
+            cid = cls.get("@id")
+            if cid in export_set and "@documentation" not in cls:
+                cls["@documentation"] = {"@comment": f"Test class {cid}"}
         (mod_dir / "schema.json").write_text(json.dumps(classes))
     if context is not None:
         (mod_dir / "context.json").write_text(json.dumps(context))
@@ -60,8 +68,8 @@ def _core_context() -> dict:
 
 def _core_classes() -> list[dict]:
     return [
-        {"@abstract": [], "@id": "Source", "@type": "Class"},
-        {"@abstract": [], "@id": "Context", "@type": "Class"},
+        {"@abstract": [], "@id": "Source", "@type": "Class", "@documentation": {"@comment": "Base source class"}},
+        {"@abstract": [], "@id": "Context", "@type": "Class", "@documentation": {"@comment": "Base context class"}},
     ]
 
 

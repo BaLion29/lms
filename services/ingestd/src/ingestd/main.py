@@ -17,7 +17,12 @@ from ingestd.extraction import (
 )
 from ingestd.pipeline import Pipeline
 from ingestd.settings import Settings
-from firnline_core.plugins import discover_plugins, select_plugins
+from firnline_core.plugins import (
+    ExtractorPlugin,
+    IngestSourcePlugin,
+    discover_plugins,
+    select_plugins,
+)
 from firnline_core.tdb import TdbClient
 
 
@@ -96,7 +101,9 @@ async def _discover_extractor_plugins_async(
         names = [n for n, _ in discovered.failed]
         raise RuntimeError(f"Extractor plugin entry points failed to load: {names}")
 
-    selection = await select_plugins(tdb, discovered, strict=strict, branch=branch)
+    selection = await select_plugins(
+        tdb, discovered, strict=strict, branch=branch, protocol=ExtractorPlugin
+    )
 
     for name, violations in selection.skipped:
         logger.warning(
@@ -108,16 +115,7 @@ async def _discover_extractor_plugins_async(
     if not selection.active:
         raise RuntimeError("No active extractor plugins — nothing to extract.")
 
-    # Check duck-typing: each object should have proposal_models()
-    valid_plugins = []
-    for name, obj in selection.active:
-        if not hasattr(obj, "proposal_models"):
-            logger.warning("plugin_not_extractor", name=name)
-            continue
-        valid_plugins.append(obj)
-
-    if not valid_plugins:
-        raise RuntimeError("No valid extractor plugins — nothing to extract.")
+    valid_plugins = [obj for _, obj in selection.active]
 
     # Build ExtractionContext (raises ValueError on kind collisions)
     return build_extraction_context(valid_plugins)
@@ -143,7 +141,9 @@ async def _discover_source_plugins_async(
         names = [n for n, _ in discovered.failed]
         raise RuntimeError(f"Source plugin entry points failed to load: {names}")
 
-    selection = await select_plugins(tdb, discovered, strict=strict, branch=branch)
+    selection = await select_plugins(
+        tdb, discovered, strict=strict, branch=branch, protocol=IngestSourcePlugin
+    )
 
     for name, violations in selection.skipped:
         logger.warning(
@@ -159,10 +159,6 @@ async def _discover_source_plugins_async(
     seen_keys: set[tuple[str, str]] = set()
 
     for name, obj in selection.active:
-        if not hasattr(obj, "document_type") or not hasattr(obj, "ready_status"):
-            logger.warning("plugin_not_source", name=name)
-            continue
-
         key = (obj.document_type, obj.ready_status)
         if key in seen_keys:
             raise RuntimeError(

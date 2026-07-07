@@ -16,7 +16,7 @@ from typing import Any
 import structlog
 
 from firnline_core.conventions import utc_now
-from firnline_core.plugins import IngestSourcePlugin, ModuleRequirement
+from firnline_core.plugins import ModuleRequirement
 
 logger = structlog.get_logger(__name__)
 
@@ -25,7 +25,7 @@ class InboxNoteSource:
     """Pull-source for InboxNote documents (status="new" → text from content)."""
 
     name: str = "inbox_note"
-    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=1.0.0 <2.0.0")]
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=0.1.0 <0.2.0")]
     document_type: str = "InboxNote"
     ready_status: str = "new"
     done_status: str = "processed"
@@ -59,7 +59,7 @@ class InboxAudioSource:
     """Pull-source for InboxAudio documents (status="transcribed" → text from transcription)."""
 
     name: str = "inbox_audio"
-    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=1.0.0 <2.0.0")]
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=0.1.0 <0.2.0")]
     document_type: str = "InboxAudio"
     ready_status: str = "transcribed"
     done_status: str = "processed"

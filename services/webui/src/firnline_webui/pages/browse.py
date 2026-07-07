@@ -5,8 +5,10 @@ from __future__ import annotations
 import reflex as rx
 
 from firnline_webui.state.browse import BrowseClassState, BrowseState
+from firnline_webui.state.graph import GraphState
 from firnline_webui.ui.cards import chip
 from firnline_webui.ui.detail import json_detail_drawer
+from firnline_webui.ui.graph import force_graph
 from firnline_webui.ui.nav import shell
 
 
@@ -53,17 +55,37 @@ def _module_card(name: str, version: str, class_ids: list[str]) -> rx.Component:
 
 
 def browse_page() -> rx.Component:
-    """Browse landing — classes grouped by module."""
+    """Browse landing — classes grouped by module, with optional graph view."""
+    # Detail drawer IRI var (mirrors pattern from browse_class_page)
+    iri_var: rx.Var = rx.Var.create(
+        rx.cond(
+            GraphState.selected_doc.to(bool) & (GraphState.selected_doc["@id"].to(str) != ""),  # type: ignore[index]
+            GraphState.selected_doc["@id"].to(str),  # type: ignore[index]
+            "",
+        )
+    )
     return shell(
         rx.vstack(
+            # Header row with view toggle
             rx.hstack(
                 rx.heading("Browse Schema Classes", size="6"),
                 rx.spacer(),
-                rx.cond(BrowseState.loading, rx.spinner(size="3")),
+                rx.segmented_control.root(
+                    rx.segmented_control.item("List", value="list"),
+                    rx.segmented_control.item("Graph", value="graph"),
+                    value=GraphState.view,
+                    on_change=GraphState.set_view,
+                    size="2",
+                ),
+                rx.cond(BrowseState.loading | GraphState.loading, rx.spinner(size="3")),
                 rx.button(
                     rx.icon(tag="refresh_cw", size=16),
                     "Refresh",
-                    on_click=BrowseState.load,
+                    on_click=rx.cond(
+                        GraphState.view == "graph",
+                        GraphState.load,
+                        BrowseState.load,
+                    ),
                     size="2",
                     variant="outline",
                 ),
@@ -71,18 +93,96 @@ def browse_page() -> rx.Component:
                 align="center",
                 width="100%",
             ),
+            # ── Graph view ──────────────────────────────────────────
             rx.cond(
-                BrowseState.error != "",
+                GraphState.view == "graph",
+                rx.vstack(
+                    # Class filter
+                    rx.hstack(
+                        rx.text("Class:", size="2"),
+                        rx.select(
+                            GraphState.all_class_options,
+                            value=rx.cond(
+                                GraphState.filter_class != "",
+                                GraphState.filter_class,
+                                "all",
+                            ),
+                            on_change=GraphState.set_filter_class,
+                            size="2",
+                        ),
+                        rx.cond(GraphState.loading, rx.spinner(size="3")),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.cond(
+                        GraphState.error != "",
+                        rx.callout(GraphState.error, color_scheme="red", size="1"),
+                    ),
+                    # Graph container
+                    rx.box(
+                        rx.cond(
+                            (~GraphState.loading)
+                            & (GraphState.error == "")
+                            & (GraphState.loaded),
+                            force_graph(
+                                graph_data=GraphState.graph_data,
+                                node_label="label",
+                                node_auto_color_by="group",
+                                width=1100,
+                                height=640,
+                                background_color="rgba(0,0,0,0)",
+                                link_directional_arrow_length=4,
+                                link_directional_arrow_rel_pos=1.0,
+                                on_node_click=GraphState.select_node,
+                            ),
+                        ),
+                        border=f"1px solid {rx.color('gray', 4)}",
+                        border_radius="8px",
+                        height="640px",
+                        overflow="hidden",
+                        width="100%",
+                    ),
+                    # Node/edge count caption
+                    rx.hstack(
+                        rx.text(
+                            GraphState.nodes.length().to_string() + " nodes",
+                            size="1",
+                            color_scheme="gray",
+                        ),
+                        rx.text("·", size="1", color_scheme="gray"),
+                        rx.text(
+                            GraphState.links.length().to_string() + " edges",
+                            size="1",
+                            color_scheme="gray",
+                        ),
+                        spacing="1",
+                    ),
+                    spacing="3",
+                    width="100%",
+                ),
+            ),
+            # ── Error for list view ─────────────────────────────────
+            rx.cond(
+                (GraphState.view != "graph") & (BrowseState.error != ""),
                 rx.callout(BrowseState.error, color_scheme="red", size="1"),
             ),
+            # ── List view ───────────────────────────────────────────
             rx.cond(
-                (~BrowseState.loading) & (BrowseState.error == ""),
+                (GraphState.view != "graph")
+                & (~BrowseState.loading)
+                & (BrowseState.error == ""),
                 rx.cond(
                     BrowseState.groups.length() > 0,
-                    # Build module cards dynamically via foreach
                     _module_cards(),
                     rx.text("No browsable classes found in schema.", size="2", color_scheme="gray"),
                 ),
+            ),
+            # ── Detail drawer (shared) ──────────────────────────────
+            json_detail_drawer(
+                doc_var=GraphState.selected_doc,
+                json_var=GraphState.selected_json,
+                iri_var=iri_var,
+                on_close=GraphState.clear_selection,
             ),
             spacing="5",
             width="100%",

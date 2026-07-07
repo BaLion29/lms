@@ -7,16 +7,16 @@ edit as needed.
 ## Shared TerminusDB settings
 
 Every service inherits these from `firnline_core.settings.TdbSettings`, using
-its own prefix (`CAPTURED_`, `INGESTD_`, `QUERYD_`, `TRIGGERD_`):
+its own prefix (`CAPTURED_`, `INGESTD_`, `QUERYD_`, `TRIGGERD_`, `NOTIFYD_`):
 
 | Variable | Default | Required | Consumed by |
 |---|---|---|---|
-| `{PREFIX}_TDB_URL` | `http://localhost:6363` | yes | captured, ingestd, queryd, triggerd |
-| `{PREFIX}_TDB_ORG` | `admin` | no | captured, ingestd, queryd, triggerd |
-| `{PREFIX}_TDB_DB` | — | yes | captured, ingestd, queryd, triggerd |
-| `{PREFIX}_TDB_BRANCH` | `main` | no | captured, ingestd, queryd, triggerd |
-| `{PREFIX}_TDB_USER` | `admin` | no | captured, ingestd, queryd, triggerd |
-| `{PREFIX}_TDB_PASSWORD` | — | yes | captured, ingestd, queryd, triggerd, indexed |
+| `{PREFIX}_TDB_URL` | `http://localhost:6363` | yes | captured, ingestd, queryd, triggerd, notifyd |
+| `{PREFIX}_TDB_ORG` | `admin` | no | captured, ingestd, queryd, triggerd, notifyd |
+| `{PREFIX}_TDB_DB` | — | yes | captured, ingestd, queryd, triggerd, notifyd |
+| `{PREFIX}_TDB_BRANCH` | `main` | no | captured, ingestd, queryd, triggerd, notifyd |
+| `{PREFIX}_TDB_USER` | `admin` | no | captured, ingestd, queryd, triggerd, notifyd |
+| `{PREFIX}_TDB_PASSWORD` | — | yes | captured, ingestd, queryd, triggerd, indexed, notifyd |
 
 In `compose.yaml`, these are populated from the shared `TDB_*` variables
 (e.g. `CAPTURED_TDB_URL: ${TDB_URL:?}`).
@@ -105,6 +105,32 @@ Prefixed `TRIGGERD_`.
 | `TRIGGERD_DRY_RUN` | `false` | Evaluate but skip writes |
 | `TRIGGERD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
 | `TRIGGERD_LIVENESS_FILE` | `/tmp/triggerd-alive` | Path touched on each successful cycle for healthchecks |
+
+## notifyd
+
+Prefixed `NOTIFYD_`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `NOTIFYD_TDB_URL` | `http://localhost:6363` | TerminusDB base URL |
+| `NOTIFYD_TDB_ORG` | `admin` | TerminusDB organisation |
+| `NOTIFYD_TDB_DB` | `firnline` | TerminusDB database name |
+| `NOTIFYD_TDB_BRANCH` | `main` | TerminusDB branch |
+| `NOTIFYD_TDB_USER` | `admin` | TerminusDB username |
+| `NOTIFYD_TDB_PASSWORD` | — | TerminusDB password |
+| `NOTIFYD_POLL_INTERVAL_SECONDS` | `30` | Seconds between poll cycles |
+| `NOTIFYD_LIVENESS_FILE` | `/tmp/notifyd-alive` | Path touched on each successful cycle for healthchecks |
+
+## gotify (extension firnline-ext-gotify)
+
+Prefixed `GOTIFY_`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `GOTIFY_URL` | `""` | Gotify server URL (e.g. `https://gotify.example.com`) |
+| `GOTIFY_TOKEN` | `""` | Gotify app token |
+| `GOTIFY_PRIORITY` | `5` | Gotify message priority (0–10, higher = more urgent) |
+| `GOTIFY_TIMEOUT_SECONDS` | `10.0` | HTTP timeout for Gotify API calls |
 
 ## indexed
 
@@ -196,9 +222,9 @@ The compose file additionally uses:
 
 Accepted specifier formats in `FIRNLINE_EXTENSIONS`:
 
-- **PyPI name**: `firnline_ext_inbox>=0.1.0`
+- **PyPI name**: `firnline_ext_people>=0.1.0`
 - **Git URL**: `git+https://github.com/user/firnline-ext-foo.git`
-- **Wheel filename**: `firnline_ext_inbox-0.1.0a1-py3-none-any.whl` (resolved against `/extensions/` in the image)
+- **Wheel filename**: `firnline_ext_people-0.1.0-py3-none-any.whl` (resolved against `/extensions/` in the image)
 
 First-party extension wheels are baked into service images at build time.
 

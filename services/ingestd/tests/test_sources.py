@@ -1,14 +1,12 @@
-"""Tests for inbox source plugins (moved verbatim from ingestd's original sources)."""
+"""Tests for ingestd source plugins (absorbed from firnline-ext-inbox)."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import ANY
 
 import structlog
-import pytest
 
-from firnline_ext_inbox.sources import InboxAudioSource, InboxNoteSource
+from ingestd.sources import InboxAudioSource, InboxNoteSource
 
 
 class TestInboxNoteSource:
@@ -61,7 +59,7 @@ class TestInboxNoteSource:
         src = InboxNoteSource()
         assert len(src.requires) == 1
         assert src.requires[0].name == "inbox"
-        assert src.requires[0].range == ">=1.0.0 <2.0.0"
+        assert src.requires[0].range == ">=0.1.0 <0.2.0"
 
 
 class TestInboxAudioSource:
@@ -114,4 +112,4 @@ class TestInboxAudioSource:
         src = InboxAudioSource()
         assert len(src.requires) == 1
         assert src.requires[0].name == "inbox"
-        assert src.requires[0].range == ">=1.0.0 <2.0.0"
+        assert src.requires[0].range == ">=0.1.0 <0.2.0"

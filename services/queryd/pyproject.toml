@@ -1,6 +1,6 @@
 [project]
 name = "queryd"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "FastAPI conversational agent over TerminusDB"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }

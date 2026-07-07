@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from firnline_core.generated.triggers import OneShotTrigger
-from firnline_core.models import Reminder
+from firnline_core.models import OneShotTrigger, Provenance
 from firnline_core.plugins import BuildContext, ExtractorPlugin, ModuleRequirement
 from firnline_core.tdb import short_iri
+from firnline_ext_reminders.models import Reminder
 
 
 # ---------------------------------------------------------------------------
@@ -47,9 +48,10 @@ class ReminderExtractPlugin(ExtractorPlugin):
     """Extractor for reminders only."""
 
     name: str = "reminder_extract"
+    produces: list[str] = ["Reminder", "OneShotTrigger"]
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="reminders", range=">=1.0.0 <2.0.0"),
-        ModuleRequirement(name="triggers", range=">=1.1.0 <2.0.0"),
+        ModuleRequirement(name="reminders", range=">=0.1.0 <0.2.0"),
+        ModuleRequirement(name="triggers", range=">=0.1.0 <0.2.0"),
     ]
 
     def proposal_models(self) -> list[type[BaseModel]]:
@@ -64,8 +66,15 @@ class ReminderExtractPlugin(ExtractorPlugin):
 
     async def build_documents(self, proposal: BaseModel, ctx: BuildContext) -> list[dict[str, Any]]:
         now = ctx.now()
+        provenance = Provenance(
+            agent="ingestd",
+            method="llm_extraction",
+            at=now,
+            source=short_iri(ctx.inbox_iri),
+        )
 
         if isinstance(proposal, ReminderProposal):
+            docs: list[dict[str, Any]] = []
             trigger_iri: str | None = None
 
             if proposal.fire_at is not None:
@@ -74,35 +83,30 @@ class ReminderExtractPlugin(ExtractorPlugin):
                 # with triggerd's _parse_iso_datetime convention and with
                 # TdbDateTime's _format_datetime serialization (both assume
                 # naive == UTC).
+                trigger_id = f"OneShotTrigger/{uuid4().hex}"
                 trigger_doc = OneShotTrigger(
+                    id_=trigger_id,
                     name=f"Reminder: {proposal.name}",
                     enabled=True,
                     fire_at=proposal.fire_at,
                     created_at=now,
                     updated_at=now,
-                )
-                # NOTE: This trigger is committed before the main Reminder batch
-                # insert.  If the later insert fails the trigger becomes an
-                # orphan — the same trade-off as the locations side-insert in
-                # ingestd's pipeline.
-                iris = await ctx.tdb.insert_documents(
-                    [trigger_doc.to_tdb()],
-                    branch=ctx.branch,
-                    message=f"ingestd: OneShotTrigger for reminder '{proposal.name}'",
-                )
-                trigger_iri = short_iri(iris[0])
-
-            return [
-                Reminder(
-                    name=proposal.name,
-                    description=proposal.description,
-                    refers_to=None,
-                    trigger=trigger_iri,
-                    derived_from=ctx.inbox_iri,
-                    created_at=now,
-                    updated_at=now,
+                    provenance=provenance,
                 ).to_tdb()
-            ]
+                docs.append(trigger_doc)
+                trigger_iri = trigger_id
+
+            reminder_doc = Reminder(
+                name=proposal.name,
+                description=proposal.description,
+                refers_to=None,
+                trigger=trigger_iri,
+                created_at=now,
+                updated_at=now,
+                provenance=provenance,
+            ).to_tdb()
+            docs.append(reminder_doc)
+            return docs
 
         return []
 

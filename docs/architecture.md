@@ -9,7 +9,7 @@
    `firnline-core`: a thin typed async HTTP client and generated Pydantic
    models. No service talks to TerminusDB with raw ad-hoc code.
 3. **AI writes with provenance; branches gate trust.** AI-created documents
-   carry `derived_from`; AI commits carry `author=<service>` and one commit
+   carry `Provenance`; AI commits carry `author=<service>` and one commit
    per inbox item.  Trust ladder: dry-run → staging branch → main.
 4. **Vertical slices, always usable.** Every layer is built thin-but-complete
    before being deepened. A working end-to-end pipeline beats a polished
@@ -46,10 +46,16 @@
       LLM via LiteLLM
          │
          ▼
-      TRIGGERD
-      poll → evaluate → insert
-      TriggerFiring records
-      per-cycle commit
+       TRIGGERD
+       poll → evaluate → insert
+       TriggerFiring records
+       per-cycle commit
+          │
+          ▼
+       NOTIFYD
+       poll pending → deliver via channels
+       → nag policy (renotify / expire / snooze wake-up)
+       per-firing commit
 ```
 
 ## Components
@@ -62,6 +68,8 @@
 | **queryd** | Conversational agent API — read tools, GraphQL, and flag-gated write-tool plugins. | 8087 |
 | **indexed** | Precision grounding service — mirrors TDB documents + schema into a hybrid vector+lexical index and serves precise-lookup endpoints to ingestd and queryd. | 8089 |
 | **triggerd** | Polling worker — evaluates Trigger documents, materializes TriggerFiring records. | — |
+| **triggerd** | Polling worker — evaluates Trigger documents, materializes TriggerFiring records. | — |
+| **notifyd** | Notification delivery daemon — polls pending TriggerFiring records, executes nag policy (renotify, expire, snooze wake-up), delivers via `NotificationChannel` plugins. | — |
 | **bootstrap** | One-shot container (profile `bootstrap`) — creates database, composes & applies schema, installs extensions into shared overlay volume. | — |
 
 An **external LiteLLM proxy** is required for LLM access — it is NOT part of
@@ -85,7 +93,12 @@ the compose stack.
    materializes `TriggerFiring` records with `status=pending`.  Firing
    statuses are the queue for downstream consumers (reminder delivery,
    notification routing).  The database is the only integration point.
-5. **Grounding** — `indexed` polls the TDB commit log and mirrors documents
+5. **Notify** — `notifyd` polls `TriggerFiring` documents: delivers pending
+   firings via `NotificationChannel` plugins (entry-point group
+   `firnline.notifyd.channels`), executes the nag policy (renotify after
+   `renotify_every`, expire after `expire_after`, wake up snoozed firings),
+   and transitions firing statuses (`pending→notified→expired`, etc.).
+6. **Grounding** — `indexed` polls the TDB commit log and mirrors documents
    (via `IndexerPlugin` plugins) and schema into a hybrid vector+lexical index.
    `ingestd` consults it for entity linking beyond casefold-exact match;
    `queryd` uses `find_entity`/`find_class`/`find_field` tools to ground the
@@ -98,17 +111,22 @@ The schema is composed from versioned JSON modules, each in a directory
 containing:
 
 - **`manifest.json`** — `name`, semver `version`, `depends_on`
-  `[{name, range}]`, `exports [ClassNames]`, `description`.
+  `[{name, range}]`, `exports [ClassNames]`, `description`, and the required
+  codegen routing field `models_target` (dotted Python module path, e.g.
+  `firnline_core.generated.core` for kernel modules or
+  `firnline_ext_planning.models` for extensions).
 - **`schema.json`** — JSON array of TerminusDB class/enum definitions.
 - **`migrations/`** — optional ordered `NNNN_description.py` data migration
   scripts (schema shape changes come from the fragment diff, never from
   migration code).
 
 The `core` module (kernel) stays in `schema/modules/core/` and owns:
-`@context`, the contentless markers (`Source`, `Context`, `Remindable`),
+`@context`, the `Entity` universal base (`created_at`, `updated_at`,
+`provenance`, `contexts`, `external_refs`), the role markers (`Source`,
+`Context`, `Remindable`, `Anchored`), the `Provenance` subdocument,
 registry classes (`SchemaModule`, `SchemaMigration`), and `ExternalRef`.
-All domain modules (inbox, planning, people, places, reminders,
-routines) live in extensions while core and triggers are first-party in
+All domain modules (planning, people, places, reminders, routines) live
+in extensions; core, triggers, and inbox are kernel modules in
 `schema/modules/`.
 
 Modules are discovered from two sources: the `schema/modules/` directory
@@ -127,11 +145,17 @@ group. Discovery runs during `firnline-schema compose`.
 `compose` → `diff` (classifies additive/breaking) → `plan` (dry description)
 → `apply --branch b` (push schema, run migrations, upsert registry; idempotent)
 → `validate --branch b` (GraphQL smoke tests, registry ⇔ lock) →
-`promote --branch b` (fast-forward main) → `codegen` (regenerate Pydantic models).
+`promote --branch b` (fast-forward main) → `codegen` (regenerate Pydantic models
+per owning package via `models_target`).
+
+**Composer L3 lint**: during compose, every class/enum listed in a module's
+`exports` must carry an `@documentation` key with a non-empty `@comment`
+string — "the schema is a prompt" (queryd derives its agent briefing from
+these documentation comments).  A `ComposeL3Error` is raised on violations.
 
 ## Plugin Mechanism
 
-Five entry-point groups, discovered via `importlib.metadata.entry_points`:
+Seven entry-point groups, discovered via `importlib.metadata.entry_points`:
 
 | Entry-point group | Protocol | Used by | Purpose |
 |---|---|---|---|
@@ -142,8 +166,9 @@ Five entry-point groups, discovered via `importlib.metadata.entry_points`:
 | `firnline.captured.handlers` | `CaptureHandler` | captured | Handle capture requests by kind (e.g. "note", "file") |
 | `firnline.triggerd.evaluators` | `TriggerEvaluator` | triggerd | Evaluate trigger types, propose occurrence instants |
 | `firnline.indexed.indexers` | `IndexerPlugin` | indexed | Declare which TDB classes to mirror and how to extract entity text + aliases |
+| `firnline.notifyd.channels` | `NotificationChannel` | notifyd | Deliver `TriggerFiring` records via external notification services (e.g. Gotify) |
 
-All three host services follow the same startup behaviour: discover plugins →
+All host services follow the same startup behaviour: discover plugins →
 `check_requirements` against the `SchemaModule` registry → skip plugins with
 unmet requirements (WARNING-level log) → log the active plugin set at INFO.
 `--strict-plugins` makes skips fatal. Name/kind collisions between plugins are
@@ -152,7 +177,10 @@ fatal at startup.
 ## Shared Core (`firnline-core`)
 
 - **`tdb.py`** — async TerminusDB HTTP client: `get_documents`, `insert_documents`
-  (author + commit message, returns IRIs), `replace_document`, `graphql`. Basic
+  (author + commit message, returns IRIs), `replace_document` (optimistic concurrency
+  via `expected_head`, raises `TdbConflictError`), `get_documents_by_status`
+  (server-side status filtering), `changes_since` (commit-log change feed for
+  downstream consumers like `indexed` and `EventTrigger`), `graphql`. Basic
   auth everywhere; non-2xx raises typed `TdbError(status, body)`.
 - **`settings.py`** — shared `TDB_URL / TDB_ORG / TDB_DB / TDB_BRANCH /
   TDB_USER / TDB_PASSWORD` base, subclassed by each service with its own prefix.
@@ -161,7 +189,10 @@ fatal at startup.
   `discover_plugins`, `select_plugins`.
 - **`conventions.py`** — `utc_now()`, `BlobStore` (content-addressed file
   storage), `ExternalRef` convention.
-- **`generated/`** — codegen output, one file per module. **Never hand-edited.**
+- **`generated/`** — codegen output for kernel modules (core, triggers, inbox).
+  Extension models land in their own packages (e.g. `firnline_ext_planning/
+  models.py`), routed by the `models_target` manifest field. **Never
+  hand-edit any generated file.**
 
 ### Conventions (system-wide)
 
@@ -176,8 +207,9 @@ firnline/
 ├── pyproject.toml              # [tool.uv.workspace] — all packages + extensions
 ├── compose.yaml                # deployment (external TDB)
 ├── compose.bundled-tdb.yaml    # overlay adding TerminusDB container
-├── schema/modules/core/        # kernel schema module (manifest, schema, context, migrations)
-├── schema/modules/triggers/    # trigger schema module
+├── schema/modules/core/        # kernel schema module (Entity, markers, registry, provenance)
+├── schema/modules/triggers/    # kernel trigger schema module
+├── schema/modules/inbox/       # kernel inbox schema module (InboxNote, InboxAudio)
 ├── packages/
 │   ├── firnline-core/          # shared library (tdb client, models, plugins, conventions)
 │   └── firnline-schema/        # schema CLI (compose, diff, apply, validate, promote, codegen)
@@ -186,9 +218,10 @@ firnline/
 │   ├── ingestd/                # AI ingestion polling worker
 │   ├── queryd/                 # conversational agent (FastAPI)
 │   ├── triggerd/               # trigger evaluation polling worker
-│   └── indexed/                 # precision grounding service (hybrid vector+lexical index)
+│   ├── notifyd/                # notification delivery daemon (nag policy + channels)
+│   └── indexed/                # precision grounding service (hybrid vector+lexical index)
 ├── extensions/
-│   ├── firnline-ext-inbox/     # inbox schema + sources + capture handlers
+│   ├── firnline-ext-gotify/    # Gotify notification channel
 │   ├── firnline-ext-people/    # people schema + extractor
 │   ├── firnline-ext-places/    # places/Location schema
 │   ├── firnline-ext-planning/  # planning schema + extractor + queryd tools

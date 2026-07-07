@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-from queryd.schema_briefing import render_prompt_briefing, render_schema_summary
+from queryd.schema_briefing import (
+    render_module_briefing,
+    render_prompt_briefing,
+    render_schema_summary,
+)
 
 # ---------------------------------------------------------------------------
 # Minimal hand-written introspection fixture.
 #
-# Contains: Query with a Task field; Task with _id/name/status/due_date;
-# Task_Filter; DateTimeFilter; TaskStatus enum; TerminusMutation (which must
-# be excluded from output).
+# Contains: Query with Task + Project fields; Task with _id/name/status/due_date;
+# Project (NEW — not in any hardcoded set) with _id/name;
+# SchemaModule + SchemaMigration (MUST be excluded from prompt briefing);
+# Provenance + ExternalRef (subdocument-only, MUST be excluded);
+# Task_Filter; DateTimeFilter; TaskStatus enum; TerminusMutation (excluded).
 # ---------------------------------------------------------------------------
 
 
@@ -45,6 +51,19 @@ _INTROSPECTION: dict = {
                             },
                         },
                     },
+                    {
+                        "name": "Project",
+                        "args": [],
+                        "type": {
+                            "kind": "LIST",
+                            "name": None,
+                            "ofType": {
+                                "kind": "OBJECT",
+                                "name": "Project",
+                                "ofType": None,
+                            },
+                        },
+                    },
                 ],
                 "inputFields": None,
                 "enumValues": None,
@@ -60,39 +79,137 @@ _INTROSPECTION: dict = {
                         "type": {
                             "kind": "NON_NULL",
                             "name": None,
-                            "ofType": {
-                                "kind": "SCALAR",
-                                "name": "ID",
-                                "ofType": None,
-                            },
+                            "ofType": {"kind": "SCALAR", "name": "ID", "ofType": None},
                         },
                     },
                     {
                         "name": "due_date",
                         "args": [],
+                        "type": {"kind": "SCALAR", "name": "DateTime", "ofType": None},
+                    },
+                    {
+                        "name": "name",
+                        "args": [],
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
+                    },
+                    {
+                        "name": "status",
+                        "args": [],
+                        "type": {"kind": "ENUM", "name": "TaskStatus", "ofType": None},
+                    },
+                ],
+                "inputFields": None,
+                "enumValues": None,
+            },
+            # --- Project (OBJECT) — NOT in old hardcoded set --------------
+            {
+                "name": "Project",
+                "kind": "OBJECT",
+                "fields": [
+                    {
+                        "name": "_id",
+                        "args": [],
                         "type": {
-                            "kind": "SCALAR",
-                            "name": "DateTime",
-                            "ofType": None,
+                            "kind": "NON_NULL",
+                            "name": None,
+                            "ofType": {"kind": "SCALAR", "name": "ID", "ofType": None},
                         },
                     },
                     {
                         "name": "name",
                         "args": [],
-                        "type": {
-                            "kind": "SCALAR",
-                            "name": "String",
-                            "ofType": None,
-                        },
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
+                    },
+                ],
+                "inputFields": None,
+                "enumValues": None,
+            },
+            # --- SchemaModule (MUST be excluded from prompt briefing) -----
+            {
+                "name": "SchemaModule",
+                "kind": "OBJECT",
+                "fields": [
+                    {
+                        "name": "checksum",
+                        "args": [],
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
                     },
                     {
-                        "name": "status",
+                        "name": "installed_at",
                         "args": [],
-                        "type": {
-                            "kind": "ENUM",
-                            "name": "TaskStatus",
-                            "ofType": None,
-                        },
+                        "type": {"kind": "SCALAR", "name": "DateTime", "ofType": None},
+                    },
+                    {
+                        "name": "name",
+                        "args": [],
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
+                    },
+                    {
+                        "name": "origin",
+                        "args": [],
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
+                    },
+                    {
+                        "name": "version",
+                        "args": [],
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
+                    },
+                ],
+                "inputFields": None,
+                "enumValues": None,
+            },
+            # --- SchemaMigration (MUST be excluded from prompt briefing) --
+            {
+                "name": "SchemaMigration",
+                "kind": "OBJECT",
+                "fields": [
+                    {
+                        "name": "applied_at",
+                        "args": [],
+                        "type": {"kind": "SCALAR", "name": "DateTime", "ofType": None},
+                    },
+                    {
+                        "name": "checksum",
+                        "args": [],
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
+                    },
+                    {
+                        "name": "filename",
+                        "args": [],
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
+                    },
+                    {
+                        "name": "module",
+                        "args": [],
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
+                    },
+                ],
+                "inputFields": None,
+                "enumValues": None,
+            },
+            # --- Provenance (subdocument, excluded) -----------------------
+            {
+                "name": "Provenance",
+                "kind": "OBJECT",
+                "fields": [
+                    {
+                        "name": "agent",
+                        "args": [],
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
+                    },
+                ],
+                "inputFields": None,
+                "enumValues": None,
+            },
+            # --- ExternalRef (subdocument, excluded) ----------------------
+            {
+                "name": "ExternalRef",
+                "kind": "OBJECT",
+                "fields": [
+                    {
+                        "name": "external_id",
+                        "args": [],
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
                     },
                 ],
                 "inputFields": None,
@@ -112,22 +229,6 @@ _INTROSPECTION: dict = {
                             "ofType": None,
                         },
                     },
-                    {
-                        "name": "name",
-                        "type": {
-                            "kind": "INPUT_OBJECT",
-                            "name": "StringFilter",
-                            "ofType": None,
-                        },
-                    },
-                    {
-                        "name": "status",
-                        "type": {
-                            "kind": "INPUT_OBJECT",
-                            "name": "TaskStatus_Enum_Filter",
-                            "ofType": None,
-                        },
-                    },
                 ],
                 "enumValues": None,
             },
@@ -139,51 +240,27 @@ _INTROSPECTION: dict = {
                 "inputFields": [
                     {
                         "name": "eq",
-                        "type": {
-                            "kind": "SCALAR",
-                            "name": "DateTime",
-                            "ofType": None,
-                        },
+                        "type": {"kind": "SCALAR", "name": "DateTime", "ofType": None},
                     },
                     {
                         "name": "ne",
-                        "type": {
-                            "kind": "SCALAR",
-                            "name": "DateTime",
-                            "ofType": None,
-                        },
+                        "type": {"kind": "SCALAR", "name": "DateTime", "ofType": None},
                     },
                     {
                         "name": "lt",
-                        "type": {
-                            "kind": "SCALAR",
-                            "name": "DateTime",
-                            "ofType": None,
-                        },
+                        "type": {"kind": "SCALAR", "name": "DateTime", "ofType": None},
                     },
                     {
                         "name": "le",
-                        "type": {
-                            "kind": "SCALAR",
-                            "name": "DateTime",
-                            "ofType": None,
-                        },
+                        "type": {"kind": "SCALAR", "name": "DateTime", "ofType": None},
                     },
                     {
                         "name": "gt",
-                        "type": {
-                            "kind": "SCALAR",
-                            "name": "DateTime",
-                            "ofType": None,
-                        },
+                        "type": {"kind": "SCALAR", "name": "DateTime", "ofType": None},
                     },
                     {
                         "name": "ge",
-                        "type": {
-                            "kind": "SCALAR",
-                            "name": "DateTime",
-                            "ofType": None,
-                        },
+                        "type": {"kind": "SCALAR", "name": "DateTime", "ofType": None},
                     },
                 ],
                 "enumValues": None,
@@ -196,51 +273,7 @@ _INTROSPECTION: dict = {
                 "inputFields": [
                     {
                         "name": "eq",
-                        "type": {
-                            "kind": "SCALAR",
-                            "name": "String",
-                            "ofType": None,
-                        },
-                    },
-                    {
-                        "name": "regex",
-                        "type": {
-                            "kind": "SCALAR",
-                            "name": "String",
-                            "ofType": None,
-                        },
-                    },
-                    {
-                        "name": "startsWith",
-                        "type": {
-                            "kind": "SCALAR",
-                            "name": "String",
-                            "ofType": None,
-                        },
-                    },
-                    {
-                        "name": "allOfTerms",
-                        "type": {
-                            "kind": "LIST",
-                            "name": None,
-                            "ofType": {
-                                "kind": "SCALAR",
-                                "name": "String",
-                                "ofType": None,
-                            },
-                        },
-                    },
-                    {
-                        "name": "anyOfTerms",
-                        "type": {
-                            "kind": "LIST",
-                            "name": None,
-                            "ofType": {
-                                "kind": "SCALAR",
-                                "name": "String",
-                                "ofType": None,
-                            },
-                        },
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
                     },
                 ],
                 "enumValues": None,
@@ -253,19 +286,7 @@ _INTROSPECTION: dict = {
                 "inputFields": [
                     {
                         "name": "eq",
-                        "type": {
-                            "kind": "ENUM",
-                            "name": "TaskStatus",
-                            "ofType": None,
-                        },
-                    },
-                    {
-                        "name": "ne",
-                        "type": {
-                            "kind": "ENUM",
-                            "name": "TaskStatus",
-                            "ofType": None,
-                        },
+                        "type": {"kind": "ENUM", "name": "TaskStatus", "ofType": None},
                     },
                 ],
                 "enumValues": None,
@@ -290,11 +311,7 @@ _INTROSPECTION: dict = {
                     {
                         "name": "_insertDocuments",
                         "args": [],
-                        "type": {
-                            "kind": "SCALAR",
-                            "name": "String",
-                            "ofType": None,
-                        },
+                        "type": {"kind": "SCALAR", "name": "String", "ofType": None},
                     },
                 ],
                 "inputFields": None,
@@ -365,21 +382,74 @@ def test_render_schema_summary_deterministic():
 
 
 # ---------------------------------------------------------------------------
-# Tests: render_prompt_briefing
+# Tests: render_prompt_briefing (new: derived, not enumerated)
 # ---------------------------------------------------------------------------
 
 
 def test_render_prompt_briefing_contains_task():
+    """Task (OBJECT kind, reachable from Query) appears."""
     briefing = render_prompt_briefing(_INTROSPECTION)
     assert "type Task {" in briefing
     assert "_id: ID!" in briefing
     assert "name: String" in briefing
 
 
+def test_render_prompt_briefing_contains_project():
+    """Project (not in any hardcoded set, derived from introspection) appears."""
+    briefing = render_prompt_briefing(_INTROSPECTION)
+    assert "type Project {" in briefing
+    assert "name: String" in briefing
+
+
+def test_render_prompt_briefing_excludes_schema_module():
+    """SchemaModule (registry meta-class) is excluded."""
+    briefing = render_prompt_briefing(_INTROSPECTION)
+    assert "type SchemaModule {" not in briefing
+    assert "type SchemaMigration {" not in briefing
+
+
+def test_render_prompt_briefing_excludes_subdocuments():
+    """Provenance and ExternalRef (subdocument helpers) are excluded from
+    the type listing."""
+    briefing = render_prompt_briefing(_INTROSPECTION)
+    assert "type Provenance {" not in briefing
+    assert "type ExternalRef {" not in briefing
+
+
+def test_render_prompt_briefing_excludes_mutation_and_query():
+    """TerminusMutation and Query are excluded from the domain type listing."""
+    briefing = render_prompt_briefing(_INTROSPECTION)
+    assert "type TerminusMutation {" not in briefing
+    assert "type Query {" not in briefing
+
+
+def test_render_prompt_briefing_entity_preamble_present_once():
+    """The universal Entity preamble appears exactly once."""
+    briefing = render_prompt_briefing(_INTROSPECTION)
+    assert "=== Universal Entity Fields ===" in briefing
+    assert "created_at" in briefing
+    assert "updated_at" in briefing
+    assert "provenance" in briefing
+    assert "contexts" in briefing
+    assert "external_refs" in briefing
+    # Must appear exactly once
+    assert briefing.count("=== Universal Entity Fields ===") == 1
+
+
+def test_render_prompt_briefing_provenance_traversal_note():
+    """The provenance.source traversal note is in Query Conventions."""
+    briefing = render_prompt_briefing(_INTROSPECTION)
+    assert "follow provenance.source" in briefing
+    assert "where did X come from" in briefing
+
+
 def test_render_prompt_briefing_contains_status_enum():
+    """TaskStatus enum appears with its values."""
     briefing = render_prompt_briefing(_INTROSPECTION)
     assert "TaskStatus" in briefing
     assert "open" in briefing
+    assert "planned" in briefing
+    assert "done" in briefing
 
 
 def test_render_prompt_briefing_contains_iri_note():
@@ -394,7 +464,80 @@ def test_render_prompt_briefing_contains_nested_reference_note():
     assert "{ location { name } }" in briefing
 
 
+def test_render_prompt_briefing_schema_docs_injection():
+    """When schema_docs is provided, @documentation comments appear on
+    class and enum blocks."""
+    docs = {
+        "Task": "A to-do item with status tracking.",
+        "Project": "A project grouping related tasks.",
+        "TaskStatus": "Possible states for a task.",
+    }
+    briefing = render_prompt_briefing(_INTROSPECTION, schema_docs=docs)
+    # Task doc appears before its type block
+    assert "# A to-do item with status tracking." in briefing
+    assert "# A project grouping related tasks." in briefing
+    # Enum doc appears before its enum block
+    assert "# Possible states for a task." in briefing
+
+
 def test_render_prompt_briefing_deterministic():
+    """Calling twice yields identical output."""
     a = render_prompt_briefing(_INTROSPECTION)
     b = render_prompt_briefing(_INTROSPECTION)
     assert a == b
+
+
+# ---------------------------------------------------------------------------
+# Tests: render_module_briefing
+# ---------------------------------------------------------------------------
+
+
+def test_render_module_briefing_empty():
+    assert render_module_briefing([]) == ""
+    assert render_module_briefing(None) == ""  # type: ignore[arg-type]
+
+
+def test_render_module_briefing_name_version():
+    modules = [{"name": "core", "version": "1.1.0"}]
+    result = render_module_briefing(modules)
+    assert "core 1.1.0" in result
+
+
+def test_render_module_briefing_with_origin():
+    """origin field is rendered in parentheses."""
+    modules = [{"name": "core", "version": "1.1.0", "origin": "repo"}]
+    result = render_module_briefing(modules)
+    assert "core 1.1.0 (repo)" in result
+
+
+def test_render_module_briefing_with_origin_and_description():
+    """origin and description both rendered."""
+    modules = [
+        {
+            "name": "planning",
+            "version": "0.1.0",
+            "origin": "firnline-ext-planning",
+            "description": "Task/Event planning module",
+        }
+    ]
+    result = render_module_briefing(modules)
+    assert "planning 0.1.0 (firnline-ext-planning): Task/Event planning module" in result
+
+
+def test_render_module_briefing_multiple_modules_sorted():
+    modules = [
+        {"name": "zulu", "version": "1.0"},
+        {"name": "alpha", "version": "2.0"},
+    ]
+    result = render_module_briefing(modules)
+    alpha_pos = result.index("alpha")
+    zulu_pos = result.index("zulu")
+    assert alpha_pos < zulu_pos
+
+
+def test_render_module_briefing_with_active_plugins():
+    modules = [{"name": "core", "version": "1.0"}]
+    result = render_module_briefing(modules, active_plugins=["planning_tools"])
+    assert "=== Installed Schema Modules ===" in result
+    assert "=== Active Write-Tool Plugins ===" in result
+    assert "planning_tools" in result

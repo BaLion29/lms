@@ -15,7 +15,7 @@ def test_reminders_module_present():
 
     manifest = json.loads((mod_dir / "manifest.json").read_text())
     assert manifest["name"] == "reminders"
-    assert manifest["version"] == "1.0.0"
+    assert manifest["version"] == "0.1.0"
 
     schema = json.loads((mod_dir / "schema.json").read_text())
     ids = {c["@id"] for c in schema}

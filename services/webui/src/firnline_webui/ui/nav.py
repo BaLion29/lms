@@ -9,13 +9,15 @@ import reflex as rx
 from firnline_webui.state.auth import AuthState
 from firnline_webui.state.base import BaseState
 
-NavActive = Literal["home", "capture", "inbox", "browse", "health", "modules"]
+NavActive = Literal["home", "capture", "inbox", "chat", "browse", "calendar", "health", "modules"]
 
 NAV_ITEMS: list[dict] = [
     {"label": "Home", "icon": "house", "active": "home", "route": "/"},
     {"label": "Capture", "icon": "pencil_line", "active": "capture", "route": "/capture"},
     {"label": "Inbox", "icon": "inbox", "active": "inbox", "route": "/inbox"},
+    {"label": "Chat", "icon": "message_circle", "active": "chat", "route": "/chat"},
     {"label": "Browse", "icon": "database", "active": "browse", "route": "/browse"},
+    {"label": "Calendar", "icon": "calendar_days", "active": "calendar", "route": "/calendar"},
     {"label": "Health", "icon": "activity", "active": "health", "route": "/health"},
     {"label": "Modules", "icon": "blocks", "active": "modules", "route": "/modules"},
 ]
@@ -51,25 +53,8 @@ def _nav_link(icon_tag: str, label: str, route: str, is_active: bool) -> rx.Comp
 def sidebar(active: str) -> rx.Component:
     """Fixed left sidebar."""
     return rx.vstack(
-        # Wordmark
-        rx.hstack(
-            rx.box(
-                rx.icon(tag="mountain_snow", size=16, color="white"),
-                background=rx.color("accent", 9),
-                border_radius="8px",
-                width="28px",
-                height="28px",
-                display="flex",
-                align_items="center",
-                justify_content="center",
-            ),
-            rx.text("firnline", size="4", weight="bold", color=rx.color("gray", 12)),
-            spacing="2",
-            align="center",
-            padding_x="16px",
-            padding_top="32px",
-            padding_bottom="16px",
-        ),
+        # Top spacer (replaces logo+wordmark moved to header)
+        rx.box(height="16px"),
         rx.divider(),
         # Section label
         rx.text(
@@ -138,6 +123,23 @@ def sidebar(active: str) -> rx.Component:
 def page_header(title: str) -> rx.Component:
     """Sticky top header bar with page title and env badge."""
     return rx.hstack(
+        # Logo + wordmark
+        rx.hstack(
+            rx.box(
+                rx.icon(tag="mountain_snow", size=16, color="white"),
+                background=rx.color("accent", 9),
+                border_radius="8px",
+                width="28px",
+                height="28px",
+                display="flex",
+                align_items="center",
+                justify_content="center",
+            ),
+            rx.text("firnline", size="4", weight="bold", color=rx.color("gray", 12)),
+            spacing="2",
+            align="center",
+        ),
+        rx.divider(orientation="vertical", height="20px"),
         rx.heading(title, size="4", weight="medium"),
         rx.spacer(),
         rx.badge(
@@ -190,7 +192,9 @@ def _page_title_for(active: str) -> str:
         "home": "Dashboard",
         "capture": "Capture",
         "inbox": "Inbox",
+        "chat": "AI Chat",
         "browse": "Browse",
+        "calendar": "Calendar",
         "health": "Service Health",
         "modules": "Schema Modules",
     }

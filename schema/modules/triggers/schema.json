@@ -1,128 +1,60 @@
 [
-  {
-    "@abstract": [],
-    "@id": "Trigger",
-    "@type": "Class",
-    "created_at": "xsd:dateTime",
-    "enabled": "xsd:boolean",
-    "name": "xsd:string",
-    "updated_at": "xsd:dateTime",
-    "valid_from": {
-      "@class": "xsd:dateTime",
-      "@type": "Optional"
-    },
-    "valid_until": {
-      "@class": "xsd:dateTime",
-      "@type": "Optional"
-    }
-  },
-  {
-    "@id": "CompositeTrigger",
-    "@inherits": "Trigger",
-    "@type": "Class",
-    "mode": "CompositeMode",
-    "operands": {
-      "@class": "Trigger",
-      "@type": "Set"
-    }
-  },
-  {
-    "@id": "ContextTrigger",
-    "@inherits": "Trigger",
-    "@type": "Class",
-    "context": "Context"
-  },
-  {
-    "@id": "EventTrigger",
-    "@inherits": "Trigger",
-    "@type": "Class",
-    "event": "EventKind",
-    "subject": {
-      "@class": "Source",
-      "@type": "Optional"
-    },
-    "subject_class": {
-      "@class": "xsd:string",
-      "@type": "Optional"
-    }
-  },
-  {
-    "@id": "RelativeTrigger",
-    "@inherits": "Trigger",
-    "@type": "Class",
-    "anchor": "Remindable",
-    "offset": "xsd:duration"
-  },
-  {
-    "@id": "ScheduleTrigger",
-    "@inherits": "Trigger",
-    "@type": "Class",
-    "dtstart": "xsd:dateTime",
-    "rrule": "xsd:string",
-    "timezone": {
-      "@class": "xsd:string",
-      "@type": "Optional"
-    }
-  },
-  {
-    "@id": "OneShotTrigger",
-    "@inherits": "Trigger",
-    "@type": "Class",
-    "fire_at": "xsd:dateTime"
-  },
-  {
-    "@id": "CompositeMode",
-    "@type": "Enum",
-    "@value": [
-      "and",
-      "or",
-      "not"
-    ]
-  },
-  {
-    "@id": "EventKind",
-    "@type": "Enum",
-    "@value": [
-      "created",
-      "updated",
-      "completed",
-      "status_changed"
-    ]
-  },
-  {
-    "@id": "FiringStatus",
-    "@type": "Enum",
-    "@value": [
-      "pending",
-      "notified",
-      "acknowledged",
-      "snoozed",
-      "expired"
-    ]
-  },
-  {
-    "@id": "TriggerFiring",
-    "@type": "Class",
-    "@key": {
-      "@type": "Lexical",
-      "@fields": ["trigger", "occurrence_key"]
-    },
-    "trigger": "Trigger",
-    "occurrence_key": "xsd:string",
-    "scheduled_for": "xsd:dateTime",
-    "fired_at": "xsd:dateTime",
-    "status": "FiringStatus",
-    "subject": {
-      "@class": "xsd:string",
-      "@type": "Optional"
-    },
-    "acknowledged_at": {
-      "@class": "xsd:dateTime",
-      "@type": "Optional"
-    },
-    "snoozed_until": {
-      "@class": "xsd:dateTime",
-      "@type": "Optional"
-    }
-  }
+  {"@abstract": [], "@id": "Trigger", "@inherits": "Entity", "@type": "Class",
+   "@documentation": {"@comment": "Abstract base for all trigger types. After a firing is notified, re-notify every renotify_every up to max_renotifications; expire the firing expire_after past its scheduled_for."},
+   "name": "xsd:string",
+   "enabled": "xsd:boolean",
+   "valid_from": {"@class": "xsd:dateTime", "@type": "Optional"},
+   "valid_until": {"@class": "xsd:dateTime", "@type": "Optional"},
+   "renotify_every": {"@class": "xsd:duration", "@type": "Optional"},
+   "max_renotifications": {"@class": "xsd:integer", "@type": "Optional"},
+   "expire_after": {"@class": "xsd:duration", "@type": "Optional"}},
+  {"@abstract": [], "@id": "Triggerable", "@type": "Class",
+   "@documentation": {"@comment": "Things that own a trigger. The trigger\u2194owner binding is modeled, not discovered by reverse search."},
+   "trigger": {"@class": "Trigger", "@type": "Optional"}},
+  {"@id": "OneShotTrigger", "@inherits": "Trigger", "@type": "Class",
+   "@documentation": {"@comment": "Fires exactly once at a specific instant."},
+   "fire_at": "xsd:dateTime"},
+  {"@id": "ScheduleTrigger", "@inherits": "Trigger", "@type": "Class",
+   "@documentation": {"@comment": "Fires on a recurring schedule defined by an RFC 5545 RRULE."},
+   "dtstart": "xsd:dateTime",
+   "rrule": "xsd:string",
+   "timezone": {"@class": "xsd:string", "@type": "Optional"}},
+  {"@id": "RelativeTrigger", "@inherits": "Trigger", "@type": "Class",
+   "@documentation": {"@comment": "Fires at an offset from the anchor instant of an Anchored entity."},
+   "anchor": "Anchored",
+   "offset": "xsd:duration"},
+  {"@id": "EventTrigger", "@inherits": "Trigger", "@type": "Class",
+   "@documentation": {"@comment": "Fires on change-feed events. field/to_value filter status_changed events."},
+   "event": "EventKind",
+   "subject": {"@class": "Entity", "@type": "Optional"},
+   "subject_class": {"@class": "xsd:string", "@type": "Optional"},
+   "field": {"@class": "xsd:string", "@type": "Optional"},
+   "to_value": {"@class": "xsd:string", "@type": "Optional"}},
+  {"@id": "CompositeTrigger", "@inherits": "Trigger", "@type": "Class",
+   "@documentation": {"@comment": "Combines multiple triggers. any = union of operand occurrence instants; all = coincidence of all operands within window."},
+   "mode": "CompositeMode",
+   "operands": {"@class": "Trigger", "@type": "Set"},
+   "window": {"@class": "xsd:duration", "@type": "Optional"}},
+  {"@id": "TriggerFiring", "@inherits": "Entity", "@type": "Class",
+   "@key": {"@type": "Lexical", "@fields": ["trigger", "occurrence_key"]},
+   "@documentation": {"@comment": "Record of a single trigger occurrence: scheduling, delivery, acknowledgement, and nag tracking."},
+   "trigger": "Trigger",
+   "occurrence_key": "xsd:string",
+   "scheduled_for": "xsd:dateTime",
+   "fired_at": "xsd:dateTime",
+   "status": "FiringStatus",
+   "subject": {"@class": "Triggerable", "@type": "Optional"},
+   "acknowledged_at": {"@class": "xsd:dateTime", "@type": "Optional"},
+   "snoozed_until": {"@class": "xsd:dateTime", "@type": "Optional"},
+   "last_notified_at": {"@class": "xsd:dateTime", "@type": "Optional"},
+   "notification_count": {"@class": "xsd:integer", "@type": "Optional"}},
+  {"@id": "CompositeMode", "@type": "Enum",
+   "@documentation": {"@comment": "How CompositeTrigger operands are combined."},
+   "@value": ["any", "all"]},
+  {"@id": "EventKind", "@type": "Enum",
+   "@documentation": {"@comment": "Types of change-feed events an EventTrigger can react to."},
+   "@value": ["created", "updated", "completed", "status_changed"]},
+  {"@id": "FiringStatus", "@type": "Enum",
+   "@documentation": {"@comment": "Lifecycle of a trigger firing from scheduling through expiry."},
+   "@value": ["pending", "notified", "acknowledged", "snoozed", "expired"]}
 ]

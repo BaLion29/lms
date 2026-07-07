@@ -1,52 +1,48 @@
 [
-  {
-    "@abstract": [],
-    "@id": "Remindable",
-    "@type": "Class"
-  },
-  {
-    "@abstract": [],
-    "@id": "Source",
-    "@type": "Class"
-  },
-  {
-    "@abstract": [],
-    "@id": "Context",
-    "@type": "Class"
-  },
-  {
-    "@id": "ExternalRef",
-    "@type": "Class",
-    "@subdocument": [],
-    "@key": {"@type": "Random"},
-    "system": "xsd:string",
-    "external_id": "xsd:string",
-    "url": {"@class": "xsd:string", "@type": "Optional"},
-    "version": {"@class": "xsd:string", "@type": "Optional"},
-    "last_synced_at": {"@class": "xsd:dateTime", "@type": "Optional"}
-  },
-  {
-    "@id": "SchemaModule",
-    "@type": "Class",
-    "@key": {
-      "@type": "Lexical",
-      "@fields": ["name"]
-    },
-    "name": "xsd:string",
-    "version": "xsd:string",
-    "checksum": "xsd:string",
-    "installed_at": "xsd:dateTime"
-  },
-  {
-    "@id": "SchemaMigration",
-    "@type": "Class",
-    "@key": {
-      "@type": "Lexical",
-      "@fields": ["module", "filename"]
-    },
-    "module": "xsd:string",
-    "filename": "xsd:string",
-    "checksum": "xsd:string",
-    "applied_at": "xsd:dateTime"
-  }
+  {"@abstract": [], "@id": "Entity", "@type": "Class",
+   "@documentation": {"@comment": "Universal base for every domain document in the graph. Carries audit timestamps, provenance, context tagging, and external identity. Registry meta-classes (SchemaModule, SchemaMigration) are deliberately outside this grammar."},
+   "created_at": "xsd:dateTime",
+   "updated_at": "xsd:dateTime",
+   "provenance": {"@class": "Provenance", "@type": "Optional"},
+   "contexts": {"@class": "Context", "@type": "Set"},
+   "external_refs": {"@class": "ExternalRef", "@type": "Set"}},
+  {"@abstract": [], "@id": "Source", "@type": "Class",
+   "@documentation": {"@comment": "Role marker: things other things can be derived from (notes, audio, routines, entities that beget)."}},
+  {"@abstract": [], "@id": "Context", "@type": "Class",
+   "@documentation": {"@comment": "Role marker: things other things can be tagged/classified with (locations, projects, areas)."}},
+  {"@abstract": [], "@id": "Remindable", "@type": "Class",
+   "@documentation": {"@comment": "Role marker: things reminders and triggers can attach to."}},
+  {"@abstract": [], "@id": "Anchored", "@type": "Class",
+   "@documentation": {"@comment": "Role marker: things with a canonical temporal instant. Extensions set anchor_at alongside their domain vocabulary (due_date, start_datetime) to declare their canonical instant."},
+   "anchor_at": {"@class": "xsd:dateTime", "@type": "Optional"}},
+  {"@id": "Provenance", "@type": "Class", "@subdocument": [], "@key": {"@type": "Random"},
+   "@documentation": {"@comment": "How this document came to exist. AI acts, never invisibly: source, agent, timestamp, method, and confidence travel together."},
+   "source": {"@class": "Source", "@type": "Optional"},
+   "agent": "xsd:string",
+   "at": "xsd:dateTime",
+   "method": {"@class": "xsd:string", "@type": "Optional"},
+   "confidence": {"@class": "xsd:decimal", "@type": "Optional"}},
+  {"@id": "ExternalRef", "@type": "Class", "@subdocument": [], "@key": {"@type": "ValueHash"},
+   "@documentation": {"@comment": "Link to the same entity in an external system."},
+   "system": "xsd:string",
+   "external_id": "xsd:string",
+   "url": {"@class": "xsd:string", "@type": "Optional"},
+   "version": {"@class": "xsd:string", "@type": "Optional"},
+   "last_synced_at": {"@class": "xsd:dateTime", "@type": "Optional"}},
+  {"@id": "SchemaModule", "@type": "Class",
+   "@key": {"@type": "Lexical", "@fields": ["name"]},
+   "@documentation": {"@comment": "Registry record for an installed schema module, keyed by name. Tracks origin and version for the composer."},
+   "name": "xsd:string",
+   "version": "xsd:string",
+   "checksum": "xsd:string",
+   "installed_at": "xsd:dateTime",
+   "origin": "xsd:string",
+   "description": {"@class": "xsd:string", "@type": "Optional"}},
+  {"@id": "SchemaMigration", "@type": "Class",
+   "@key": {"@type": "Lexical", "@fields": ["module", "filename"]},
+   "@documentation": {"@comment": "Registry record for an applied schema migration, keyed by module and filename. Tracks which migrations have been applied to a database."},
+   "module": "xsd:string",
+   "filename": "xsd:string",
+   "checksum": "xsd:string",
+   "applied_at": "xsd:dateTime"}
 ]

@@ -19,7 +19,6 @@ from firnline_core.plugins import (
 from queryd.app import create_app, _collect_plugin_tools
 from queryd.settings import Settings
 from firnline_ext_planning.tools import plugin as _planning_plugin
-from firnline_ext_reminders.tools import plugin as _reminder_plugin
 
 # ---------------------------------------------------------------------------
 # Helpers

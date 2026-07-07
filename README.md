@@ -51,10 +51,12 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `services/indexed/` | Search index sidecar: entity and schema lookup over TerminusDB (SQLite + embeddings) |
 | `services/queryd/` | Conversational agent API (`POST /v1/chat`) |
 | `services/triggerd/` | Trigger evaluation daemon (poll → evaluate → insert TriggerFiring) |
+| `services/notifyd/` | Notification delivery daemon (pending firing → channel delivery → nag policy) |
 | `services/webui/` | Reflex WebUI: capture, inbox, generic browser, health, modules |
-| `extensions/` | Six first-party extensions (inbox, people, places, planning, reminders, routines) |
-| `schema/modules/core/` | Kernel schema module (markers, registry, conventions) |
+| `extensions/` | Six first-party extensions (gotify, people, places, planning, reminders, routines) |
+| `schema/modules/core/` | Kernel schema module (Entity, markers, registry, provenance) |
 | `schema/modules/triggers/` | Kernel schema module (abstract Trigger and concrete trigger types) |
+| `schema/modules/inbox/` | Kernel schema module (InboxNote, InboxAudio) |
 | `docker/` | Entrypoint script for extension overlay management |
 | `compose.yaml` | Docker Compose deployment (external TerminusDB) |
 | `compose.bundled-tdb.yaml` | Overlay adding a bundled TerminusDB v12 container |

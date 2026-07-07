@@ -1,6 +1,6 @@
 [project]
 name = "indexed"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "Firnline precision grounding service — mirrors TerminusDB documents and schema into a hybrid vector+lexical index for drift-resistant LLM queries"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }

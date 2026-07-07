@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -50,6 +52,42 @@ class TdbError(Exception):
 
     def __str__(self) -> str:
         return f"TdbError({self.status}): {self.body}"
+
+
+class TdbConflictError(TdbError):
+    """Raised when an optimistic-concurrency check fails.
+
+    The *body* contains both the expected and actual head identifiers.
+    """
+
+    def __init__(self, expected: str, actual: str) -> None:
+        self.expected = expected
+        self.actual = actual
+        msg = f"Conflict: expected head '{expected}', actual head '{actual}'"
+        super().__init__(status=409, body=msg)
+
+
+@dataclass
+class ChangeEvent:
+    """A single commit event in a TerminusDB change feed.
+
+    Fields:
+        commit_id: The commit identifier.
+        author: Commit author.
+        message: Commit message.
+        timestamp: POSIX timestamp (if available).
+        inserted: Document IRIs that were inserted in this commit.
+        updated: Document IRIs that were updated in this commit.
+        deleted: Document IRIs that were deleted in this commit.
+    """
+
+    commit_id: str
+    author: str
+    message: str
+    timestamp: float | None = None
+    inserted: list[str] = field(default_factory=list)
+    updated: list[str] = field(default_factory=list)
+    deleted: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -172,13 +210,25 @@ class TdbClient:
         message: str = "ingestd",
         *,
         author: str = "ingestd",
+        expected_head: str | None = None,
     ) -> None:
         """Replace a single document (must contain ``@id``).
 
         Raises ``ValueError`` if *doc* is missing ``@id``.
+
+        When *expected_head* is provided, the current branch head is
+        checked first — a ``TdbConflictError`` is raised if it differs.
+        **Note:** this is best-effort optimistic concurrency (race window
+        between check and write), not a true CAS.
         """
         if not doc.get("@id"):
             raise ValueError("Document must contain '@id' for replace")
+
+        if expected_head is not None:
+            actual_head = await self.get_branch_head(branch)
+            if actual_head != expected_head:
+                raise TdbConflictError(expected_head, actual_head)
+
         response = await self._client.put(
             self._doc_path(branch),
             params={
@@ -402,6 +452,189 @@ class TdbClient:
     async def get_documents_by_status(
         self, type_: str, status: str, branch: str = "main"
     ) -> list[dict[str, Any]]:
-        """Fetch *type_* documents on *branch* and filter by ``status`` in Python."""
-        docs = await self.get_documents(type_, branch=branch)
-        return [d for d in docs if d.get("status") == status]
+        """Fetch *type_* documents on *branch* where ``status`` matches.
+
+        Uses the TerminusDB document API's ``query`` parameter for server-side
+        template filtering, avoiding client-side filtering of all documents.
+        """
+        response = await self._client.get(
+            self._doc_path(branch),
+            params={
+                "graph_type": "instance",
+                "type": type_,
+                "as_list": "true",
+                "query": json.dumps({"@type": type_, "status": status}),
+            },
+        )
+        await self._raise_on_error(response)
+        return response.json()  # type: ignore[no-any-return]
+
+    # ------------------------------------------------------------------
+    # Change feed
+    # ------------------------------------------------------------------
+
+    async def changes_since(
+        self,
+        commit_id: str | None,
+        branch: str = "main",
+        *,
+        limit: int | None = None,
+    ) -> tuple[list[ChangeEvent], str]:
+        """Return change events after *commit_id*, plus the new head.
+
+        Reads the commit log via ``get_branch_log`` (newest-first) and for
+        each new commit (oldest→newest) calls the TerminusDB diff API
+        (``POST /api/diff``) to classify changed documents into inserted,
+        updated, or deleted.
+
+        If *commit_id* is ``None``, returns ``([], current_head)`` —
+        callers should use this to baseline before polling.
+
+        Raises ``TdbError`` if any diff endpoint call fails.
+        """
+        current_head = await self.get_branch_head(branch)
+
+        if commit_id is None:
+            return ([], current_head)
+
+        if commit_id == current_head:
+            return ([], current_head)
+
+        # Fetch commit log and collect newer commits (newest-first from API).
+        log_entries = await self.get_branch_log(branch)
+        if limit is not None:
+            log_entries = log_entries[:limit]
+
+        # Find the cutoff: filter to entries after commit_id
+        newer: list[dict[str, Any]] = []
+        found = False
+        for entry in log_entries:
+            ident = str(entry.get("identifier", ""))
+            if ident == commit_id:
+                found = True  # noqa: F841
+                break
+            newer.append(entry)
+
+        # Reverse to oldest→newest order
+        newer.reverse()
+
+        events: list[ChangeEvent] = []
+        for i, entry in enumerate(newer):
+            ident = str(entry.get("identifier", ""))
+            author = str(entry.get("author", ""))
+            message = str(entry.get("message", ""))
+            timestamp_str = entry.get("timestamp")
+            timestamp: float | None = None
+            if timestamp_str is not None:
+                try:
+                    ts = timestamp_str
+                    if isinstance(ts, str):
+                        if ts.endswith("Z"):
+                            ts = ts[:-1] + "+00:00"
+                        from datetime import datetime as _dt
+                        timestamp = _dt.fromisoformat(ts).timestamp()
+                    elif isinstance(ts, (int, float)):
+                        timestamp = float(ts)
+                except (ValueError, TypeError):
+                    timestamp = None
+
+            inserted, updated, deleted = await self._diff_commit(
+                branch, entry, newer, i, log_entries
+            )
+
+            events.append(
+                ChangeEvent(
+                    commit_id=ident,
+                    author=author,
+                    message=message,
+                    timestamp=timestamp,
+                    inserted=inserted,
+                    updated=updated,
+                    deleted=deleted,
+                )
+            )
+
+        return (events, current_head)
+
+    async def _diff_commit(
+        self,
+        branch: str,
+        entry: dict[str, Any],
+        newer_entries: list[dict[str, Any]],
+        index: int,
+        all_entries: list[dict[str, Any]],
+    ) -> tuple[list[str], list[str], list[str]]:
+        """Diff *entry* against its parent commit via POST /api/diff.
+
+        Returns (inserted, updated, deleted) lists of document @ids.
+        """
+        ident = str(entry.get("identifier", ""))
+
+        # Determine parent commit identifier.
+        # The parent is the entry immediately after this one in the
+        # full (newest-first) log, OR the next entry in newer_entries
+        # (since newer_entries is oldest-first, the next entry after
+        # this one in the full log is the prev entry in full log).
+        parent_ident: str | None = None
+        # Try to find in the full log (newest-first)
+        for i_ent, log_entry in enumerate(all_entries):
+            if str(log_entry.get("identifier", "")) == ident and i_ent + 1 < len(all_entries):
+                parent_ident = str(all_entries[i_ent + 1].get("identifier", ""))
+                break
+
+        if parent_ident is None:
+            # Fallback: if the entry is not the last in newer_entries,
+            # the next entry (older, further along) might be the parent
+            if index + 1 < len(newer_entries):
+                parent_ident = str(newer_entries[index + 1].get("identifier", ""))
+
+        inserted: list[str] = []
+        updated: list[str] = []
+        deleted: list[str] = []
+
+        if parent_ident is None:
+            # First commit in the range — no parent to diff against.
+            return (inserted, updated, deleted)
+
+        before_descriptor = f"{self.org}/{self.db}/local/commit/{parent_ident}"
+        after_descriptor = f"{self.org}/{self.db}/local/commit/{ident}"
+
+        try:
+            response = await self._client.post(
+                f"/api/diff/{self.org}/{self.db}",
+                json={
+                    "before_data_version": before_descriptor,
+                    "after_data_version": after_descriptor,
+                    "document_id": "",
+                    "keep": {"@id": "", "@type": ""},
+                },
+            )
+            await self._raise_on_error(response)
+            patches = response.json()
+        except TdbError:
+            raise
+
+        # The diff API may return a dict with patches or a list of patches.
+        patch_list: list[dict[str, Any]] = []
+        if isinstance(patches, dict):
+            patch_list = patches.get("patch", patches.get("patches", []))
+            if not isinstance(patch_list, list):
+                patch_list = [patches] if patches else []
+        elif isinstance(patches, list):
+            patch_list = patches
+
+        for patch in patch_list:
+            if not isinstance(patch, dict):
+                continue
+            op = patch.get("op", patch.get("@op", ""))
+            doc_id = patch.get("@id", patch.get("id", patch.get("document", "")))
+            if not doc_id:
+                continue
+            if op in ("Insert", "insert", "Create", "create"):
+                inserted.append(str(doc_id))
+            elif op in ("Replace", "replace", "Update", "update"):
+                updated.append(str(doc_id))
+            elif op in ("Delete", "delete"):
+                deleted.append(str(doc_id))
+
+        return (inserted, updated, deleted)

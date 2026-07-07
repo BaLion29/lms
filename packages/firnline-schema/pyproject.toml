@@ -1,6 +1,6 @@
 [project]
 name = "firnline-schema"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "Schema toolchain CLI: compose, diff, apply, codegen"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }

@@ -13,12 +13,12 @@ import structlog
 
 from pydantic_ai import RunContext, Tool
 
-from firnline_core.models import (
-    Reminder,
-)
+from firnline_core.models import Provenance
 from firnline_core.tdb import TdbError, short_iri
 from firnline_core.plugins import ModuleRequirement
-from firnline_core.tooling import traced, now_utc_str
+from firnline_core.tooling import traced
+
+from firnline_ext_reminders.models import Reminder
 
 log = structlog.get_logger()
 
@@ -105,6 +105,7 @@ async def create_reminder(
         refers_to=refers_to,
         created_at=now_dt,
         updated_at=now_dt,
+        provenance=Provenance(agent="queryd", method="tool_call", source=None, at=now_dt),
     )
     doc = reminder.to_tdb()
 
@@ -133,7 +134,7 @@ class ReminderToolsPlugin:
     """Queryd write-tool plugin for reminder operations."""
 
     name: str = "reminder_tools"
-    requires: list[ModuleRequirement] = [ModuleRequirement(name="reminders", range=">=1.0.0 <2.0.0")]
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="reminders", range=">=0.1.0 <0.2.0")]
 
     def tools(self, deps: Any) -> list[Tool]:
         """Return pydantic-ai Tool objects for reminder write operations."""
