@@ -107,7 +107,7 @@ def doc_preview(doc: dict, limit: int = 120) -> str:
 
 def row_from_doc(doc: dict[str, Any], fields: list[str]) -> dict[str, str]:
     """Build a display‑ready row dict from *doc*, stringifying *fields*."""
-    result: dict[str, str] = {}
+    result: dict[str, str] = {"@id": _stringify(doc.get("@id"))}
     for field in fields:
         raw = doc.get(field)
         result[field] = _stringify(raw)

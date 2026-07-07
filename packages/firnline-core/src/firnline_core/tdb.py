@@ -18,6 +18,8 @@ def short_iri(iri: str) -> str:
 
     Passes through if already short (no prefix).
     """
+    if iri is None:
+        raise ValueError("iri must not be None")
     if iri.startswith(PREFIX):
         return iri[len(PREFIX) :]
     return iri

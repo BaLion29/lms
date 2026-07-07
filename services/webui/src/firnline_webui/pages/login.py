@@ -17,8 +17,14 @@ def login_page() -> rx.Component:
             rx.vstack(
                 # Wordmark
                 rx.hstack(
-                    rx.icon(tag="snowflake", size=22, color=rx.color("accent", 9)),
-                    rx.text("firnline", size="4", weight="bold", color=rx.color("accent", 9)),
+                    rx.center(
+                        rx.icon(tag="mountain_snow", size=20, color="white"),
+                        background=rx.color("accent", 9),
+                        border_radius="10px",
+                        width="40px",
+                        height="40px",
+                    ),
+                    rx.text("firnline", size="5", weight="bold"),
                     spacing="2",
                     align="center",
                 ),
@@ -34,15 +40,14 @@ def login_page() -> rx.Component:
                             placeholder="Password",
                             width="100%",
                             auto_focus=True,
+                            size="3",
                         ),
                         rx.button(
                             "Log in",
                             type="submit",
                             width="100%",
-                            color_scheme="violet",
-                            disabled=rx.cond(
-                                AuthState.password_input == "", True, False  # type: ignore[arg-type]
-                            ),
+                            size="3",
+                            disabled=(AuthState.password_input == ""),
                         ),
                         spacing="3",
                         width="100%",
@@ -66,14 +71,17 @@ def login_page() -> rx.Component:
                         width="100%",
                     ),
                 ),
-                spacing="4",
+                spacing="5",
                 width="100%",
-                padding="2",
+                padding="3",
             ),
             size="3",
             max_width="380px",
             width="100%",
+            box_shadow="0 4px 12px rgba(0,0,0,0.08), 0 12px 32px rgba(0,0,0,0.06)",
+            border=f"1px solid {rx.color('gray', 4)}",
         ),
         min_height="100vh",
         width="100%",
+        background=f"radial-gradient(ellipse at top, {rx.color('accent', 3)}, {rx.color('gray', 1)} 60%)",
     )

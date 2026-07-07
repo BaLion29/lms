@@ -228,7 +228,7 @@ The compose file additionally uses:
 | Variable | Default | Description |
 |---|---|---|
 | `WEBUI_HOST_PORT` | `3000` | Host port mapped to the container's port 3000 |
-| `WEBUI_API_URL` | (empty) | Frontend API URL override (maps to `REFLEX_API_URL`) |
+| `WEBUI_API_URL` | `http://localhost:3000` | Browser-facing URL (maps to `REFLEX_API_URL` — must be absolute) |
 
 ## Bundled TerminusDB overlay
 

@@ -34,14 +34,29 @@ def home_page() -> rx.Component:
     """Dashboard page."""
     return shell(
         rx.vstack(
-            # Greeting
-            rx.vstack(
-                rx.heading("Welcome to Firnline", size="6"),
-                rx.text("Personal data capture, indexing, and browsing system.", size="2", color_scheme="gray"),
-                spacing="2",
-                margin_bottom="6",
+            # Hero row
+            rx.hstack(
+                rx.center(
+                    rx.icon(tag="mountain_snow", size=20, color=rx.color("accent", 11)),
+                    background=rx.color("accent", 3),
+                    border_radius="10px",
+                    width="40px",
+                    height="40px",
+                ),
+                rx.vstack(
+                    rx.heading("Welcome to Firnline", size="6"),
+                    rx.text(
+                        "Personal data capture, indexing, and browsing system.",
+                        size="2",
+                        color_scheme="gray",
+                    ),
+                    spacing="0",
+                ),
+                spacing="3",
+                align="center",
+                margin_bottom="4",
             ),
-            # Service health grid + quick capture
+            # Service health grid
             rx.grid(
                 _service_health(
                     "Captured",
@@ -61,32 +76,47 @@ def home_page() -> rx.Component:
                     HealthState.indexed_version,
                     HealthState.indexed_terminusdb,
                 ),
-                # Quick capture card
-                rx.card(
-                    rx.hstack(
-                        rx.icon(tag="pencil_line", size=18, color=rx.color("accent", 9)),
+                columns=rx.breakpoints(initial="1", md="3"),
+                spacing="4",
+                width="100%",
+            ),
+            # Quick capture card
+            rx.card(
+                rx.hstack(
+                    rx.icon(tag="pencil_line", size=18, color=rx.color("accent", 11)),
+                    rx.vstack(
                         rx.heading("Quick Capture", size="4"),
-                        align="center",
+                        rx.text(
+                            "Send a note or file to the capture pipeline.",
+                            size="2",
+                            color_scheme="gray",
+                        ),
+                        spacing="1",
                     ),
-                    rx.text(
-                        "Send a note or file to the capture pipeline.", size="2", color_scheme="gray", margin_top="2"
-                    ),
+                    rx.spacer(),
                     rx.link(
-                        rx.button("Open Capture", size="2", margin_top="2"),
+                        rx.button("Open Capture", size="2", color_scheme="cyan"),
                         href="/capture",
                     ),
-                    size="2",
+                    spacing="3",
+                    align="center",
+                    width="100%",
                 ),
-                columns="2",
-                spacing="4",
+                background=rx.color("accent", 2),
+                border=f"1px solid {rx.color('accent', 5)}",
+                size="2",
                 width="100%",
             ),
             # Schema modules summary
             rx.card(
                 rx.heading("Schema Modules", size="4", margin_bottom="3"),
-                rx.foreach(
-                    ModulesState.modules,
-                    lambda m: chip(m["name"], "violet"),
+                rx.flex(
+                    rx.foreach(
+                        ModulesState.modules,
+                        lambda m: chip(m["name"], "cyan"),
+                    ),
+                    wrap="wrap",
+                    gap="1",
                 ),
                 rx.text(
                     "Visit the Modules page to load and inspect schema modules.",
@@ -99,9 +129,8 @@ def home_page() -> rx.Component:
                     href="/modules",
                 ),
                 size="2",
-                margin_top="4",
             ),
-            spacing="4",
+            spacing="5",
             width="100%",
         ),
         active="home",

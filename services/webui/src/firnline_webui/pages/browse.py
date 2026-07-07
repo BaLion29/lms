@@ -16,28 +16,39 @@ from firnline_webui.ui.nav import shell
 def _module_card(name: str, version: str, class_ids: list[str]) -> rx.Component:
     return rx.card(
         rx.hstack(
+            rx.center(
+                rx.icon(tag="box", size=14, color=rx.color("accent", 11)),
+                background=rx.color("accent", 3),
+                border_radius="8px",
+                width="28px",
+                height="28px",
+            ),
             rx.text(name, size="3", weight="medium"),
+            rx.spacer(),
             rx.cond(
-                rx.Var.create(version != ""),
-                chip(rx.Var.create(version), "violet"),
+                version != "",
+                chip(version, "cyan"),
             ),
             spacing="2",
             align="center",
             margin_bottom="2",
         ),
-        rx.hstack(
+        rx.flex(
             rx.foreach(
                 rx.Var.create(class_ids),
                 lambda cid: rx.link(
-                    rx.badge(cid, variant="soft", color_scheme="blue", cursor="pointer"),
+                    rx.badge(cid, variant="surface", color_scheme="cyan", cursor="pointer", size="2"),
                     href=f"/browse/{cid}",
                 ),
             ),
-            spacing="1",
             wrap="wrap",
+            gap="2",
         ),
         size="2",
         width="100%",
+        box_shadow="0 1px 2px rgba(0,0,0,0.04)",
+        _hover={"box_shadow": "0 2px 4px rgba(0,0,0,0.06), 0 4px 8px rgba(0,0,0,0.08)"},
+        transition="box-shadow 0.2s ease",
     )
 
 
@@ -73,7 +84,7 @@ def browse_page() -> rx.Component:
                     rx.text("No browsable classes found in schema.", size="2", color_scheme="gray"),
                 ),
             ),
-            spacing="4",
+            spacing="5",
             width="100%",
         ),
         active="browse",
@@ -177,6 +188,7 @@ def _class_table() -> rx.Component:
                         ),
                         cursor="pointer",
                         _hover={"bg": rx.color("accent", 2)},
+                        _odd={"background": rx.color("gray", 2)},
                         on_click=BrowseClassState.select(row["@id"]),  # type: ignore[index]
                     ),
                 ),
@@ -205,7 +217,12 @@ def browse_class_page() -> rx.Component:
             rx.hstack(
                 rx.hstack(
                     rx.link(
-                        rx.icon(tag="arrow_left", size=18),
+                        rx.icon_button(
+                            rx.icon(tag="arrow_left", size=16),
+                            variant="ghost",
+                            color_scheme="gray",
+                            size="1",
+                        ),
                         href="/browse",
                     ),
                     rx.heading(
@@ -253,18 +270,19 @@ def browse_class_page() -> rx.Component:
             # Table with pagination
             rx.cond(
                 (~BrowseClassState.loading) & (BrowseClassState.error == "") & (~BrowseClassState.not_found),
-                rx.vstack(
-                    rx.cond(
-                        BrowseClassState.total_count > 0,
-                        _pagination_bar(),
-                    ),
-                    rx.cond(
-                        BrowseClassState.paged_rows.length() > 0,
+                rx.cond(
+                    BrowseClassState.paged_rows.length() > 0,
+                    rx.card(
                         _class_table(),
-                        rx.text("No documents found for this class.", size="2", color_scheme="gray"),
+                        rx.divider(),
+                        rx.cond(
+                            BrowseClassState.total_count > 0,
+                            _pagination_bar(),
+                        ),
+                        size="2",
+                        width="100%",
                     ),
-                    spacing="3",
-                    width="100%",
+                    rx.text("No documents found for this class.", size="2", color_scheme="gray"),
                 ),
             ),
             # Detail drawer
@@ -274,7 +292,7 @@ def browse_class_page() -> rx.Component:
                 iri_var=iri_var,
                 on_close=BrowseClassState.clear_selection,
             ),
-            spacing="4",
+            spacing="5",
             width="100%",
         ),
         active="browse",

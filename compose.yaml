@@ -324,7 +324,7 @@ services:
       WEBUI_TDB_USER: ${TDB_USER:-admin}
       WEBUI_TDB_PASSWORD: ${TDB_PASSWORD:?}
       WEBUI_PASSWORD: ${WEBUI_PASSWORD:-}
-      REFLEX_API_URL: ${WEBUI_API_URL:-}
+      REFLEX_API_URL: ${WEBUI_API_URL:-http://localhost:3000}
     restart: unless-stopped
     healthcheck:
       test:

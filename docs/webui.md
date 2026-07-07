@@ -64,8 +64,8 @@ Compose-level variables (not consumed by the Python process, but by
 | Variable | Default | Description |
 |---|---|---|
 | `WEBUI_HOST_PORT` | `3000` | Host port mapped to the container's port 3000 |
-| `WEBUI_API_URL` | (empty) | Maps to `REFLEX_API_URL` — set to `http://your-server:3000` for remote access |
-| `REFLEX_API_URL` | (empty) | Reflex frontend API URL override; empty = same-origin calls |
+| `WEBUI_API_URL` | `http://localhost:3000` | Maps to `REFLEX_API_URL` — set to the browser-facing URL (must be absolute) |
+| `REFLEX_API_URL` | `http://localhost:3000` | Reflex frontend API URL (must be absolute — Reflex parses it with `new URL()`) |
 
 ## Authentication
 
@@ -92,8 +92,8 @@ docker compose up -d webui
 
 The service depends on `captured` and `queryd` (service_started) and exposes
 port `${WEBUI_HOST_PORT:-3000}`. All `WEBUI_*` env vars are populated from the
-shared `.env` file. `REFLEX_API_URL` is set from `WEBUI_API_URL` (empty by
-default, meaning same-origin API calls from the frontend).
+shared `.env` file. `REFLEX_API_URL` defaults to `http://localhost:3000` —
+set `WEBUI_API_URL` in `.env` to the hostname visible in the browser for remote access.
 
 **First boot** takes **~30–60 seconds** — Reflex compiles the Next.js
 frontend at container startup. The healthcheck uses `start_period: 120s` to

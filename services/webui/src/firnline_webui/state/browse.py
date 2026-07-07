@@ -175,6 +175,8 @@ class BrowseClassState(BaseState):
     @rx.event
     async def select(self, doc_id: str):
         """Fetch a single document by IRI and open the detail drawer."""
+        if not doc_id:
+            return
         tdb = _make_tdb()
         try:
             doc = await tdb.get_document(doc_id)

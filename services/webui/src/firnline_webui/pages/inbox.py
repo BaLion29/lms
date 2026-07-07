@@ -20,7 +20,17 @@ def _status_badge(status: str) -> rx.Component:
         "archived": "gray",
     }
     cs = color_map.get(status, "gray")
-    return rx.badge(status, color_scheme=cs, variant="soft", size="1")
+    return rx.badge(
+        rx.hstack(
+            rx.box(width="6px", height="6px", border_radius="50%", background=rx.color(cs, 9)),
+            rx.text(status, size="1"),
+            spacing="1",
+            align="center",
+        ),
+        color_scheme=cs,
+        variant="surface",
+        size="1",
+    )
 
 
 def _filter_chip(label: str, value: str, is_active: rx.Var[bool]) -> rx.Component:
@@ -31,7 +41,7 @@ def _filter_chip(label: str, value: str, is_active: rx.Var[bool]) -> rx.Componen
             spacing="1",
         ),
         variant=rx.cond(is_active, "solid", "soft"),
-        color_scheme="violet",
+        color_scheme="cyan",
         cursor="pointer",
         on_click=InboxState.set_status_filter(value),
     )
@@ -67,12 +77,13 @@ def _inbox_table() -> rx.Component:
                     ),
                     cursor="pointer",
                     _hover={"bg": rx.color("accent", 2)},
+                    _odd={"background": rx.color("gray", 2)},
                     on_click=InboxState.select(row["id"]),
                 ),
             ),
         ),
         variant="surface",
-        size="2",
+        size="3",
         width="100%",
     )
 
@@ -80,7 +91,7 @@ def _inbox_table() -> rx.Component:
 def _empty_state() -> rx.Component:
     return rx.card(
         rx.vstack(
-            rx.icon(tag="inbox", size=32, color=rx.color("gray", 8)),
+            rx.icon(tag="inbox", size=32, color=rx.color("gray", 7)),
             rx.text("No inbox classes found.", size="3", weight="medium"),
             rx.text(
                 "Install an inbox-capable extension to see captured items here.",
@@ -89,7 +100,7 @@ def _empty_state() -> rx.Component:
             ),
             spacing="3",
             align="center",
-            padding="6",
+            padding="8",
         ),
         size="2",
         width="100%",
@@ -128,33 +139,41 @@ def inbox_page() -> rx.Component:
                 InboxState.error != "",
                 rx.callout(InboxState.error, color_scheme="red", size="1"),
             ),
-            # Status filter chips
-            rx.cond(
-                InboxState.available_statuses.length() > 0,
-                rx.hstack(
-                    rx.text("Filter:", size="2", color_scheme="gray"),
-                    _filter_chip("All", "all", InboxState.status_filter == "all"),
-                    rx.foreach(
-                        InboxState.available_statuses,
-                        lambda s: _filter_chip(s, s, InboxState.status_filter == s),
-                    ),
-                    spacing="1",
-                    align="center",
-                    wrap="wrap",
-                ),
-            ),
-            # Table / empty
-            rx.cond(
-                (~InboxState.loading) & (InboxState.error == ""),
-                rx.cond(
-                    InboxState.filtered_rows.length() > 0,
-                    _inbox_table(),
+            # Status filter chips + table in a card
+            rx.card(
+                rx.vstack(
                     rx.cond(
-                        InboxState.rows.length() == 0,
-                        _empty_state(),
-                        rx.text("No items match the selected filter.", size="2", color_scheme="gray"),
+                        InboxState.available_statuses.length() > 0,
+                        rx.hstack(
+                            rx.text("Filter:", size="2", color_scheme="gray"),
+                            _filter_chip("All", "all", InboxState.status_filter == "all"),
+                            rx.foreach(
+                                InboxState.available_statuses,
+                                lambda s: _filter_chip(s, s, InboxState.status_filter == s),
+                            ),
+                            spacing="1",
+                            align="center",
+                            wrap="wrap",
+                        ),
                     ),
+                    # Table / empty
+                    rx.cond(
+                        (~InboxState.loading) & (InboxState.error == ""),
+                        rx.cond(
+                            InboxState.filtered_rows.length() > 0,
+                            _inbox_table(),
+                            rx.cond(
+                                InboxState.rows.length() == 0,
+                                _empty_state(),
+                                rx.text("No items match the selected filter.", size="2", color_scheme="gray"),
+                            ),
+                        ),
+                    ),
+                    spacing="4",
+                    width="100%",
                 ),
+                size="2",
+                width="100%",
             ),
             # Detail drawer (portal, placed at the end of content)
             json_detail_drawer(
@@ -163,7 +182,7 @@ def inbox_page() -> rx.Component:
                 iri_var=iri_var,
                 on_close=InboxState.clear_selection,
             ),
-            spacing="4",
+            spacing="5",
             width="100%",
         ),
         active="inbox",

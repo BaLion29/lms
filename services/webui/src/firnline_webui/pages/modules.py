@@ -12,7 +12,19 @@ from firnline_webui.ui.nav import shell
 def _plugin_section(name: str, plugins_var: rx.Var) -> rx.Component:
     """Card showing a list of plugin names for a service."""
     return rx.card(
-        rx.text(name, size="3", weight="medium", margin_bottom="2"),
+        rx.hstack(
+            rx.center(
+                rx.icon(tag="puzzle", size=14, color=rx.color("accent", 11)),
+                background=rx.color("accent", 3),
+                border_radius="6px",
+                width="26px",
+                height="26px",
+            ),
+            rx.text(name, size="3", weight="medium"),
+            spacing="2",
+            align="center",
+            margin_bottom="2",
+        ),
         rx.cond(
             plugins_var.length() > 0,
             rx.hstack(
@@ -68,29 +80,34 @@ def modules_page() -> rx.Component:
                 (~ModulesState.loading) & (ModulesState.error == ""),
                 rx.cond(
                     ModulesState.modules.length() > 0,
-                    rx.table.root(
-                        rx.table.header(
-                            rx.table.row(
-                                rx.table.column_header_cell("Name"),
-                                rx.table.column_header_cell("Version"),
-                                rx.table.column_header_cell("Description"),
-                                rx.table.column_header_cell("Exports"),
-                                rx.table.column_header_cell("Depends On"),
-                            ),
-                        ),
-                        rx.table.body(
-                            rx.foreach(
-                                ModulesState.modules,
-                                lambda mod: rx.table.row(
-                                    rx.table.cell(rx.text(mod["name"], size="2", weight="medium")),
-                                    rx.table.cell(rx.text(mod["version"], size="2")),
-                                    rx.table.cell(rx.text(mod["description"], size="2")),
-                                    rx.table.cell(rx.text(mod["exports_str"], size="2")),
-                                    rx.table.cell(rx.text(mod["depends_on_str"], size="2")),
+                    rx.card(
+                        rx.table.root(
+                            rx.table.header(
+                                rx.table.row(
+                                    rx.table.column_header_cell("Name"),
+                                    rx.table.column_header_cell("Version"),
+                                    rx.table.column_header_cell("Description"),
+                                    rx.table.column_header_cell("Exports"),
+                                    rx.table.column_header_cell("Depends On"),
                                 ),
                             ),
+                            rx.table.body(
+                                rx.foreach(
+                                    ModulesState.modules,
+                                    lambda mod: rx.table.row(
+                                        rx.table.cell(rx.text(mod["name"], size="2", weight="medium")),
+                                        rx.table.cell(rx.text(mod["version"], size="2")),
+                                        rx.table.cell(rx.text(mod["description"], size="2")),
+                                        rx.table.cell(rx.text(mod["exports_str"], size="2")),
+                                        rx.table.cell(rx.text(mod["depends_on_str"], size="2")),
+                                        _odd={"background": rx.color("gray", 2)},
+                                    ),
+                                ),
+                            ),
+                            variant="surface",
+                            size="2",
+                            width="100%",
                         ),
-                        variant="surface",
                         size="2",
                         width="100%",
                     ),
@@ -104,11 +121,11 @@ def modules_page() -> rx.Component:
                 _plugin_section("Captured", ModulesState.captured_plugins),
                 _plugin_section("Queryd", ModulesState.queryd_plugins),
                 _plugin_section("Indexed", ModulesState.indexed_plugins),
-                columns="3",
+                columns={"initial": "1", "md": "3"},
                 spacing="4",
                 width="100%",
             ),
-            spacing="4",
+            spacing="5",
             width="100%",
         ),
         active="modules",

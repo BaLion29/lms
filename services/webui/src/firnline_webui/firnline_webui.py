@@ -32,24 +32,28 @@ __all__ = ["app"]
 def _api_healthz(app):
     """Add ``GET /healthz`` endpoint returning status and version."""
     from starlette.responses import JSONResponse
+    from starlette.routing import Route
 
     try:
         ver = pkg_version("firnline-webui")
     except Exception:
         ver = "unknown"
 
-    @app.get("/healthz")
-    async def healthz():
+    async def healthz(request):
         return JSONResponse({"status": "ok", "version": ver})
 
+    app.routes.append(Route("/healthz", healthz, methods=["GET"]))
     return app
 
 
 app = rx.App(
     theme=rx.theme(
         appearance="inherit",
-        accent_color="violet",
+        accent_color="cyan",
+        gray_color="slate",
         radius="large",
+        scaling="105%",
+        panel_background="translucent",
     ),
     api_transformer=[_api_healthz],
 )
