@@ -17,6 +17,9 @@ docker compose --profile bootstrap up bootstrap --abort-on-container-exit
 docker compose up -d
 ```
 
+The stack starts on ports 8087 (queryd), 8088 (captured), 8089 (indexed), and
+3000 (WebUI — visit <http://localhost:3000> for the Reflex dashboard).
+
 Then capture a note:
 
 ```bash
@@ -48,6 +51,7 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `services/indexed/` | Search index sidecar: entity and schema lookup over TerminusDB (SQLite + embeddings) |
 | `services/queryd/` | Conversational agent API (`POST /v1/chat`) |
 | `services/triggerd/` | Trigger evaluation daemon (poll → evaluate → insert TriggerFiring) |
+| `services/webui/` | Reflex WebUI: capture, inbox, generic browser, health, modules |
 | `extensions/` | Six first-party extensions (inbox, people, places, planning, reminders, routines) |
 | `schema/modules/core/` | Kernel schema module (markers, registry, conventions) |
 | `schema/modules/triggers/` | Kernel schema module (abstract Trigger and concrete trigger types) |
@@ -66,6 +70,7 @@ All docs live under [`docs/`](docs/) — start with the [index](docs/index.md).
 | [Configuration](docs/configuration.md) | Complete environment variable reference |
 | [Extensions](docs/extensions.md) | Writing and installing extensions: protocols, layout, example |
 | [Operations](docs/operations.md) | Production runbook: backup, schema workflow, rollback |
+| [WebUI](docs/webui.md) | Reflex dashboard: capture, inbox, browsing, health, modules |
 | [TerminusDB Notes](docs/terminusdb-notes.md) | Empirically verified v12 API behaviour |
 | [Vision](docs/vision.md) | Entity model, design decisions, ADHD principles |
 

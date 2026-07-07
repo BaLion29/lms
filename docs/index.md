@@ -19,5 +19,7 @@ graph database — the single source of truth.
   diff/plan/apply, validation, promote, and rollback.
 - **[TerminusDB API Notes](terminusdb-notes.md)** — empirically verified
   TerminusDB v12 API behaviour (schema push, branching, promote, GraphQL).
+- **[WebUI](webui.md)** — Reflex dashboard: capture, inbox, generic browser,
+  service health, and schema module inspection.
 - **[Vision](vision.md)** — entity model, design principles, ADHD-informed
   decisions, and the extensibility promise.

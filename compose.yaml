@@ -298,6 +298,45 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── webui — Reflex-based web UI ───────────────────────────────────────────
+  webui:
+    build:
+      context: .
+      dockerfile: services/webui/Dockerfile
+    image: firnline/webui:local
+    depends_on:
+      captured:
+        condition: service_started
+      queryd:
+        condition: service_started
+    ports:
+      - "${WEBUI_HOST_PORT:-3000}:3000"
+    environment:
+      WEBUI_CAPTURED_URL: http://captured:8088
+      WEBUI_CAPTURED_API_TOKEN: ${CAPTURED_API_TOKEN:?}
+      WEBUI_QUERYD_URL: http://queryd:8087
+      WEBUI_QUERYD_API_TOKEN: ${QUERYD_API_TOKEN:?}
+      WEBUI_INDEXED_URL: http://indexed:8089
+      WEBUI_TDB_URL: ${TDB_URL:?err TDB_URL must be set}
+      WEBUI_TDB_ORG: ${TDB_ORG:-admin}
+      WEBUI_TDB_DB: ${TDB_DB:-firnline}
+      WEBUI_TDB_BRANCH: ${TDB_BRANCH:-main}
+      WEBUI_TDB_USER: ${TDB_USER:-admin}
+      WEBUI_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      WEBUI_PASSWORD: ${WEBUI_PASSWORD:-}
+      REFLEX_API_URL: ${WEBUI_API_URL:-}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:3000/healthz',timeout=5)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
 # ── Volumes ───────────────────────────────────────────────────────────────
 volumes:
   firnline_ext_venv:

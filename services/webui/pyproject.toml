@@ -1,0 +1,37 @@
+[project]
+name = "firnline-webui"
+version = "0.1.0a1"
+description = "Reflex-based web UI for Firnline"
+authors = [
+    { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
+]
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "firnline-core",
+    "reflex>=0.9,<0.10",
+    "httpx",
+    "pydantic>=2",
+    "pydantic-settings>=2",
+]
+
+[tool.uv.sources]
+firnline-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/firnline_webui"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

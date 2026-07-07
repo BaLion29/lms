@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- New `firnline-webui` service — Reflex 0.9.x web dashboard at `services/webui/`.
+  Seven introspection-driven pages: Dashboard, Capture (note + file), Inbox
+  (auto-discovers Inbox* classes), Browse (generic class browser grouped by
+  SchemaModule), Health (per-service healthz + plugin lists), Modules (schema
+  module registry + active plugins), and Login (optional password gate).
+  Plug-and-play design — any current or future firnline extension automatically
+  appears in the UI without code changes.
+- Docker Compose `webui` service block, two-stage Dockerfile, `.env.example`
+  entries (`WEBUI_*`), and Reflex healthcheck with `start_period: 120s`.
 - Triggers schema module relocated from `firnline-ext-reminders` to first-party
   `schema/modules/triggers/`.
 - Triggers module 1.1.0: added `OneShotTrigger`, `TriggerFiring`, `FiringStatus`,

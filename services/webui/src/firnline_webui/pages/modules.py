@@ -1,0 +1,115 @@
+"""Schema Modules page."""
+
+from __future__ import annotations
+
+import reflex as rx
+
+from firnline_webui.state.modules import ModulesState
+from firnline_webui.ui.cards import chip
+from firnline_webui.ui.nav import shell
+
+
+def _plugin_section(name: str, plugins_var: rx.Var) -> rx.Component:
+    """Card showing a list of plugin names for a service."""
+    return rx.card(
+        rx.text(name, size="3", weight="medium", margin_bottom="2"),
+        rx.cond(
+            plugins_var.length() > 0,
+            rx.hstack(
+                rx.foreach(plugins_var, lambda p: chip(p, "blue")),
+                spacing="1",
+                wrap="wrap",
+            ),
+            rx.text("No plugins reported", size="2", color_scheme="gray"),
+        ),
+        size="2",
+    )
+
+
+def modules_page() -> rx.Component:
+    """Schema modules and active plugins page."""
+    return shell(
+        rx.vstack(
+            # Header row
+            rx.vstack(
+                rx.hstack(
+                    rx.heading("Schema Modules", size="6"),
+                    rx.spacer(),
+                    rx.hstack(
+                        rx.cond(
+                            ModulesState.loading,
+                            rx.spinner(size="3"),
+                            rx.text(""),
+                        ),
+                        rx.button(
+                            rx.icon(tag="refresh_cw", size=16),
+                            "Load",
+                            on_click=ModulesState.load,
+                            size="2",
+                            variant="outline",
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
+                    align="center",
+                    width="100%",
+                ),
+                spacing="2",
+                margin_bottom="4",
+            ),
+            # Error message
+            rx.cond(
+                ModulesState.error != "",
+                rx.callout(ModulesState.error, color_scheme="red", size="1", margin_bottom="4"),
+                rx.text(""),
+            ),
+            # Modules table
+            rx.cond(
+                (~ModulesState.loading) & (ModulesState.error == ""),
+                rx.cond(
+                    ModulesState.modules.length() > 0,
+                    rx.table.root(
+                        rx.table.header(
+                            rx.table.row(
+                                rx.table.column_header_cell("Name"),
+                                rx.table.column_header_cell("Version"),
+                                rx.table.column_header_cell("Description"),
+                                rx.table.column_header_cell("Exports"),
+                                rx.table.column_header_cell("Depends On"),
+                            ),
+                        ),
+                        rx.table.body(
+                            rx.foreach(
+                                ModulesState.modules,
+                                lambda mod: rx.table.row(
+                                    rx.table.cell(rx.text(mod["name"], size="2", weight="medium")),
+                                    rx.table.cell(rx.text(mod["version"], size="2")),
+                                    rx.table.cell(rx.text(mod["description"], size="2")),
+                                    rx.table.cell(rx.text(mod["exports_str"], size="2")),
+                                    rx.table.cell(rx.text(mod["depends_on_str"], size="2")),
+                                ),
+                            ),
+                        ),
+                        variant="surface",
+                        size="2",
+                        width="100%",
+                    ),
+                    rx.text("No modules found.", size="2", color_scheme="gray"),
+                ),
+                rx.text(""),
+            ),
+            # Active plugins by service
+            rx.heading("Active Plugins by Service", size="4", margin_top="6", margin_bottom="3"),
+            rx.grid(
+                _plugin_section("Captured", ModulesState.captured_plugins),
+                _plugin_section("Queryd", ModulesState.queryd_plugins),
+                _plugin_section("Indexed", ModulesState.indexed_plugins),
+                columns="3",
+                spacing="4",
+                width="100%",
+            ),
+            spacing="4",
+            width="100%",
+        ),
+        active="modules",
+    )

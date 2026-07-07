@@ -202,6 +202,34 @@ Accepted specifier formats in `FIRNLINE_EXTENSIONS`:
 
 First-party extension wheels are baked into service images at build time.
 
+## webui
+
+Prefixed `WEBUI_`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEBUI_CAPTURED_URL` | `http://captured:8088` | Base URL for the captured service |
+| `WEBUI_CAPTURED_API_TOKEN` | (empty) | Bearer token for captured endpoints (server-side, never exposed to browser) |
+| `WEBUI_QUERYD_URL` | `http://queryd:8087` | Base URL for the queryd service |
+| `WEBUI_QUERYD_API_TOKEN` | (empty) | Bearer token for queryd `/healthz` (server-side) |
+| `WEBUI_INDEXED_URL` | `http://indexed:8089` | Base URL for the indexed service |
+| `WEBUI_INDEXED_API_TOKEN` | (empty) | Bearer token for indexed endpoints (reserved) |
+| `WEBUI_TDB_URL` | `http://terminusdb:6363` | TerminusDB base URL |
+| `WEBUI_TDB_ORG` | `admin` | TerminusDB organisation |
+| `WEBUI_TDB_DB` | `firnline` | TerminusDB database name |
+| `WEBUI_TDB_BRANCH` | `main` | TerminusDB branch |
+| `WEBUI_TDB_USER` | `admin` | TerminusDB username |
+| `WEBUI_TDB_PASSWORD` | (empty) | TerminusDB password |
+| `WEBUI_PASSWORD` | (empty) | Optional UI password gate; empty = open |
+| `WEBUI_REQUEST_TIMEOUT_SECONDS` | `30.0` | HTTP timeout for all backend calls |
+
+The compose file additionally uses:
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEBUI_HOST_PORT` | `3000` | Host port mapped to the container's port 3000 |
+| `WEBUI_API_URL` | (empty) | Frontend API URL override (maps to `REFLEX_API_URL`) |
+
 ## Bundled TerminusDB overlay
 
 | Variable | Default | Description |
