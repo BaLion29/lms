@@ -66,7 +66,7 @@ def test_build_agent_constructs():
 
 
 def test_build_agent_read_tools_only_when_writes_disabled():
-    """With enable_writes=False, only the 4 read tools are registered."""
+    """With enable_writes=False, only the 7 read tools are registered."""
     s = _settings(enable_writes=False)
     agent = build_agent(s)
     tool_names = set(agent._function_toolset.tools.keys())
@@ -75,21 +75,27 @@ def test_build_agent_read_tools_only_when_writes_disabled():
         "graphql_query",
         "get_document",
         "today",
+        "find_entity",
+        "find_class",
+        "find_field",
     }
 
 
-def test_build_agent_all_9_tools_when_writes_enabled():
-    """With enable_writes=True and plugin tools passed, all 9 tools are registered."""
+def test_build_agent_all_12_tools_when_writes_enabled():
+    """With enable_writes=True and plugin tools passed, all 12 tools are registered."""
     s = _settings(enable_writes=True)
     plugin_tools = _planning_plugin.tools(deps=None) + _reminder_plugin.tools(deps=None)
     agent = build_agent(s, tools=_make_all_tools(s, plugin_tools))
     tool_names = set(agent._function_toolset.tools.keys())
-    assert len(tool_names) == 9
+    assert len(tool_names) == 12
     assert tool_names == {
         "get_schema_details",
         "graphql_query",
         "get_document",
         "today",
+        "find_entity",
+        "find_class",
+        "find_field",
         "set_task_status",
         "set_event_status",
         "create_task",
@@ -171,10 +177,7 @@ async def test_dynamic_system_prompt_contains_date_and_briefing():
 # (one per tool call the agent makes, plus the final answer).
 # The FunctionModel we write below will loop through graphql_query calls.
 
-_BUDGET_MSG = (
-    "Tool-call budget exhausted. "
-    "Answer the user now with the information you already have."
-)
+_BUDGET_MSG = "Tool-call budget exhausted. Answer the user now with the information you already have."
 
 
 @pytest.mark.asyncio
@@ -187,9 +190,7 @@ async def test_soft_cap_stops_after_max_tool_iterations(respx_mock):
     # Mock the graphql endpoint so it responds (the tool will be called but
     # the soft cap should kick in before the HTTP call for the (MAX+1)th).
     gql_path = f"{s.tdb_url}/api/graphql/{s.tdb_org}/{s.tdb_db}"
-    respx_mock.post(gql_path).respond(
-        json={"data": {"Task": [{"_id": "Task/1", "name": "test"}]}}
-    )
+    respx_mock.post(gql_path).respond(json={"data": {"Task": [{"_id": "Task/1", "name": "test"}]}})
 
     # Track how many times the FunctionModel was called
     call_count = [0]
@@ -203,9 +204,7 @@ async def test_soft_cap_stops_after_max_tool_iterations(respx_mock):
                 for part in msg.parts:
                     content = getattr(part, "content", "")
                     if isinstance(content, str) and _BUDGET_MSG in content:
-                        return ModelResponse(
-                            parts=[TextPart(content="Final answer: budget exceeded.")]
-                        )
+                        return ModelResponse(parts=[TextPart(content="Final answer: budget exceeded.")])
 
         # Otherwise, call graphql_query
         return ModelResponse(
@@ -247,9 +246,7 @@ async def test_soft_cap_stops_after_max_tool_iterations(respx_mock):
     assert len(deps.trace) >= MAX + 1
 
     # The last trace entry should be the exhausted one
-    exhausted_entries = [
-        e for e in deps.trace if e.output_summary == "budget exhausted"
-    ]
+    exhausted_entries = [e for e in deps.trace if e.output_summary == "budget exhausted"]
     assert len(exhausted_entries) >= 1
 
     await tdb.aclose()

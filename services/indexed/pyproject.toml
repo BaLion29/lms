@@ -1,7 +1,7 @@
 [project]
-name = "firnline-ext-people"
+name = "indexed"
 version = "0.1.0a1"
-description = "Firnline people extension — Person/Contact schema module and entity linking extractors"
+description = "Firnline precision grounding service — mirrors TerminusDB documents and schema into a hybrid vector+lexical index for drift-resistant LLM queries"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
 ]
@@ -9,30 +9,31 @@ requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [
     "firnline-core",
+    "fastapi",
+    "uvicorn",
+    "pydantic>=2",
+    "pydantic-settings",
+    "httpx",
+    "structlog",
 ]
-
-[project.entry-points."firnline.schema_modules"]
-people = "firnline_ext_people"
-
-[project.entry-points."firnline.ingestd.extractors"]
-people_linking = "firnline_ext_people.extract:plugin"
-
-[project.entry-points."firnline.indexed.indexers"]
-people_indexer = "firnline_ext_people.indexer:plugin"
 
 [tool.uv.sources]
 firnline-core = { workspace = true }
+
+[project.scripts]
+indexed = "indexed.main:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/firnline_ext_people"]
+packages = ["src/indexed"]
 
 [dependency-groups]
 dev = [
     "pytest",
+    "pytest-asyncio",
     "ruff",
 ]
 

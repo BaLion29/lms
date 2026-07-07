@@ -56,3 +56,10 @@ class Settings(TdbSettings):
         if port < 0 or port > 65535:
             raise ValueError(f"listen_addr port out of range: {port}")
         return v
+
+    # indexed grounding service
+    indexed_enabled: bool = False
+    indexed_url: str = "http://localhost:8089"
+    indexed_token: str = ""
+    indexed_min_confidence: float = 0.60
+    indexed_timeout_seconds: float = 10.0

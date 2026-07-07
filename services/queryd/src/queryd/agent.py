@@ -37,6 +37,10 @@ Follow these rules:
 - NEVER claim a write succeeded unless a write tool returned ok=true with an IRI.
 - Use the today() tool if unsure about the date.
 - Call get_schema_details when a GraphQL query fails and self-correct.
+- When you need to reference an entity, class, or field, call find_entity /
+  find_class / find_field first to obtain the exact identifier.  Do not guess
+  names — these tools return candidates from the actual database as of the
+  current commit.
 """.strip()
 
 ZURICH = ZoneInfo("Europe/Zurich")

@@ -14,6 +14,9 @@ dependencies = [
 [project.entry-points."firnline.schema_modules"]
 places = "firnline_ext_places"
 
+[project.entry-points."firnline.indexed.indexers"]
+places_indexer = "firnline_ext_places.indexer:plugin"
+
 [tool.uv.sources]
 firnline-core = { workspace = true }
 

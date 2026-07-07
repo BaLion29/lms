@@ -22,6 +22,9 @@ reminder_tools = "firnline_ext_reminders.tools:plugin"
 [project.entry-points."firnline.ingestd.extractors"]
 reminder_extract = "firnline_ext_reminders.extract:plugin"
 
+[project.entry-points."firnline.indexed.indexers"]
+reminders_indexer = "firnline_ext_reminders.indexer:plugin"
+
 [tool.uv.sources]
 firnline-core = { workspace = true }
 

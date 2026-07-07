@@ -339,6 +339,54 @@ class TriggerEvaluator(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# Indexer plugin protocol (indexed service)
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class IndexerPlugin(Protocol):
+    """Protocol for ``indexed`` service indexer plugins.
+
+    Each extension that wants its entities searchable implements this and
+    registers it under ``firnline.indexed.indexers``.  The indexed service
+    discovers plugins at startup and mirrors the declared document classes
+    into the hybrid search index.
+    """
+
+    name: str
+    requires: list[ModuleRequirement]
+
+    def indexed_classes(self) -> list[str]:
+        """Return the TerminusDB class names (``@id`` values) to mirror."""
+        ...
+
+    def entity_text(self, doc: dict[str, Any]) -> str:
+        """Return the searchable text for *doc*.
+
+        This is what gets vectorised / embedded. Should be a concise
+        human-readable summary of the document's distinguishing content.
+        """
+        ...
+
+    def entity_name(self, doc: dict[str, Any]) -> str:
+        """Return the bare display name of *doc*.
+
+        This is the primary label for the entity (e.g. a person's name),
+        used for candidate labels in search results.
+        """
+        ...
+
+    def entity_aliases(self, doc: dict[str, Any]) -> list[str]:
+        """Return additional lexical keys for *doc*.
+
+        Aliases participate in exact, FTS, and alias-matching alongside
+        the primary ``entity_text``.  Use for alternate names,
+        abbreviations, or transliterations.
+        """
+        ...
+
+
+# ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
 

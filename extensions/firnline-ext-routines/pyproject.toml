@@ -14,6 +14,9 @@ dependencies = [
 [project.entry-points."firnline.schema_modules"]
 routines = "firnline_ext_routines"
 
+[project.entry-points."firnline.indexed.indexers"]
+routines_indexer = "firnline_ext_routines.indexer:plugin"
+
 [tool.uv.sources]
 firnline-core = { workspace = true }
 

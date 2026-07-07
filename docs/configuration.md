@@ -16,7 +16,7 @@ its own prefix (`CAPTURED_`, `INGESTD_`, `QUERYD_`, `TRIGGERD_`):
 | `{PREFIX}_TDB_DB` | — | yes | captured, ingestd, queryd, triggerd |
 | `{PREFIX}_TDB_BRANCH` | `main` | no | captured, ingestd, queryd, triggerd |
 | `{PREFIX}_TDB_USER` | `admin` | no | captured, ingestd, queryd, triggerd |
-| `{PREFIX}_TDB_PASSWORD` | — | yes | captured, ingestd, queryd, triggerd |
+| `{PREFIX}_TDB_PASSWORD` | — | yes | captured, ingestd, queryd, triggerd, indexed |
 
 In `compose.yaml`, these are populated from the shared `TDB_*` variables
 (e.g. `CAPTURED_TDB_URL: ${TDB_URL:?}`).
@@ -105,6 +105,57 @@ Prefixed `TRIGGERD_`.
 | `TRIGGERD_DRY_RUN` | `false` | Evaluate but skip writes |
 | `TRIGGERD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
 | `TRIGGERD_LIVENESS_FILE` | `/tmp/triggerd-alive` | Path touched on each successful cycle for healthchecks |
+
+## indexed
+
+Prefixed `INDEXED_`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `INDEXED_TDB_URL` | `http://localhost:6363` | TerminusDB base URL |
+| `INDEXED_TDB_ORG` | `admin` | TerminusDB organisation |
+| `INDEXED_TDB_DB` | `firnline` | TerminusDB database name |
+| `INDEXED_TDB_BRANCH` | `main` | TerminusDB branch |
+| `INDEXED_TDB_USER` | `admin` | TerminusDB username |
+| `INDEXED_TDB_PASSWORD` | — | TerminusDB password |
+| `INDEXED_LLM_BASE_URL` | `""` | LLM API base URL for embeddings |
+| `INDEXED_LLM_API_KEY` | `""` | LLM API key |
+| `INDEXED_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model name (routed via LiteLLM) |
+| `INDEXED_API_TOKEN` | `""` | Optional bearer token for `/v1/find_*` endpoints |
+| `INDEXED_POLL_INTERVAL_SECONDS` | `60` | Seconds between sync cycles (commit-log poll) |
+| `INDEXED_DRY_RUN` | `false` | Sync without writing to the store |
+| `INDEXED_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
+| `INDEXED_MIN_CONFIDENCE` | `0.60` | Minimum score threshold for `/v1/find_*` results |
+| `INDEXED_LIVENESS_FILE` | `/tmp/indexed-alive` | Path touched on each successful cycle |
+| `INDEXED_DATA_DIR` | `/var/lib/firnline/index` | Directory for the sqlite index store |
+| `INDEXED_LISTEN_ADDR` | `0.0.0.0:8089` | Host:port to bind |
+
+### Consumed by ingestd (when `INGESTD_INDEXED_ENABLED=true`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `INGESTD_INDEXED_ENABLED` | `false` | Enable indexed-grounded entity linking |
+| `INGESTD_INDEXED_URL` | `http://localhost:8089` | Base URL of the indexed service |
+| `INGESTD_INDEXED_TOKEN` | `""` | Bearer token for indexed endpoints |
+| `INGESTD_INDEXED_MIN_CONFIDENCE` | `0.85` | Auto-accept threshold for entity linking matches |
+| `INGESTD_INDEXED_TIMEOUT_SECONDS` | `10.0` | HTTP timeout for indexed calls |
+
+### Consumed by queryd (when `QUERYD_INDEXED_ENABLED=true`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `QUERYD_INDEXED_ENABLED` | `false` | Enable `find_entity`/`find_class`/`find_field` tools |
+| `QUERYD_INDEXED_URL` | `http://localhost:8089` | Base URL of the indexed service |
+| `QUERYD_INDEXED_TOKEN` | `""` | Bearer token for indexed endpoints |
+| `QUERYD_INDEXED_MIN_CONFIDENCE` | `0.60` | Minimum score for candidates shown to the agent |
+| `QUERYD_INDEXED_TIMEOUT_SECONDS` | `10.0` | HTTP timeout for indexed calls |
+
+The compose file additionally uses:
+
+| Variable | Default | Description |
+|---|---|---|
+| `INDEXED_HOST_PORT` | `8089` | Host port mapped to the container's 8089 |
+| `INDEXED_URL` | `http://indexed:8089` | Service URL used by ingestd/queryd |
 
 ## queryd
 

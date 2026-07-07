@@ -96,5 +96,11 @@ services:
       terminusdb:
         condition: service_healthy
 
+  # ── indexed (add terminusdb dependency) ─────────────────────────────────
+  indexed:
+    depends_on:
+      terminusdb:
+        condition: service_healthy
+
 volumes:
   terminusdb_data:

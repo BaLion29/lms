@@ -138,6 +138,9 @@ services:
       context: .
       dockerfile: services/ingestd/Dockerfile
     image: firnline/ingestd:local
+    depends_on:
+      indexed:
+        condition: service_started
     environment:
       INGESTD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
       INGESTD_TDB_ORG: ${TDB_ORG:-admin}
@@ -152,6 +155,10 @@ services:
       INGESTD_MAX_LLM_RETRIES: ${INGESTD_MAX_LLM_RETRIES:-3}
       INGESTD_DRY_RUN: ${INGESTD_DRY_RUN:-false}
       INGESTD_LIVENESS_FILE: ${INGESTD_LIVENESS_FILE:-/tmp/ingestd-alive}
+      INGESTD_INDEXED_ENABLED: ${INGESTD_INDEXED_ENABLED:-false}
+      INGESTD_INDEXED_URL: ${INDEXED_URL:-http://indexed:8089}
+      INGESTD_INDEXED_TOKEN: ${INDEXED_API_TOKEN:-}
+      INGESTD_INDEXED_MIN_CONFIDENCE: ${INGESTD_INDEXED_MIN_CONFIDENCE:-0.85}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
       - firnline_ext_venv:/opt/firnline-ext-venv:ro
@@ -168,6 +175,48 @@ services:
       timeout: 10s
       retries: 3
       start_period: 120s
+
+  # ── indexed — precision grounding service ───────────────────────────────
+  indexed:
+    build:
+      context: .
+      dockerfile: services/indexed/Dockerfile
+    image: firnline/indexed:local
+    ports:
+      - "${INDEXED_HOST_PORT:-8089}:8089"
+    environment:
+      INDEXED_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
+      INDEXED_TDB_ORG: ${TDB_ORG:-admin}
+      INDEXED_TDB_DB: ${TDB_DB:-firnline}
+      INDEXED_TDB_BRANCH: ${TDB_BRANCH:-main}
+      INDEXED_TDB_USER: ${TDB_USER:-admin}
+      INDEXED_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      INDEXED_LLM_BASE_URL: ${FIRNLINE_LLM_BASE_URL:?err FIRNLINE_LLM_BASE_URL must be set}
+      INDEXED_LLM_API_KEY: ${FIRNLINE_LLM_API_KEY:-}
+      INDEXED_EMBEDDING_MODEL: ${FIRNLINE_EMBEDDING_MODEL:-text-embedding-3-small}
+      INDEXED_API_TOKEN: ${INDEXED_API_TOKEN:-}
+      INDEXED_POLL_INTERVAL_SECONDS: ${INDEXED_POLL_INTERVAL_SECONDS:-60}
+      INDEXED_DRY_RUN: ${INDEXED_DRY_RUN:-false}
+      INDEXED_STRICT_PLUGINS: ${INDEXED_STRICT_PLUGINS:-false}
+      INDEXED_MIN_CONFIDENCE: ${INDEXED_MIN_CONFIDENCE:-0.60}
+      INDEXED_LIVENESS_FILE: ${INDEXED_LIVENESS_FILE:-/tmp/indexed-alive}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
+      - firnline_index:/var/lib/firnline/index
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8089/healthz',timeout=5)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 150s
 
   # ── triggerd — trigger evaluation daemon ────────────────────────────────
   triggerd:
@@ -211,6 +260,9 @@ services:
       context: .
       dockerfile: services/queryd/Dockerfile
     image: firnline/queryd:local
+    depends_on:
+      indexed:
+        condition: service_started
     ports:
       - "${QUERYD_HOST_PORT:-8087}:8087"
     environment:
@@ -225,6 +277,10 @@ services:
       QUERYD_LLM_API_KEY: ${FIRNLINE_LLM_API_KEY:-}
       QUERYD_LLM_MODEL: ${FIRNLINE_LLM_MODEL:-}
       QUERYD_ENABLE_WRITES: ${QUERYD_ENABLE_WRITES:-false}
+      QUERYD_INDEXED_ENABLED: ${QUERYD_INDEXED_ENABLED:-false}
+      QUERYD_INDEXED_URL: ${INDEXED_URL:-http://indexed:8089}
+      QUERYD_INDEXED_TOKEN: ${INDEXED_API_TOKEN:-}
+      QUERYD_INDEXED_MIN_CONFIDENCE: ${QUERYD_INDEXED_MIN_CONFIDENCE:-0.60}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
       - firnline_ext_venv:/opt/firnline-ext-venv:ro
@@ -245,4 +301,5 @@ services:
 # ── Volumes ───────────────────────────────────────────────────────────────
 volumes:
   firnline_ext_venv:
+  firnline_index:
   blobs:

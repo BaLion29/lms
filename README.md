@@ -45,6 +45,7 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `packages/firnline-schema/` | Schema CLI: compose, diff, apply, codegen |
 | `services/captured/` | Capture-ingress daemon (`POST /v1/capture/note`, `/v1/capture/file`) |
 | `services/ingestd/` | AI ingestion polling worker (LLM extraction + entity linking) |
+| `services/indexed/` | Search index sidecar: entity and schema lookup over TerminusDB (SQLite + embeddings) |
 | `services/queryd/` | Conversational agent API (`POST /v1/chat`) |
 | `services/triggerd/` | Trigger evaluation daemon (poll → evaluate → insert TriggerFiring) |
 | `extensions/` | Six first-party extensions (inbox, people, places, planning, reminders, routines) |

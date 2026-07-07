@@ -13,9 +13,11 @@ An extension package may contain any subset of:
 - **Extractor plugins** — LLM extraction logic for turning text into typed
   documents (`firnline.ingestd.extractors`).
 - **Query tool plugins** — write tools the conversational agent can use
-  (`firnline.queryd.tools`).
+   (`firnline.queryd.tools`).
+- **Indexer plugins** — tell the `indexed` service which TDB classes to
+   mirror into the hybrid search index (`firnline.indexed.indexers`).
 - **Capture handlers** — handler for captured's `/v1/capture/note` and
-  `/v1/capture/file` endpoints (`firnline.captured.handlers`).
+   `/v1/capture/file` endpoints (`firnline.captured.handlers`).
 
 ## Package Layout
 
@@ -127,6 +129,23 @@ class ToolPlugin(Protocol):
 
 Write tools are only registered when `QUERYD_ENABLE_WRITES=true`. Tools
 should fetch-mutate-PUT with `updated_at` bump and commit author `queryd`.
+
+### `firnline.indexed.indexers` — IndexerPlugin
+
+```python
+class IndexerPlugin(Protocol):
+    name: str
+    requires: list[ModuleRequirement]
+
+    def indexed_classes(self) -> list[str]: ...
+    def entity_text(self, doc: dict) -> str: ...
+    def entity_aliases(self, doc: dict) -> list[str]: ...
+```
+
+Each plugin declares which TDB document classes to mirror into the hybrid
+search index. `entity_text` provides the searchable description (embedded
+as a vector); `entity_aliases` provides extra lexical keys for FTS matching.
+Duplicate class registrations across active plugins are a startup error.
 
 ### `firnline.captured.handlers` — CaptureHandler
 

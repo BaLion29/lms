@@ -28,6 +28,7 @@ from pydantic_ai import RunContext, Tool
 
 from firnline_core.tdb import TdbClient, TdbError
 from firnline_core.tooling import ToolTraceEntry, traced as _kernel_traced
+from firnline_core.indexed_client import IndexedClient, IndexedError
 
 from queryd.settings import Settings
 
@@ -191,6 +192,141 @@ async def today(ctx: RunContext[QuerydDeps]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Indexed-grounded lookup tools (enabled when QUERYD_INDEXED_ENABLED=true)
+# ---------------------------------------------------------------------------
+
+
+@_traced
+async def find_entity(
+    ctx: RunContext[QuerydDeps],
+    text: str,
+    classes: list[str] | None = None,
+    k: int = 5,
+) -> str:
+    """Search for known entities matching *text*.
+
+    Use this BEFORE composing a GraphQL query. Never invent IRIs or entity
+    names — always ground them here first. This tool returns candidates
+    from the actual database as of the current commit.
+
+    Returns a JSON list of candidates with their verified IRIs and scores.
+    """
+    settings = ctx.deps.settings
+    if not settings.indexed_enabled or not settings.indexed_url:
+        return "ERROR: index unavailable — fall back to graphql_query with get_schema_details"
+
+    try:
+        async with IndexedClient(
+            base_url=settings.indexed_url,
+            token=settings.indexed_token,
+            timeout=settings.indexed_timeout_seconds,
+        ) as client:
+            candidates = await client.find_entity(
+                text, classes=classes, branch=settings.tdb_branch, k=k
+            )
+    except IndexedError as e:
+        return f"ERROR: index unavailable ({e.status}): {e.message} — fall back to graphql_query"
+
+    if not candidates:
+        return "No matching entities found."
+
+    result = {"candidates": [
+        {
+            "iri": c.iri,
+            "class": c.class_name,
+            "name": c.name,
+            "aliases": c.aliases,
+            "score": round(c.score, 4),
+            "commit_id": c.commit_id,
+        }
+        for c in candidates
+    ]}
+    return json.dumps(result, ensure_ascii=False, default=str)
+
+
+@_traced
+async def find_class(ctx: RunContext[QuerydDeps], text: str, k: int = 5) -> str:
+    """Search for TerminusDB schema classes matching *text*.
+
+    Use this BEFORE composing a GraphQL query to discover which class
+    names exist. Never guess at class names — always ground them here.
+
+    Returns a JSON list of matching class candidates with descriptions.
+    """
+    settings = ctx.deps.settings
+    if not settings.indexed_enabled or not settings.indexed_url:
+        return "ERROR: index unavailable — fall back to get_schema_details"
+
+    try:
+        async with IndexedClient(
+            base_url=settings.indexed_url,
+            token=settings.indexed_token,
+            timeout=settings.indexed_timeout_seconds,
+        ) as client:
+            candidates = await client.find_class(text, k=k)
+    except IndexedError as e:
+        return f"ERROR: index unavailable ({e.status}): {e.message} — fall back to get_schema_details"
+
+    if not candidates:
+        return "No matching classes found."
+
+    result = {"candidates": [
+        {
+            "class": c.class_name,
+            "description": c.description,
+            "score": round(c.score, 4),
+        }
+        for c in candidates
+    ]}
+    return json.dumps(result, ensure_ascii=False, default=str)
+
+
+@_traced
+async def find_field(
+    ctx: RunContext[QuerydDeps],
+    text: str,
+    class_name: str | None = None,
+    k: int = 5,
+) -> str:
+    """Search for class field/property names matching *text*.
+
+    Use this BEFORE composing a GraphQL query to discover which field
+    names exist on a class. Never guess at field names — always ground
+    them here.  Optionally scope to a specific *class_name*.
+
+    Returns a JSON list of matching field candidates with types.
+    """
+    settings = ctx.deps.settings
+    if not settings.indexed_enabled or not settings.indexed_url:
+        return "ERROR: index unavailable — fall back to get_schema_details"
+
+    try:
+        async with IndexedClient(
+            base_url=settings.indexed_url,
+            token=settings.indexed_token,
+            timeout=settings.indexed_timeout_seconds,
+        ) as client:
+            candidates = await client.find_field(text, class_name=class_name, k=k)
+    except IndexedError as e:
+        return f"ERROR: index unavailable ({e.status}): {e.message} — fall back to get_schema_details"
+
+    if not candidates:
+        return "No matching fields found."
+
+    result = {"candidates": [
+        {
+            "class": c.class_name,
+            "field": c.field,
+            "type": c.type,
+            "description": c.description,
+            "score": round(c.score, 4),
+        }
+        for c in candidates
+    ]}
+    return json.dumps(result, ensure_ascii=False, default=str)
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -199,6 +335,9 @@ _READ_TOOLS = [
     Tool(graphql_query),
     Tool(get_document),
     Tool(today),
+    Tool(find_entity),
+    Tool(find_class),
+    Tool(find_field),
 ]
 
 # Extension point: future vector-search / RAG tools can be appended here.

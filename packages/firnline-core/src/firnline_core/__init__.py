@@ -26,6 +26,13 @@ from firnline_core.conventions import (
     blob_root_from_env,
     utc_now,
 )
+from firnline_core.indexed_client import (
+    ClassCandidate,
+    EntityCandidate,
+    FieldCandidate,
+    IndexedClient,
+    IndexedError,
+)
 from firnline_core.plugins import (
     BuildContext,
     CaptureContext,
@@ -34,6 +41,7 @@ from firnline_core.plugins import (
     DiscoveryResult,
     EntityIndex,
     ExtractorPlugin,
+    IndexerPlugin,
     IngestSourcePlugin,
     ModuleRequirement,
     PluginSelection,
@@ -98,6 +106,7 @@ __all__ = [
     "DiscoveryResult",
     "EntityIndex",
     "ExtractorPlugin",
+    "IndexerPlugin",
     "IngestSourcePlugin",
     "ModuleRequirement",
     "PluginSelection",
@@ -105,6 +114,12 @@ __all__ = [
     "check_requirements",
     "discover_plugins",
     "select_plugins",
+    # indexed client
+    "ClassCandidate",
+    "EntityCandidate",
+    "FieldCandidate",
+    "IndexedClient",
+    "IndexedError",
     # tooling
     "ToolTraceEntry",
     "now_utc_str",

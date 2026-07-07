@@ -60,6 +60,7 @@
 | **captured** | Ingestion API — accepts notes and file uploads; dispatches to pluggable handler plugins. | 8088 |
 | **ingestd** | Polling worker — picks up inbox items, runs extractor plugins via LLM, writes typed documents. | — |
 | **queryd** | Conversational agent API — read tools, GraphQL, and flag-gated write-tool plugins. | 8087 |
+| **indexed** | Precision grounding service — mirrors TDB documents + schema into a hybrid vector+lexical index and serves precise-lookup endpoints to ingestd and queryd. | 8089 |
 | **triggerd** | Polling worker — evaluates Trigger documents, materializes TriggerFiring records. | — |
 | **bootstrap** | One-shot container (profile `bootstrap`) — creates database, composes & applies schema, installs extensions into shared overlay volume. | — |
 
@@ -84,6 +85,12 @@ the compose stack.
    materializes `TriggerFiring` records with `status=pending`.  Firing
    statuses are the queue for downstream consumers (reminder delivery,
    notification routing).  The database is the only integration point.
+5. **Grounding** — `indexed` polls the TDB commit log and mirrors documents
+   (via `IndexerPlugin` plugins) and schema into a hybrid vector+lexical index.
+   `ingestd` consults it for entity linking beyond casefold-exact match;
+   `queryd` uses `find_entity`/`find_class`/`find_field` tools to ground the
+   agent before GraphQL queries.  If `indexed` is unavailable, both consumers
+   degrade gracefully to today's behaviour.
 
 ## Schema Module System
 
@@ -134,6 +141,7 @@ Five entry-point groups, discovered via `importlib.metadata.entry_points`:
 | `firnline.queryd.tools` | `ToolPlugin` | queryd | Register Pydantic AI write-tool objects |
 | `firnline.captured.handlers` | `CaptureHandler` | captured | Handle capture requests by kind (e.g. "note", "file") |
 | `firnline.triggerd.evaluators` | `TriggerEvaluator` | triggerd | Evaluate trigger types, propose occurrence instants |
+| `firnline.indexed.indexers` | `IndexerPlugin` | indexed | Declare which TDB classes to mirror and how to extract entity text + aliases |
 
 All three host services follow the same startup behaviour: discover plugins →
 `check_requirements` against the `SchemaModule` registry → skip plugins with
@@ -177,7 +185,8 @@ firnline/
 │   ├── captured/               # capture ingress (FastAPI)
 │   ├── ingestd/                # AI ingestion polling worker
 │   ├── queryd/                 # conversational agent (FastAPI)
-│   └── triggerd/               # trigger evaluation polling worker
+│   ├── triggerd/               # trigger evaluation polling worker
+│   └── indexed/                 # precision grounding service (hybrid vector+lexical index)
 ├── extensions/
 │   ├── firnline-ext-inbox/     # inbox schema + sources + capture handlers
 │   ├── firnline-ext-people/    # people schema + extractor

@@ -203,8 +203,11 @@ with a warning instead of crashing the service.
 - **Routine engine** — Routines spawning Tasks/Activities from their steps.
 - **Branch review tooling** — comfortable per-commit review + promote flow for
   staging-branch mode.
-- **Semantic search** — a vector-search service; queryd already carries a
-  marked extension point.
+- **Semantic search** — the `indexed` grounding service now mirrors TDB
+   documents and schema into a hybrid vector+lexical index; `queryd`'s
+   `find_entity`/`find_class`/`find_field` tools use it to prevent the
+   agent from inventing entity names or schema field names (see
+   [docs/indexed.md](indexed.md)).
 - **Transcriber service** — first-class replacement for the n8n STT hop.
 - **Time-Block & Schedule**, **TimeLog**, **Location-based reminders**,
   **Escalation chains**.

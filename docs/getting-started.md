@@ -45,13 +45,18 @@ docker compose --profile bootstrap up bootstrap --abort-on-container-exit
 docker compose up -d
 ```
 
-This starts **captured** (port 8088), **ingestd**, and **queryd** (port 8087).
+This starts **captured** (port 8088), **ingestd**, **indexed** (port 8089), and
+**queryd** (port 8087). The optional search index sidecar (`indexed`) provides
+entity and schema lookup; it is opt-in via `INGESTD_INDEXED_ENABLED` /
+`QUERYD_INDEXED_ENABLED` env vars (see `.env.example` and
+[docs/indexed.md](indexed.md)).
 
 ### 4. Verify
 
 ```bash
 curl http://localhost:8087/healthz   # queryd
 curl http://localhost:8088/healthz   # captured
+curl http://localhost:8089/healthz   # indexed
 ```
 
 Both should return 200 with `{"status": "ok", ...}`.

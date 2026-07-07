@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 from pydantic_ai import RunContext
@@ -16,6 +15,9 @@ from queryd.tools import (
     _STRIP_PATTERN,
     _check_graphql,
     build_tools,
+    find_class,
+    find_entity,
+    find_field,
     get_document,
     graphql_query,
     today,
@@ -34,6 +36,7 @@ ORG = "admin"
 
 DOC_PATH = f"{TDB_URL}/api/document/{ORG}/{TDB_DB}/local/branch/main"
 GQL_PATH = f"{TDB_URL}/api/graphql/{ORG}/{TDB_DB}"
+INDEXED_URL = "http://indexed.test:8089"
 
 
 # ---------------------------------------------------------------------------
@@ -63,9 +66,7 @@ def _make_ctx(
 ) -> RunContext[QuerydDeps]:
     """Build a minimal RunContext with QuerydDeps for testing."""
     if tdb is None:
-        tdb = TdbClient(
-            base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw"
-        )
+        tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw")
     if settings is None:
         settings = _settings()
     deps = QuerydDeps(
@@ -95,13 +96,22 @@ def test_build_tools_no_writes():
     s = _settings(enable_writes=False)
     tools = build_tools(s)
     names = {t.name for t in tools}
-    assert names == {"get_schema_details", "graphql_query", "get_document", "today"}
+    assert names == {
+        "get_schema_details",
+        "graphql_query",
+        "get_document",
+        "today",
+        "find_entity",
+        "find_class",
+        "find_field",
+    }
 
 
 def test_build_tools_with_writes():
     s = _settings(enable_writes=True)
     from firnline_ext_planning.tools import plugin as _planning_plugin
     from firnline_ext_reminders.tools import plugin as _reminder_plugin
+
     plugin_tools = _planning_plugin.tools(deps=None) + _reminder_plugin.tools(deps=None)
     tools = build_tools(s, plugin_tools=plugin_tools)
     names = {t.name for t in tools}
@@ -110,6 +120,9 @@ def test_build_tools_with_writes():
         "graphql_query",
         "get_document",
         "today",
+        "find_entity",
+        "find_class",
+        "find_field",
         "set_task_status",
         "set_event_status",
         "create_task",
@@ -212,8 +225,7 @@ async def test_graphql_query_mutation_after_comment_strip_caught(respx_mock):
     ctx = _make_ctx()
     result = await graphql_query(
         ctx,
-        "# this comment mentions mutation\n"
-        "mutation { _insertDocuments(doc: {}) { _id } }",
+        "# this comment mentions mutation\nmutation { _insertDocuments(doc: {}) { _id } }",
     )
     assert "prohibited keyword" in result
     assert not route.called
@@ -226,10 +238,7 @@ async def test_graphql_query_truncation(respx_mock):
     )
     ctx = _make_ctx()
     result = await graphql_query(ctx, "{ big }")
-    assert result.endswith(
-        "\n\u2026[TRUNCATED: response exceeded 50000 chars;"
-        " refine your query with limit/filter]"
-    )
+    assert result.endswith("\n\u2026[TRUNCATED: response exceeded 50000 chars; refine your query with limit/filter]")
     assert len(result) < 51_500
 
 
@@ -335,12 +344,7 @@ def test_check_graphql_query_keyword_ignored():
 
 
 def test_check_graphql_mutation_word_in_string_ok():
-    assert (
-        _check_graphql(
-            '{ InboxNote(filter: { content: { eq: "mutation observed" } }) { _id } }'
-        )
-        is None
-    )
+    assert _check_graphql('{ InboxNote(filter: { content: { eq: "mutation observed" } }) { _id } }') is None
 
 
 def test_check_graphql_mutation_in_comment_ok():
@@ -394,9 +398,7 @@ def test_check_graphql_mutation_as_operation_name_allowed():
 
 async def test_trace_entry_recorded(respx_mock):
     """Every tool call records exactly one ToolTraceEntry."""
-    respx_mock.get(DOC_PATH).respond(
-        json={"@id": "Task/abc", "@type": "Task", "name": "X"}
-    )
+    respx_mock.get(DOC_PATH).respond(json={"@id": "Task/abc", "@type": "Task", "name": "X"})
     trace: list[ToolTraceEntry] = []
     ctx = _make_ctx(trace=trace)
     await get_document(ctx, "Task/abc")
@@ -427,3 +429,155 @@ async def test_trace_output_summary_on_error(respx_mock):
     entry = ctx.deps.trace[0]
     assert entry.output_summary.startswith("error: ")
     assert "document not found" in entry.output_summary
+
+
+# ---------------------------------------------------------------------------
+# find_entity (indexed grounding)
+# ---------------------------------------------------------------------------
+
+
+async def test_find_entity_disabled_no_http():
+    """indexed_enabled=False → ERROR string, no HTTP call."""
+    settings = _settings(indexed_enabled=False)
+    ctx = _make_ctx(settings=settings)
+    result = await find_entity(ctx, "Anna")
+    assert "ERROR" in result
+    assert "fall back" in result
+
+
+async def test_find_entity_disabled_no_url():
+    """indexed_url='' → ERROR string even if enabled."""
+    settings = _settings(indexed_enabled=True, indexed_url="")
+    ctx = _make_ctx(settings=settings)
+    result = await find_entity(ctx, "Anna")
+    assert "ERROR" in result
+    assert "fall back" in result
+
+
+async def test_find_entity_graceful_degradation_500(respx_mock):
+    """Enabled but indexed returns 500 → ERROR with fallback hint, no raise."""
+    route = respx_mock.post(f"{INDEXED_URL}/v1/find_entity").respond(500)
+    settings = _settings(indexed_enabled=True, indexed_url=INDEXED_URL)
+    ctx = _make_ctx(settings=settings)
+    result = await find_entity(ctx, "Anna")
+    assert route.called
+    assert "ERROR" in result
+    assert "fall back" in result
+    assert "500" in result
+
+
+async def test_find_entity_success(respx_mock):
+    """Valid candidates → JSON response with iri/name/score."""
+    payload = {
+        "candidates": [
+            {
+                "iri": "Person/abc",
+                "class": "Person",
+                "name": "Anna Meier",
+                "aliases": ["Anni"],
+                "score": 0.94,
+                "commit_id": "abc123",
+            },
+        ],
+    }
+    respx_mock.post(f"{INDEXED_URL}/v1/find_entity").respond(json=payload)
+    settings = _settings(indexed_enabled=True, indexed_url=INDEXED_URL)
+    ctx = _make_ctx(settings=settings)
+    result = await find_entity(ctx, "Anna", classes=["Person"])
+    parsed = json.loads(result)
+    assert "candidates" in parsed
+    c0 = parsed["candidates"][0]
+    assert c0["iri"] == "Person/abc"
+    assert c0["name"] == "Anna Meier"
+    assert c0["score"] == 0.94
+
+
+# ---------------------------------------------------------------------------
+# find_class (indexed grounding)
+# ---------------------------------------------------------------------------
+
+
+async def test_find_class_disabled():
+    """indexed_enabled=False → ERROR string."""
+    settings = _settings(indexed_enabled=False)
+    ctx = _make_ctx(settings=settings)
+    result = await find_class(ctx, "Task")
+    assert "ERROR" in result
+    assert "get_schema_details" in result
+
+
+async def test_find_class_graceful_degradation_500(respx_mock):
+    """Enabled but indexed returns 500 → ERROR with fallback hint."""
+    route = respx_mock.post(f"{INDEXED_URL}/v1/find_class").respond(500)
+    settings = _settings(indexed_enabled=True, indexed_url=INDEXED_URL)
+    ctx = _make_ctx(settings=settings)
+    result = await find_class(ctx, "Task")
+    assert route.called
+    assert "ERROR" in result
+    assert "get_schema_details" in result
+
+
+async def test_find_class_success(respx_mock):
+    """Valid candidates → JSON with class/description/score."""
+    payload = {
+        "candidates": [
+            {"class": "Task", "description": "A to-do item", "score": 0.91},
+        ],
+    }
+    respx_mock.post(f"{INDEXED_URL}/v1/find_class").respond(json=payload)
+    settings = _settings(indexed_enabled=True, indexed_url=INDEXED_URL)
+    ctx = _make_ctx(settings=settings)
+    result = await find_class(ctx, "task")
+    parsed = json.loads(result)
+    c0 = parsed["candidates"][0]
+    assert c0["class"] == "Task"
+    assert c0["score"] == 0.91
+
+
+# ---------------------------------------------------------------------------
+# find_field (indexed grounding)
+# ---------------------------------------------------------------------------
+
+
+async def test_find_field_disabled():
+    """indexed_enabled=False → ERROR string."""
+    settings = _settings(indexed_enabled=False)
+    ctx = _make_ctx(settings=settings)
+    result = await find_field(ctx, "name")
+    assert "ERROR" in result
+    assert "get_schema_details" in result
+
+
+async def test_find_field_graceful_degradation_500(respx_mock):
+    """Enabled but indexed returns 500 → ERROR with fallback hint."""
+    route = respx_mock.post(f"{INDEXED_URL}/v1/find_field").respond(500)
+    settings = _settings(indexed_enabled=True, indexed_url=INDEXED_URL)
+    ctx = _make_ctx(settings=settings)
+    result = await find_field(ctx, "name", class_name="Task")
+    assert route.called
+    assert "ERROR" in result
+    assert "get_schema_details" in result
+
+
+async def test_find_field_success(respx_mock):
+    """Valid candidates → JSON with class/field/type/description/score."""
+    payload = {
+        "candidates": [
+            {
+                "class": "Task",
+                "field": "name",
+                "type": "string",
+                "description": "Title of the task",
+                "score": 0.98,
+            },
+        ],
+    }
+    respx_mock.post(f"{INDEXED_URL}/v1/find_field").respond(json=payload)
+    settings = _settings(indexed_enabled=True, indexed_url=INDEXED_URL)
+    ctx = _make_ctx(settings=settings)
+    result = await find_field(ctx, "name")
+    parsed = json.loads(result)
+    c0 = parsed["candidates"][0]
+    assert c0["class"] == "Task"
+    assert c0["field"] == "name"
+    assert c0["score"] == 0.98

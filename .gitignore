@@ -9,5 +9,8 @@ build/
 *.egg-info/
 storage/
 .env
-.opencode/node_modules/
+
+opencode.json
+.opencode/
+
 node_modules/

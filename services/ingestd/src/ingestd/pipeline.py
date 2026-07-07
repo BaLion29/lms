@@ -17,9 +17,10 @@ from pydantic import BaseModel
 from ingestd.extraction import ExtractionContext, ExtractionResult, extract
 from ingestd.linking import (
     EntityIndex,
+    LinkingConfig,
+    async_match_location,
+    async_match_person,
     build_index,
-    match_location,
-    match_person,
 )
 from ingestd.settings import Settings
 from firnline_core.models import (
@@ -176,7 +177,19 @@ class Pipeline:
         return "\n\n".join(parts)
 
     def _make_create_or_link(self, index: EntityIndex) -> Any:
-        """Return an async ``create_or_link`` callable for ``BuildContext``."""
+        """Return an async ``create_or_link`` callable for ``BuildContext``.
+
+        When ``INGESTD_INDEXED_ENABLED`` is true, entity linking consults
+        the indexed service on exact-match miss before creating a new entity.
+        """
+        config = LinkingConfig(
+            enabled=self.settings.indexed_enabled,
+            url=self.settings.indexed_url,
+            token=self.settings.indexed_token,
+            min_confidence=self.settings.indexed_min_confidence,
+            timeout_seconds=self.settings.indexed_timeout_seconds,
+            branch=self.settings.tdb_branch,
+        )
 
         async def _create_or_link(
             type_name: str,
@@ -184,21 +197,19 @@ class Pipeline:
             factory: Any,
         ) -> str | None:
             if type_name == "Person":
-                iri = match_person(index, name)
+                iri = await async_match_person(index, name, config)
             elif type_name == "Location":
-                iri = match_location(index, name)
+                iri = await async_match_location(index, name, config)
             else:
                 iri = None
 
             if iri:
                 return iri
 
-            # Not found — ask factory to create a doc
             doc = factory() if callable(factory) else factory
             if doc is None:
                 return None
 
-            # Insert the new entity
             iris = await self.tdb.insert_documents(
                 [doc],
                 branch=self.settings.tdb_branch,
@@ -206,7 +217,6 @@ class Pipeline:
             )
             new_iri = short_iri(iris[0])
 
-            # Update the in-memory index so subsequent lookups hit
             key = name.casefold()
             if type_name == "Person":
                 index.people[key] = new_iri
