@@ -54,7 +54,7 @@ def _service_detail(
                     wrap="wrap",
                 ),
                 spacing="1",
-                margin_top="1",
+                margin_top="4px",
             ),
             rx.text(""),
         ),
@@ -104,7 +104,7 @@ def health_page() -> rx.Component:
                     rx.text(""),
                 ),
                 spacing="2",
-                margin_bottom="4",
+                margin_bottom="16px",
             ),
             # Service detail cards
             rx.grid(

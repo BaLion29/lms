@@ -54,7 +54,7 @@ def home_page() -> rx.Component:
                 ),
                 spacing="3",
                 align="center",
-                margin_bottom="4",
+                margin_bottom="16px",
             ),
             # Service health grid
             rx.grid(
@@ -109,7 +109,7 @@ def home_page() -> rx.Component:
             ),
             # Schema modules summary
             rx.card(
-                rx.heading("Schema Modules", size="4", margin_bottom="3"),
+                rx.heading("Schema Modules", size="4", margin_bottom="12px"),
                 rx.flex(
                     rx.foreach(
                         ModulesState.modules,
@@ -122,10 +122,10 @@ def home_page() -> rx.Component:
                     "Visit the Modules page to load and inspect schema modules.",
                     size="1",
                     color_scheme="gray",
-                    margin_top="1",
+                    margin_top="4px",
                 ),
                 rx.link(
-                    rx.button("View All Modules", size="1", variant="ghost", margin_top="2"),
+                    rx.button("View All Modules", size="1", variant="ghost", margin_top="8px"),
                     href="/modules",
                 ),
                 size="2",

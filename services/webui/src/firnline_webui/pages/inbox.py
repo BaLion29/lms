@@ -100,7 +100,7 @@ def _empty_state() -> rx.Component:
             ),
             spacing="3",
             align="center",
-            padding="8",
+            padding="32px",
         ),
         size="2",
         width="100%",

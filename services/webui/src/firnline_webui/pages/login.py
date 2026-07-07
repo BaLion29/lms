@@ -73,7 +73,7 @@ def login_page() -> rx.Component:
                 ),
                 spacing="5",
                 width="100%",
-                padding="3",
+                padding="12px",
             ),
             size="3",
             max_width="380px",

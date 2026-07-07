@@ -23,7 +23,7 @@ def _plugin_section(name: str, plugins_var: rx.Var) -> rx.Component:
             rx.text(name, size="3", weight="medium"),
             spacing="2",
             align="center",
-            margin_bottom="2",
+            margin_bottom="8px",
         ),
         rx.cond(
             plugins_var.length() > 0,
@@ -67,12 +67,12 @@ def modules_page() -> rx.Component:
                     width="100%",
                 ),
                 spacing="2",
-                margin_bottom="4",
+                margin_bottom="16px",
             ),
             # Error message
             rx.cond(
                 ModulesState.error != "",
-                rx.callout(ModulesState.error, color_scheme="red", size="1", margin_bottom="4"),
+                rx.callout(ModulesState.error, color_scheme="red", size="1", margin_bottom="16px"),
                 rx.text(""),
             ),
             # Modules table
@@ -116,7 +116,7 @@ def modules_page() -> rx.Component:
                 rx.text(""),
             ),
             # Active plugins by service
-            rx.heading("Active Plugins by Service", size="4", margin_top="6", margin_bottom="3"),
+            rx.heading("Active Plugins by Service", size="4", margin_top="24px", margin_bottom="12px"),
             rx.grid(
                 _plugin_section("Captured", ModulesState.captured_plugins),
                 _plugin_section("Queryd", ModulesState.queryd_plugins),

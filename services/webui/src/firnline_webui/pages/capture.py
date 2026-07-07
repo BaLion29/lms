@@ -111,7 +111,7 @@ def _file_tab() -> rx.Component:
                     rx.text("Max 25 MB", size="1", color_scheme="gray"),
                     spacing="2",
                     align="center",
-                    padding="8",
+                    padding="32px",
                 ),
                 id="capture_upload",
                 multiple=False,
@@ -181,7 +181,7 @@ def capture_page() -> rx.Component:
                 spacing="3",
                 align="center",
                 width="100%",
-                margin_bottom="2",
+                margin_bottom="8px",
             ),
             # Tabs
             rx.tabs.root(

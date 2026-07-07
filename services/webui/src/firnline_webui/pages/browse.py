@@ -31,7 +31,7 @@ def _module_card(name: str, version: str, class_ids: list[str]) -> rx.Component:
             ),
             spacing="2",
             align="center",
-            margin_bottom="2",
+            margin_bottom="8px",
         ),
         rx.flex(
             rx.foreach(

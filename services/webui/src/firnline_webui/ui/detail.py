@@ -66,7 +66,7 @@ def json_detail_drawer(
                             background=rx.color("gray", 2),
                             border=f"1px solid {rx.color('gray', 4)}",
                             border_radius="6px",
-                            padding="2",
+                            padding="8px",
                             width="100%",
                         ),
                         rx.icon_button(
@@ -84,7 +84,7 @@ def json_detail_drawer(
                     ),
                     spacing="1",
                     width="100%",
-                    margin_bottom="3",
+                    margin_bottom="12px",
                 ),
             ),
             # Pretty JSON
@@ -127,7 +127,7 @@ def json_detail_drawer(
                 width="100%",
                 justify="end",
                 spacing="2",
-                padding_top="3",
+                padding_top="12px",
             ),
             max_width="720px",
             max_height="85vh",
