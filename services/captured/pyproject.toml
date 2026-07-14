@@ -24,8 +24,8 @@ firnline-core = { workspace = true }
 captured = "captured.main:main"
 
 [project.entry-points."firnline.captured.handlers"]
-inbox_note = "captured.handlers:inbox_note_handler"
-inbox_audio = "captured.handlers:inbox_audio_handler"
+inbox_note = "captured.handlers:captured_note_handler"
+inbox_audio = "captured.handlers:captured_audio_handler"
 
 [build-system]
 requires = ["hatchling"]

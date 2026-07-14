@@ -63,7 +63,7 @@ planning_people = "firnline_ext_planning.extract:plugin"
 planning_tools = "firnline_ext_planning.tools:plugin"
 
 [project.entry-points."firnline.captured.handlers"]
-inbox_note = "captured.handlers:inbox_note_handler"
+inbox_note = "captured.handlers:captured_note_handler"
 
 [project.entry-points."firnline.triggerd.evaluators"]
 oneshot = "firnline_ext_reminders.evaluators:oneshot_plugin"
