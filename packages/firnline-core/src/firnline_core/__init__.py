@@ -88,6 +88,7 @@ from firnline_core.settings import TdbSettings
 from firnline_core.repository import Repository, TransitionError as RepositoryTransitionError
 from firnline_core.tdb import (
     ChangeEvent,
+    StaleCommitError,
     TdbClient,
     TdbConflictError,
     TdbError,
@@ -132,6 +133,7 @@ __all__ = [
     "_format_datetime",
     # tdb
     "ChangeEvent",
+    "StaleCommitError",
     "TdbClient",
     "TdbConflictError",
     "TdbError",

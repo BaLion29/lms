@@ -17,7 +17,7 @@ from triggerd.evaluators import (
 )
 from firnline_core.plugins import ModuleRequirement
 from firnline_core.repository import Repository
-from firnline_core.tdb import TdbError
+from firnline_core.tdb import StaleCommitError, TdbError
 
 UTC = timezone.utc
 
@@ -1067,3 +1067,93 @@ class TestGraphQLFallback:
         ambiguous = [e for e in captured if e.get("event") == "subject_ambiguous"]
         assert len(ambiguous) == 1
         assert ambiguous[0]["count"] == 2
+
+
+class TestStaleCommitRecovery:
+    """Engine recovers from a stale change-cursor instead of crash-looping."""
+
+    @pytest.mark.asyncio
+    async def test_stale_commit_rebaselines_and_continues(self):
+        """When changes_since raises StaleCommitError on a persisted commit,
+        the engine logs a warning, re-baselines with None, and continues
+        without producing any firings. The last_commit advances to the new head
+        and is persisted to the state file."""
+        import json
+        import tempfile
+        from pathlib import Path
+
+        state_file = Path(tempfile.gettempdir()) / f"test-triggerd-stale-{id(self)}.json"
+        state_file.unlink(missing_ok=True)
+
+        now = _frozen_now_2026()
+
+        # Persist a stale commit so the engine loads it
+        initial_state = {"main": "deadbeef"}
+        state_file.write_text(json.dumps(initial_state))
+
+        try:
+            engine = _make_engine(
+                now=lambda: now,
+                trigger_docs=[
+                    {
+                        "@id": "EventTrigger/ev1",
+                        "@type": "EventTrigger",
+                        "enabled": True,
+                        "event": "created",
+                    },
+                ],
+                evaluators=[EventTriggerEvaluator()],
+            )
+            # Override state_file so _load_state reads our stale commit
+            engine.settings = engine.settings.model_copy(update={"state_file": str(state_file)})
+            engine._last_commit = engine._load_state()
+            assert engine._last_commit == {"main": "deadbeef"}
+
+            call_count = 0
+
+            async def _changes_since(commit_id, branch):
+                nonlocal call_count
+                call_count += 1
+                if commit_id == "deadbeef":
+                    raise StaleCommitError("deadbeef", branch)
+                # second call: baseline with None
+                return ([], "newhead123")
+
+            engine.tdb.changes_since = _changes_since
+
+            inserted_docs = []
+
+            async def _record(docs, branch="main", message="", author=""):
+                inserted_docs.extend(docs)
+                return ["fake"]
+
+            engine.tdb.insert_documents.side_effect = _record
+
+            with structlog.testing.capture_logs() as captured:
+                await engine.run_cycle()
+
+            # Warning was logged
+            warnings = [e for e in captured if e.get("event") == "cursor_stale_rebaselined"]
+            assert len(warnings) == 1
+            assert warnings[0]["branch"] == "main"
+            assert warnings[0]["stale_commit"] == "deadbeef"
+
+            # Cycle completed normally
+            summary = [e for e in captured if e.get("event") == "cycle_complete"]
+            assert len(summary) == 1
+            assert summary[0]["firings_written"] == 0
+
+            # No firings produced (empty changes)
+            assert len(inserted_docs) == 0
+
+            # Last commit advanced to the new head
+            assert engine._last_commit == {"main": "newhead123"}
+
+            # Persisted state file reflects the new head
+            saved = json.loads(state_file.read_text())
+            assert saved == {"main": "newhead123"}
+
+            # changes_since was called exactly twice (stale + baseline)
+            assert call_count == 2
+        finally:
+            state_file.unlink(missing_ok=True)

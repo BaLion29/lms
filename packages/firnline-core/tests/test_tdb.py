@@ -8,6 +8,7 @@ import httpx
 import pytest
 from firnline_core.tdb import (
     ChangeEvent,
+    StaleCommitError,
     TdbClient,
     TdbConflictError,
     TdbError,
@@ -885,8 +886,8 @@ async def test_changes_since_diff_delete(client, respx_mock):
     assert events[0].deleted == ["Task/deleted"]
 
 
-async def test_changes_since_commit_not_found(client, respx_mock):
-    """When commit_id not in log, all available entries are returned."""
+async def test_changes_since_stale_commit_raises(client, respx_mock):
+    """When commit_id not in log, StaleCommitError is raised."""
     respx_mock.get(
         f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
     ).respond(
@@ -896,17 +897,115 @@ async def test_changes_since_commit_not_found(client, respx_mock):
         ],
     )
 
+    # Also mock diff — it should never be called
+    diff_route = respx_mock.post(
+        f"{BASE}/api/diff/{ORG}/{DB}",
+    ).respond(json={"patch": []})
+
+    with pytest.raises(StaleCommitError) as exc_info:
+        await client.changes_since("C0", branch="main")
+
+    assert exc_info.value.commit_id == "C0"
+    assert exc_info.value.branch == "main"
+    assert not diff_route.called
+
+
+async def test_changes_since_stale_commit_custom_branch(client, respx_mock):
+    """Branch is stored in StaleCommitError."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/feature",
+    ).respond(
+        json=[
+            {"identifier": "C1", "author": "b", "message": "old"},
+        ],
+    )
+
     respx_mock.post(
         f"{BASE}/api/diff/{ORG}/{DB}",
     ).respond(json={"patch": []})
 
-    # commit_id not in log
-    events, head = await client.changes_since("C0")
-    assert head == "C2"
-    # Both C1 and C2 are returned (oldest first)
-    assert len(events) == 2
-    assert events[0].commit_id == "C1"
-    assert events[1].commit_id == "C2"
+    with pytest.raises(StaleCommitError) as exc_info:
+        await client.changes_since("C0", branch="feature")
+
+    assert exc_info.value.branch == "feature"
+
+
+async def test_changes_since_limit_with_valid_old_commit(client, respx_mock):
+    """limit caps returned events but does NOT cause false staleness."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"identifier": "C5", "author": "a", "message": "5th"},
+            {"identifier": "C4", "author": "b", "message": "4th"},
+            {"identifier": "C3", "author": "c", "message": "3rd"},
+            {"identifier": "C2", "author": "d", "message": "2nd"},
+            {"identifier": "C1", "author": "e", "message": "1st"},
+        ],
+    )
+
+    respx_mock.post(
+        f"{BASE}/api/diff/{ORG}/{DB}",
+    ).respond(json={"patch": []})
+
+    # C1 is 5 entries back; limit=3 should still find it and return 3 events
+    events, head = await client.changes_since("C1", limit=3)
+    assert head == "C5"
+    assert len(events) == 3
+    # oldest first: C2, C3, C4
+    assert [e.commit_id for e in events] == ["C2", "C3", "C4"]
+
+
+async def test_changes_since_truncated_log_raises_tdberror(client, respx_mock):
+    """When commit not found AND entries == cap, raise TdbError (not Stale)."""
+    # Simulate truncation by using a tiny cap
+    client._LOG_REQUEST_CAP = 3
+
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"identifier": "C3", "author": "a", "message": "3rd"},
+            {"identifier": "C2", "author": "b", "message": "2nd"},
+            {"identifier": "C1", "author": "c", "message": "1st"},
+        ],
+    )
+
+    diff_route = respx_mock.post(
+        f"{BASE}/api/diff/{ORG}/{DB}",
+    ).respond(json={"patch": []})
+
+    with pytest.raises(TdbError) as exc_info:
+        await client.changes_since("C0")
+
+    assert exc_info.value.status == 400
+    assert "truncated" in exc_info.value.body.lower()
+    assert "C0" in exc_info.value.body
+    assert not isinstance(exc_info.value, StaleCommitError)
+    assert not diff_route.called
+
+
+# ---------------------------------------------------------------------------
+# StaleCommitError
+# ---------------------------------------------------------------------------
+
+
+def test_stale_commit_error_is_tdberror():
+    """StaleCommitError is a subclass of TdbError."""
+    e = StaleCommitError("abc", "main")
+    assert isinstance(e, TdbError)
+    assert e.status == 400
+    assert e.commit_id == "abc"
+    assert e.branch == "main"
+
+
+def test_stale_commit_error_message():
+    """StaleCommitError produces a descriptive message."""
+    e = StaleCommitError("deadbeef", "main")
+    msg = str(e)
+    assert "deadbeef" in msg
+    assert "main" in msg
+    assert "400" in msg
 
 
 # ---------------------------------------------------------------------------

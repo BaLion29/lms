@@ -13,7 +13,7 @@ import structlog
 from firnline_core.base import _format_datetime
 from firnline_core.conventions import agent_id
 from firnline_core.plugins import EvalContext
-from firnline_core.tdb import TdbError, short_iri
+from firnline_core.tdb import StaleCommitError, TdbError, short_iri
 from triggerd.evaluators import _parse_iso_datetime, resolve_anchor
 
 logger = structlog.get_logger(__name__)
@@ -117,7 +117,15 @@ class Engine:
 
         # ── Change feed ──────────────────────────────────────────────
         last_commit = self._last_commit.get(branch)
-        changes, new_head = await self.tdb.changes_since(last_commit, branch)
+        try:
+            changes, new_head = await self.tdb.changes_since(last_commit, branch)
+        except StaleCommitError as exc:
+            self.log.warning(
+                "cursor_stale_rebaselined",
+                branch=branch,
+                stale_commit=exc.commit_id,
+            )
+            changes, new_head = await self.tdb.changes_since(None, branch)
         self._last_commit[branch] = new_head
 
         # ── Build class → anchor_field map from schema ───────────────

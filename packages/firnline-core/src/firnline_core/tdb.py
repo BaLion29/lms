@@ -54,6 +54,20 @@ class TdbError(Exception):
         return f"TdbError({self.status}): {self.body}"
 
 
+class StaleCommitError(TdbError):
+    """Raised when a *commit_id* no longer exists in branch history."""
+
+    def __init__(self, commit_id: str, branch: str) -> None:
+        self.commit_id = commit_id
+        self.branch = branch
+        msg = (
+            f"Stale commit '{commit_id}' on branch '{branch}': "
+            "commit no longer exists in branch history "
+            "(e.g. branch was reset or schema was full-replaced)."
+        )
+        super().__init__(status=400, body=msg)
+
+
 class TdbConflictError(TdbError):
     """Raised when an optimistic-concurrency check fails.
 
@@ -484,6 +498,12 @@ class TdbClient:
     # Change feed
     # ------------------------------------------------------------------
 
+    # Upper bound for log requests to detect truncation.
+    # If the endpoint returns this many entries and a commit is still not
+    # found we cannot be sure whether the commit is truly stale or just
+    # fell outside the fetched window.
+    _LOG_REQUEST_CAP: int = 10_000
+
     async def changes_since(
         self,
         commit_id: str | None,
@@ -501,7 +521,17 @@ class TdbClient:
         If *commit_id* is ``None``, returns ``([], current_head)`` —
         callers should use this to baseline before polling.
 
-        Raises ``TdbError`` if any diff endpoint call fails.
+        *limit* caps the number of returned change events; it does **not**
+        affect the staleness check — the full fetched log is always
+        searched for *commit_id*.
+
+        Raises
+        ------
+        TdbError
+            If any diff endpoint call fails, or if *commit_id* is not found
+            in the fetched log window and the window may be truncated.
+        StaleCommitError
+            If *commit_id* is not found in the full (untruncated) branch log.
         """
         current_head = await self.get_branch_head(branch)
 
@@ -511,23 +541,36 @@ class TdbClient:
         if commit_id == current_head:
             return ([], current_head)
 
-        # Fetch commit log and collect newer commits (newest-first from API).
-        log_entries = await self.get_branch_log(branch)
-        if limit is not None:
-            log_entries = log_entries[:limit]
+        # Fetch log with a large cap to detect truncation.
+        log_entries = await self.get_branch_log(branch, count=self._LOG_REQUEST_CAP)
 
-        # Find the cutoff: filter to entries after commit_id
+        # Find the cutoff: scan the FULL log for commit_id (before
+        # applying *limit*, which only affects returned events).
         newer: list[dict[str, Any]] = []
         found = False
         for entry in log_entries:
             ident = str(entry.get("identifier", ""))
             if ident == commit_id:
-                found = True  # noqa: F841
+                found = True
                 break
             newer.append(entry)
 
-        # Reverse to oldest→newest order
+        if not found:
+            if len(log_entries) >= self._LOG_REQUEST_CAP:
+                raise TdbError(
+                    400,
+                    f"Commit '{commit_id}' not found in fetched log window "
+                    f"({self._LOG_REQUEST_CAP} entries) for branch "
+                    f"'{branch}'; log may be truncated.",
+                )
+            raise StaleCommitError(commit_id, branch)
+
+        # Reverse to oldest→newest order.
         newer.reverse()
+
+        # Apply *limit* only to returned events.
+        if limit is not None:
+            newer = newer[:limit]
 
         events: list[ChangeEvent] = []
         for i, entry in enumerate(newer):

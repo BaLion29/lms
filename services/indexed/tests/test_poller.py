@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock
 
-from firnline_core.tdb import ChangeEvent, TdbError
+from firnline_core.tdb import ChangeEvent, StaleCommitError, TdbError
 from indexed.poller import Poller
 from indexed.store import Store
 
@@ -164,6 +164,55 @@ async def test_sync_once_changes_since_tdberror_fallback(tmp_path: Path):
 
         # Fallback: get_branch_head + get_schema were called
         tdb.changes_since.assert_called_once_with("abc123", "main")
+        tdb.get_branch_head.assert_called_once_with("main")
+        tdb.get_schema.assert_called_once_with("main")
+
+        assert store.get_last_commit("main") == "recovery-head"
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# 4b. changes_since StaleCommitError → full reindex with distinct warning
+# ---------------------------------------------------------------------------
+
+
+async def test_sync_once_stale_commit_full_resync(tmp_path: Path):
+    """StaleCommitError triggers full reindex with cursor_stale_full_resync log."""
+    store = _make_store(tmp_path)
+    try:
+        store.set_last_commit("main", "deadbeef")
+
+        tdb = AsyncMock()
+        tdb.changes_since = AsyncMock(
+            side_effect=StaleCommitError("deadbeef", "main")
+        )
+        tdb.get_branch_head = AsyncMock(return_value="recovery-head")
+        tdb.get_schema = AsyncMock(return_value=[])
+
+        import structlog
+        with structlog.testing.capture_logs() as captured:
+            poller = Poller(
+                tdb=tdb,
+                store=store,
+                settings=FakeSettings(),
+                indexer_plugins=[],
+            )
+            ok = await poller.sync_once()
+
+        assert ok is True
+
+        # Distinct warning event was logged
+        stale_warnings = [
+            e for e in captured
+            if e.get("event") == "cursor_stale_full_resync"
+        ]
+        assert len(stale_warnings) == 1
+        assert stale_warnings[0]["branch"] == "main"
+        assert stale_warnings[0]["stale_commit"] == "deadbeef"
+
+        # Same fallback recovery as TdbError path
+        tdb.changes_since.assert_called_once_with("deadbeef", "main")
         tdb.get_branch_head.assert_called_once_with("main")
         tdb.get_schema.assert_called_once_with("main")
 

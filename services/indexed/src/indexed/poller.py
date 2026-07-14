@@ -6,7 +6,7 @@ from typing import Any
 
 import structlog
 
-from firnline_core.tdb import ChangeEvent, TdbError
+from firnline_core.tdb import ChangeEvent, StaleCommitError, TdbError
 from indexed.store import Store
 
 logger = structlog.get_logger(__name__)
@@ -79,6 +79,13 @@ class Poller:
         # ---- ask the kernel what changed since last_commit ----
         try:
             events, new_head = await self.tdb.changes_since(last, self._branch)
+        except StaleCommitError as exc:
+            logger.warning(
+                "cursor_stale_full_resync",
+                branch=self._branch,
+                stale_commit=exc.commit_id,
+            )
+            return await self._full_sync()
         except TdbError:
             logger.warning("changes_since_failed", branch=self._branch, exc_info=True)
             return await self._full_sync()
