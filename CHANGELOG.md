@@ -36,15 +36,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GET /v1/schema/introspection`, `GET /v1/modules`, `GET /v1/documents/{iri}`,
   `POST /v1/graphql`, `POST /v1/find/{entity,class,field}`.
 - **WebUI inbox page** now backed by `Captured` class.
+- **notifyd renamed to effectd.** Service name, settings prefix (`EFFECTD_`),
+  liveness file, and compose service block all use the new name. The old
+  `NOTIFYD_` prefix and `notifyd` container name are fully removed.
+- **Durations promoted to firnline_core.** The ISO-8601 duration parser
+  (`parse_duration`) and datetime parser (`parse_iso_datetime`) moved from
+  individual services into firnline_core so executor extensions can consume
+  them without depending on service internals.
 
 ### Added
 
+- **`actions` kernel schema module.** Introduces the `Action` hierarchy
+  (`WebhookAction`, `NotifyAction`), `ActionExecution` (idempotent execution
+  records with Lexical key on `[action, firing]`), `ActionMode` trust ladder
+  (`dry_run → approval → auto`), and `ExecutionStatus` lifecycle with metadata
+  transitions.
+- **effectd action engine.** Plan/execute phases over `ActionExecution`
+  documents: planner enumerates (action, firing) pairs and materialises
+  executions; executor picks up pending executions, resolves the matching
+  `ActionExecutor` plugin, invokes it with timeout, and persists outcomes
+  through retry/backoff/dead-letter. Idempotency key is
+  `<short-action-iri>#<short-firing-iri>`.
+- **Trust ladder for actions.** `dry_run` records skipped executions;
+  `approval` (default) requires human transition `pending_approval → pending`
+  before execution; `auto` opts in to immediate execution because side effects
+  are not revertible.
+- **New entry-point group `firnline.effectd.executors`.** Canonical
+  `ActionExecutor` protocol: `name`, `requires`, `kinds`, and an async
+  `execute(action, firing, subject, ctx) → ExecutionResult` method.
+- **firnline-ext-webhook** — reference `ActionExecutor` that calls arbitrary
+  HTTP endpoints with template-rendered payloads, idempotency-key headers,
+  and optional bearer auth.
+- **Gotify native ActionExecutor.** `firnline-ext-gotify` now registers a
+  native executor with kind `notify:gotify` alongside its legacy channel
+  entry point.
 - **mcpd** — new service exposing firnline to external AI agents via Model
   Context Protocol (streamable HTTP). Tools: graphql_query, get_document,
   find_entity/class/field, get_schema, list_modules, capture. Resources:
   firnline://schema, firnline://schema/introspection, firnline://modules.
   Talks to queryd+captured over HTTP (no direct DB access).
 - `@metadata` composer validation L4 (label_field) and L5 (anchor_field).
+
+### Deprecated
+
+- **`firnline.notifyd.channels` entry-point group.** Legacy channel plugins
+  are auto-adapted to executors with kind `notify:<name>` via
+  `ChannelExecutorAdapter` at effectd startup. Migrate to
+  `firnline.effectd.executors`. The legacy group will be removed after one
+  release cycle.
+- **`NotificationChannel`, `DeliveryResult`, `NotifyContext`** — aliased
+  respectively to `ActionExecutor`, `ExecutionResult`, `ActionContext`.
+  Existing channel implementations continue to work; new executors should
+  use the canonical names directly.
 
 ## [0.1.0] - 2026-07-07
 
