@@ -7,13 +7,17 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from firnline_core.plugins import (
+    ActionContext,
+    ActionExecutor,
     BuildContext,
     CaptureContext,
     CaptureHandler,
     CapturePayload,
+    ChannelExecutorAdapter,
     DeliveryResult,
     DiscoveryResult,
     EntityIndex,
+    ExecutionResult,
     ModuleRequirement,
     NotificationChannel,
     NotifyContext,
@@ -520,6 +524,297 @@ class TestSelectPluginsCaching:
         discovered = DiscoveryResult(active=[("p1", MyPlugin())], failed=[])
         with pytest.raises(RuntimeError, match="Strict plugin mode"):
             await select_plugins(tdb, discovered, strict=True, protocol=MyProto)
+
+
+# ---------------------------------------------------------------------------
+# ExecutionResult
+# ---------------------------------------------------------------------------
+
+
+class TestExecutionResult:
+    def test_defaults(self) -> None:
+        r = ExecutionResult(ok=True)
+        assert r.ok is True
+        assert r.detail == ""
+        assert r.retryable is False
+        assert r.external_ref is None
+
+    def test_with_external_ref(self) -> None:
+        r = ExecutionResult(ok=True, detail="created", external_ref="https://example.com/42")
+        assert r.external_ref == "https://example.com/42"
+
+    def test_terminal_failure(self) -> None:
+        r = ExecutionResult(ok=False, detail="auth failed", retryable=False)
+        assert r.ok is False
+        assert r.retryable is False
+
+    def test_retryable_failure(self) -> None:
+        r = ExecutionResult(ok=False, detail="timeout", retryable=True)
+        assert r.ok is False
+        assert r.retryable is True
+
+
+# ---------------------------------------------------------------------------
+# ActionContext defaults
+# ---------------------------------------------------------------------------
+
+
+class TestActionContext:
+    def test_now_returns_tz_aware_utc(self) -> None:
+        ctx = ActionContext(tdb=None, logger=None)
+        now = ctx.now()
+        from datetime import timezone
+        assert now.tzinfo is not None
+        assert now.tzinfo.utcoffset(now) is not None
+        assert now.utcoffset() == timezone.utc.utcoffset(None)
+
+    def test_dry_run_default_false(self) -> None:
+        ctx = ActionContext(tdb=None, logger=None)
+        assert ctx.dry_run is False
+
+    def test_idempotency_key_default_empty(self) -> None:
+        ctx = ActionContext(tdb=None, logger=None)
+        assert ctx.idempotency_key == ""
+
+    def test_custom_now(self) -> None:
+        from datetime import datetime, timezone
+        fixed = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        ctx = ActionContext(tdb=None, logger=None, now=lambda: fixed)
+        assert ctx.now() == fixed
+
+    def test_dry_run_true(self) -> None:
+        ctx = ActionContext(tdb=None, logger=None, dry_run=True)
+        assert ctx.dry_run is True
+        assert ctx.idempotency_key == ""
+
+    def test_idempotency_key_set(self) -> None:
+        ctx = ActionContext(tdb=None, logger=None, idempotency_key="key-123")
+        assert ctx.idempotency_key == "key-123"
+
+
+# ---------------------------------------------------------------------------
+# Deprecated aliases
+# ---------------------------------------------------------------------------
+
+
+class TestDeprecatedAliases:
+    def test_delivery_result_is_execution_result(self) -> None:
+        assert DeliveryResult is ExecutionResult
+
+    def test_notify_context_is_action_context(self) -> None:
+        assert NotifyContext is ActionContext
+
+    def test_delivery_result_instantiation(self) -> None:
+        """DeliveryResult(ok=True) creates an ExecutionResult."""
+        r = DeliveryResult(ok=True, detail="sent")
+        assert isinstance(r, ExecutionResult)
+        assert r.ok is True
+        assert r.detail == "sent"
+        assert r.external_ref is None
+
+    def test_notify_context_instantiation(self) -> None:
+        """NotifyContext(tdb, logger) creates an ActionContext."""
+        ctx = NotifyContext(tdb="fake", logger="fake")
+        assert isinstance(ctx, ActionContext)
+        assert ctx.tdb == "fake"
+        assert ctx.dry_run is False
+
+
+# ---------------------------------------------------------------------------
+# ActionExecutor protocol validation
+# ---------------------------------------------------------------------------
+
+
+class TestActionExecutorProtocol:
+    def test_valid_executor_passes_validate(self) -> None:
+        class FakeExecutor:
+            name = "fake"
+            requires: list[ModuleRequirement] = []
+            kinds: tuple[str, ...] = ("webhook",)
+
+            async def execute(
+                self,
+                action: dict,
+                firing: dict,
+                subject: dict | None,
+                ctx: ActionContext,
+            ) -> ExecutionResult:
+                return ExecutionResult(ok=True)
+
+        violations = validate_plugin(FakeExecutor(), ActionExecutor)
+        assert violations == []
+
+    def test_isinstance_check(self) -> None:
+        class FakeExecutor:
+            name = "fake"
+            requires: list[ModuleRequirement] = []
+            kinds: tuple[str, ...] = ("webhook",)
+
+            async def execute(
+                self,
+                action: dict,
+                firing: dict,
+                subject: dict | None,
+                ctx: ActionContext,
+            ) -> ExecutionResult:
+                return ExecutionResult(ok=True)
+
+        assert isinstance(FakeExecutor(), ActionExecutor)
+
+    def test_missing_kinds_fails_validate(self) -> None:
+        class BadExecutor:
+            name = "bad"
+            requires: list[ModuleRequirement] = []
+
+            async def execute(
+                self,
+                action: dict,
+                firing: dict,
+                subject: dict | None,
+                ctx: ActionContext,
+            ) -> ExecutionResult:
+                return ExecutionResult(ok=True)
+
+        violations = validate_plugin(BadExecutor(), ActionExecutor)
+        assert any("missing attribute 'kinds'" in v for v in violations)
+
+    def test_missing_execute_fails_validate(self) -> None:
+        class BadExecutor:
+            name = "bad"
+            requires: list[ModuleRequirement] = []
+            kinds: tuple[str, ...] = ("webhook",)
+
+        violations = validate_plugin(BadExecutor(), ActionExecutor)
+        assert any("missing method 'execute'" in v for v in violations)
+
+
+# ---------------------------------------------------------------------------
+# ChannelExecutorAdapter
+# ---------------------------------------------------------------------------
+
+
+class TestChannelExecutorAdapter:
+    def test_adapter_passes_action_executor_validation(self) -> None:
+        class FakeChannel:
+            name = "email"
+            requires: list[ModuleRequirement] = []
+
+            async def deliver(self, firing, subject, ctx):
+                return DeliveryResult(ok=True)
+
+        channel = FakeChannel()
+        adapter = ChannelExecutorAdapter(channel)
+        violations = validate_plugin(adapter, ActionExecutor)
+        assert violations == []
+
+    async def test_adapter_kinds_matches_channel_name(self) -> None:
+        class FakeChannel:
+            name = "gotify"
+            requires: list[ModuleRequirement] = []
+
+            async def deliver(self, firing, subject, ctx):
+                return DeliveryResult(ok=True)
+
+        adapter = ChannelExecutorAdapter(FakeChannel())
+        assert adapter.kinds == ("notify:gotify",)
+
+    async def test_adapter_name_and_requires_delegated(self) -> None:
+        reqs = [ModuleRequirement(name="triggers", range=">=0.1.0")]
+        class FakeChannel:
+            name = "push"
+            requires = reqs
+
+            async def deliver(self, firing, subject, ctx):
+                return DeliveryResult(ok=True)
+
+        adapter = ChannelExecutorAdapter(FakeChannel())
+        assert adapter.name == "push"
+        assert adapter.requires == reqs
+
+    async def test_execute_calls_deliver_with_correct_args(self) -> None:
+        class FakeChannel:
+            name = "test"
+            requires: list[ModuleRequirement] = []
+            captured_firing = None
+            captured_subject = None
+            captured_ctx = None
+
+            async def deliver(self, firing, subject, ctx):
+                self.__class__.captured_firing = firing
+                self.__class__.captured_subject = subject
+                self.__class__.captured_ctx = ctx
+                return DeliveryResult(ok=True, detail="sent")
+
+        channel = FakeChannel()
+        adapter = ChannelExecutorAdapter(channel)
+        firing = {"@id": "f/1"}
+        subject = {"name": "Test"}
+        ctx = ActionContext(tdb=None, logger=None)
+
+        result = await adapter.execute({}, firing, subject, ctx)
+
+        assert result.ok is True
+        assert result.detail == "sent"
+        assert FakeChannel.captured_firing is firing
+        assert FakeChannel.captured_subject is subject
+        assert FakeChannel.captured_ctx is ctx
+
+    async def test_execute_normalizes_external_ref(self) -> None:
+        class FakeChannel:
+            name = "test"
+            requires: list[ModuleRequirement] = []
+
+            async def deliver(self, firing, subject, ctx):
+                return DeliveryResult(ok=True)
+
+        adapter = ChannelExecutorAdapter(FakeChannel())
+        ctx = ActionContext(tdb=None, logger=None)
+        result = await adapter.execute({}, {}, None, ctx)
+        assert result.ok is True
+        assert result.external_ref is None  # normalized from missing attr
+
+    async def test_execute_preserves_external_ref(self) -> None:
+        class FakeChannel:
+            name = "test"
+            requires: list[ModuleRequirement] = []
+
+            async def deliver(self, firing, subject, ctx):
+                return ExecutionResult(ok=True, external_ref="https://ext.example.com/1")
+
+        adapter = ChannelExecutorAdapter(FakeChannel())
+        ctx = ActionContext(tdb=None, logger=None)
+        result = await adapter.execute({}, {}, None, ctx)
+        assert result.ok is True
+        assert result.external_ref == "https://ext.example.com/1"
+
+    async def test_execute_passes_failure(self) -> None:
+        class FakeChannel:
+            name = "test"
+            requires: list[ModuleRequirement] = []
+
+            async def deliver(self, firing, subject, ctx):
+                return DeliveryResult(ok=False, detail="boom", retryable=True)
+
+        adapter = ChannelExecutorAdapter(FakeChannel())
+        ctx = ActionContext(tdb=None, logger=None)
+        result = await adapter.execute({}, {}, None, ctx)
+        assert result.ok is False
+        assert result.detail == "boom"
+        assert result.retryable is True
+
+
+# ---------------------------------------------------------------------------
+# firnline_core top-level exports
+# ---------------------------------------------------------------------------
+
+
+class TestTopLevelExports:
+    def test_new_names_importable_from_firnline_core(self) -> None:
+        import firnline_core
+        assert hasattr(firnline_core, "ActionContext")
+        assert hasattr(firnline_core, "ActionExecutor")
+        assert hasattr(firnline_core, "ExecutionResult")
+        assert hasattr(firnline_core, "ChannelExecutorAdapter")
 
 
 # ---------------------------------------------------------------------------

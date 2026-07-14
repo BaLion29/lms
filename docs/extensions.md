@@ -233,7 +233,11 @@ window.  The engine handles deduplication and insertion.
 - **`changes`** — list of `ChangeEvent` from the kernel change feed
   (`TdbClient.changes_since`), consumed by `EventTrigger` evaluators
 
-### `firnline.notifyd.channels` — NotificationChannel
+### `firnline.notifyd.channels` — NotificationChannel (legacy)
+
+> **Deprecated.** Channels are auto-adapted to executors with kind
+> `notify:<name>` at effectd startup via `ChannelExecutorAdapter`.
+> Migrate to `firnline.effectd.executors`.
 
 ```python
 class NotificationChannel(Protocol):
@@ -259,6 +263,37 @@ Example: `firnline-ext-gotify` registers a `firnline.notifyd.channels`
 entry point (legacy group name, consumed by effectd) that forwards firings to a Gotify server. Configure via
 `GOTIFY_URL`, `GOTIFY_TOKEN`, `GOTIFY_PRIORITY`, `GOTIFY_TIMEOUT_SECONDS`
 (see [Configuration](configuration.md)).
+
+### `firnline.effectd.executors` — ActionExecutor
+
+```python
+class ActionExecutor(Protocol):
+    name: str
+    requires: list[ModuleRequirement]
+    kinds: tuple[str, ...]   # e.g. ("notify:gotify",), ("webhook",), ("hass",)
+
+    async def execute(
+        self,
+        action: dict[str, Any],
+        firing: dict[str, Any],
+        subject: dict[str, Any] | None,
+        ctx: ActionContext,
+    ) -> ExecutionResult: ...
+```
+
+Each executor handles one or more executor-kind strings matched against
+`Action.executor`. Collisions between active executors on the same kind
+are fatal at startup.
+
+`ActionContext` provides `tdb`, `logger`, `now()` (tz-aware UTC default),
+`idempotency_key`, and `dry_run`. When `dry_run` is `True`, executors
+MUST NOT produce side effects.
+
+```toml
+[project.entry-points."firnline.effectd.executors"]
+gotify = "firnline_ext_gotify.channel:plugin"
+webhook = "my_ext.webhooks:executor"
+```
 
 ## Schema Module Format
 

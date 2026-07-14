@@ -163,7 +163,7 @@ must declare `@metadata.anchor_field` naming an `xsd:dateTime` field (L5).
 
 ## Plugin Mechanism
 
-Seven entry-point groups, discovered via `importlib.metadata.entry_points`:
+Eight entry-point groups, discovered via `importlib.metadata.entry_points`:
 
 | Entry-point group | Protocol | Used by | Purpose |
 |---|---|---|---|
@@ -174,7 +174,8 @@ Seven entry-point groups, discovered via `importlib.metadata.entry_points`:
 | `firnline.captured.handlers` | `CaptureHandler` | captured | Handle capture requests by kind (e.g. "note", "file") |
 | `firnline.triggerd.evaluators` | `TriggerEvaluator` | triggerd | Evaluate trigger types, propose occurrence instants |
 | `firnline.indexed.indexers` | `IndexerPlugin` | indexed | Declare which TDB classes to mirror and how to extract entity text + aliases |
-| `firnline.notifyd.channels` | `NotificationChannel` | effectd | Deliver `TriggerFiring` records via external notification services (e.g. Gotify) |
+| `firnline.notifyd.channels` | `NotificationChannel` | effectd | Deliver `TriggerFiring` records via external notification services (legacy, auto-adapted to executors) |
+| `firnline.effectd.executors` | `ActionExecutor` | effectd | Execute external effects (notification, webhook, home-automation, etc.) |
 
 All host services boot through the shared `PluginHost` in `firnline-core`
 (discover → validate → check_requirements → collision check → select →
@@ -204,8 +205,9 @@ startup. Per-service policies:
 - **`settings.py`** — shared `TDB_URL / TDB_ORG / TDB_DB / TDB_BRANCH /
   TDB_USER / TDB_PASSWORD` base, subclassed by each service with its own prefix.
 - **`plugins.py`** — `ExtractorPlugin`, `ToolPlugin`, `CaptureHandler`,
-  `IngestSourcePlugin` protocols, `ModuleRequirement`, `check_requirements`,
-  `discover_plugins`, `select_plugins`.
+  `IngestSourcePlugin`, `ActionExecutor`, `ActionContext`, `ExecutionResult`,
+  `ChannelExecutorAdapter` protocols/datatypes, `ModuleRequirement`,
+  `check_requirements`, `discover_plugins`, `select_plugins`.
 - **`conventions.py`** — `utc_now()`, `BlobStore` (content-addressed file
   storage), `ExternalRef` convention, `agent_id()`/`parse_agent()` for the
   reserved agent naming grammar (`service:<name>`, `user:<name>`, `ext:<name>`).

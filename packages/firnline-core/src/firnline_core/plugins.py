@@ -14,7 +14,7 @@ from typing import Any, Callable, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
-from firnline_core.conventions import BlobStore
+from firnline_core.conventions import BlobStore, utc_now
 from firnline_core.semver import Range, Version
 from firnline_core.tdb import TdbError
 
@@ -507,27 +507,94 @@ def validate_plugin(obj: object, protocol: type) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Notification channel protocol (effectd seam)
+# Action execution contracts (effectd seam)
 # ---------------------------------------------------------------------------
-# Entry-point group convention: "firnline.notifyd.channels" (legacy group name)
-# effectd discovers and invokes these.
+# Entry-point group convention: "firnline.effectd.executors"
+# Legacy group "firnline.notifyd.channels" is auto-adapted to executors
+# at startup by effectd via ChannelExecutorAdapter.
 
 
 @dataclass
-class DeliveryResult:
-    """Outcome of a notification delivery attempt."""
+class ExecutionResult:
+    """Outcome of an external-effect execution attempt.
+
+    Fields:
+        ok: ``True`` if the effect was successfully executed.
+        detail: Human-readable status or error description.
+        retryable: ``False`` + ``not ok`` → terminal failure for this attempt
+            path. ``True`` + ``not ok`` → the effect may succeed on retry.
+        external_ref: Optional id / URL of the created external effect.
+    """
 
     ok: bool
     detail: str = ""
     retryable: bool = False
+    external_ref: str | None = None
+
+
+# Deprecated alias — kept for backward-compatibility with existing channel code.
+# Migrate to ExecutionResult.
+DeliveryResult = ExecutionResult
+
+
+@dataclass
+class ActionContext:
+    """Convention carrier passed to :meth:`ActionExecutor.execute`.
+
+    Fields:
+        tdb: A TerminusDB client (``Any`` — avoids a service dep in firnline-core).
+        logger: A ``logging.Logger``-like object.
+        now: Callable returning a tz-aware UTC ``datetime``
+            (default: :func:`~firnline_core.conventions.utc_now`).
+        idempotency_key: Stable per (action, firing); executors SHOULD pass it
+            downstream for exactly-once semantics.
+        dry_run: When ``True``, executors MUST NOT produce side effects.
+    """
+
+    tdb: Any
+    logger: Any
+    now: Callable[[], datetime] = utc_now
+    idempotency_key: str = ""
+    dry_run: bool = False
+
+
+# Deprecated alias — kept for backward-compatibility with existing channel code.
+# Migrate to ActionContext.
+NotifyContext = ActionContext
+
+
+@runtime_checkable
+class ActionExecutor(Protocol):
+    """Executes one kind of external effect.
+
+    Entry-point group: ``firnline.effectd.executors``
+
+    *kinds* are executor-kind strings matched against ``Action.executor``
+    (e.g. ``("notify:gotify",)``, ``("webhook",)``, ``("hass",)``).
+    Collisions between active executors on the same kind are fatal at startup.
+    """
+
+    name: str
+    requires: list[ModuleRequirement]
+    kinds: tuple[str, ...]
+
+    async def execute(
+        self,
+        action: dict[str, Any],
+        firing: dict[str, Any],
+        subject: dict[str, Any] | None,
+        ctx: ActionContext,
+    ) -> ExecutionResult: ...
 
 
 @runtime_checkable
 class NotificationChannel(Protocol):
-    """Protocol for effectd notification channel plugins.
+    """Deprecated — superseded by :class:`ActionExecutor`.
 
-    Each channel handles a specific delivery mechanism (email, push, etc.)
-    and is discovered under ``firnline.notifyd.channels`` (legacy group name).
+    Channels are auto-adapted to executors with kind ``notify:<name>``
+    via :class:`ChannelExecutorAdapter` at effectd startup.
+
+    Legacy entry-point group: ``firnline.notifyd.channels``
     """
 
     name: str
@@ -541,19 +608,45 @@ class NotificationChannel(Protocol):
     ) -> DeliveryResult: ...
 
 
-@dataclass
-class NotifyContext:
-    """Convention carrier passed to :meth:`NotificationChannel.deliver`.
+class ChannelExecutorAdapter:
+    """Adapt a :class:`NotificationChannel` into an :class:`ActionExecutor`.
 
-    Fields:
-        tdb: A TerminusDB client (``Any`` — avoids a service dep in firnline-core).
-        logger: A ``logging.Logger``-like object.
-        now: Callable returning ``datetime`` (default: ``datetime.now``).
+    Used by effectd at startup so that legacy channel plugins work
+    seamlessly with the new executor infrastructure.  Each channel
+    gets mapped to a single executor kind ``notify:<channel.name>``.
     """
 
-    tdb: Any
-    logger: Any
-    now: Callable[[], datetime] | None = None
+    def __init__(self, channel: NotificationChannel) -> None:
+        self._channel = channel
+
+    @property
+    def name(self) -> str:
+        return self._channel.name
+
+    @property
+    def requires(self) -> list[ModuleRequirement]:
+        return self._channel.requires
+
+    @property
+    def kinds(self) -> tuple[str, ...]:
+        return (f"notify:{self._channel.name}",)
+
+    async def execute(
+        self,
+        action: dict[str, Any],
+        firing: dict[str, Any],
+        subject: dict[str, Any] | None,
+        ctx: ActionContext,
+    ) -> ExecutionResult:
+        # Deliver through the wrapped channel — NotifyContext IS ActionContext
+        # via the deprecated alias, so we can pass ctx directly.
+        result = await self._channel.deliver(firing, subject, ctx)  # type: ignore[arg-type]
+        return ExecutionResult(
+            ok=result.ok,
+            detail=result.detail,
+            retryable=result.retryable,
+            external_ref=getattr(result, "external_ref", None),
+        )
 
 
 # ---------------------------------------------------------------------------
