@@ -1,11 +1,6 @@
 [
   {"@abstract": [], "@id": "Entity", "@type": "Class",
    "@documentation": {"@comment": "Universal base for every domain document in the graph. Carries audit timestamps, required provenance (birth certificate), optional derivation ancestry (derived_from), optional soft-delete tombstone (archived_at), context tagging, and external identity. Registry meta-classes (SchemaModule, SchemaMigration) are deliberately outside this grammar."},
-   "@properties": {
-     "provenance": {"@comment": "Birth certificate — exactly one per document, describing origination. Updates are attributed via the commit graph (the biography), deliberately not on the document."},
-     "derived_from": {"@comment": "N-ary derivation relation: this document was derived or synthesized from these sources."},
-     "archived_at": {"@comment": "Soft-delete tombstone. Reference-preserving retirement; generic tools filter archived entities uniformly; physical deletion remains exceptional."}
-   },
    "created_at": "xsd:dateTime",
    "updated_at": "xsd:dateTime",
    "provenance": "Provenance",
