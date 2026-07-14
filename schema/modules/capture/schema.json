@@ -1,6 +1,15 @@
 [
    {"@id": "Captured", "@inherits": ["Entity", "Source"], "@type": "Class",
-    "@metadata": {"label_field": "content"},
+    "@metadata": {
+      "label_field": "content",
+      "transitions": {
+        "new": ["transcribed", "processed", "failed"],
+        "transcribed": ["processed", "failed"],
+        "processed": ["archived"],
+        "failed": ["new", "archived"],
+        "archived": []
+      }
+    },
     "@documentation": {"@comment": "A captured document — quick-capture text note, audio recording, or arbitrary binary blob. Written before processing, later refined or promoted into domain documents. The ``@metadata.label_field`` is ``\"content\"``, which may be null for binary-only captures (e.g. audio). Consumers MUST fall back to ``file_name`` then ``@id`` when the label field is null."},
    "content_type": "xsd:string",
    "content": {"@class": "xsd:string", "@type": "Optional"},

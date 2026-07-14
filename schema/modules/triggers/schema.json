@@ -42,7 +42,16 @@
    "window": {"@class": "xsd:duration", "@type": "Optional"}},
    {"@id": "TriggerFiring", "@inherits": "Entity", "@type": "Class",
     "@key": {"@type": "Lexical", "@fields": ["trigger", "occurrence_key"]},
-    "@metadata": {"label_field": "occurrence_key"},
+    "@metadata": {
+      "label_field": "occurrence_key",
+      "transitions": {
+        "pending": ["notified"],
+        "notified": ["acknowledged", "snoozed", "expired"],
+        "snoozed": ["notified", "expired"],
+        "acknowledged": [],
+        "expired": []
+      }
+    },
     "@documentation": {"@comment": "Record of a single trigger occurrence: scheduling, delivery, acknowledgement, and nag tracking."},
    "trigger": "Trigger",
    "occurrence_key": "xsd:string",

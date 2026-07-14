@@ -53,5 +53,14 @@
    "module": "xsd:string",
    "filename": "xsd:string",
    "checksum": "xsd:string",
-   "applied_at": "xsd:dateTime"}
+   "applied_at": "xsd:dateTime"},
+  {"@id": "Transition", "@type": "Class",
+   "@key": {"@type": "Random"},
+   "@documentation": {"@comment": "Immutable record of a single state transition on a document. Written atomically with the status change by the Repository layer; never updated or deleted."},
+   "subject": "xsd:string",
+   "field": "xsd:string",
+   "from_status": "xsd:string",
+   "to_status": "xsd:string",
+   "at": "xsd:dateTime",
+   "agent": "xsd:string"}
 ]
