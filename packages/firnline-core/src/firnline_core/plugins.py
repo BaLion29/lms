@@ -645,6 +645,7 @@ class ChannelExecutorAdapter:
             ok=result.ok,
             detail=result.detail,
             retryable=result.retryable,
+            # getattr tolerates third-party legacy result shapes that lack external_ref
             external_ref=getattr(result, "external_ref", None),
         )
 

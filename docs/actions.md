@@ -73,6 +73,10 @@ Every action carries an `ActionMode` — the same trust ladder used by ingestd:
 - `dry_run` mode records `skipped` at plan time and the executor is never
   called.
 
+Plan and execute phases run in the same cycle, so auto-mode executions
+planned this tick execute immediately — there is no artificial delay
+between plan and execute.
+
 ### At-least-once semantics + idempotency
 
 Effectd runs as a **single-replica polling daemon**. There is deliberately

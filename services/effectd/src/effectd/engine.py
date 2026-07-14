@@ -74,7 +74,12 @@ class EffectEngine:
     # ------------------------------------------------------------------
 
     async def run_cycle(self, should_stop: Any = None) -> None:
-        """Run one full delivery cycle: plan → execute → legacy."""
+        """Run one full delivery cycle: plan → execute → legacy.
+
+        Plan and execute run in the same cycle by design, so auto-mode
+        executions planned this tick execute immediately (fast auto path, not
+        a race).
+        """
         if should_stop is not None and getattr(should_stop, "is_set", lambda: False)():
             return
 
@@ -256,14 +261,28 @@ class EffectEngine:
             self.log.warning("execute_fetch_failed", exc_info=True)
             return
 
+        # Filter out not-yet-due executions first, so they don't consume
+        # slots from executions that are already past their next_attempt_at.
+        due_execs: list[dict[str, Any]] = []
+        for d in pending_execs:
+            next_at_raw = d.get("next_attempt_at")
+            if next_at_raw:
+                try:
+                    next_at = parse_iso_datetime(next_at_raw)
+                    if now < next_at:
+                        continue  # not yet due, skip for now
+                except Exception:
+                    pass  # unparseable → treat as due (will be re-checked in _execute_one)
+            due_execs.append(d)
+
         # Sort oldest-first, cap
-        pending_execs.sort(key=lambda d: d.get("created_at", ""))
+        due_execs.sort(key=lambda d: d.get("created_at", ""))
         max_ex = settings.max_executions_per_cycle
-        pending_execs = pending_execs[:max_ex]
+        due_execs = due_execs[:max_ex]
 
         missing_kinds: set[str] = set()
 
-        for execution in pending_execs:
+        for execution in due_execs:
             try:
                 await self._execute_one(now, execution, missing_kinds)
             except Exception:
@@ -495,12 +514,14 @@ def _scheduled_after(firing: dict[str, Any], window_start: datetime) -> bool:
     """Return True if *firing*'s scheduled_for is on or after *window_start*."""
     raw = firing.get("scheduled_for")
     if not raw:
-        return True  # include if missing
+        logger.warning("firing_missing_scheduled_for", firing=short_iri(firing.get("@id", "?")))
+        return False  # exclude if missing
     try:
         dt = parse_iso_datetime(raw)
         return dt >= window_start
     except Exception:
-        return True  # include if unparseable
+        logger.warning("firing_unparseable_scheduled_for", firing=short_iri(firing.get("@id", "?")), raw=raw)
+        return False  # exclude if unparseable
 
 
 def _select_executor(

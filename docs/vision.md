@@ -226,7 +226,7 @@ compose the schema, run codegen, pass `uv run pytest`, and idle gracefully
 | **ingestd** | AI ingestion polling worker: poll Captured → LLM extraction → entity linking → one commit per item → status flip. |
 | **queryd** | FastAPI conversational agent: read tools, guarded write tools (plugins), stateless `/v1/chat`. |
 | **triggerd** | Trigger evaluation polling worker: poll Trigger → evaluate → materialise TriggerFiring records. |
-| **effectd** | Effect delivery daemon: plan `ActionExecution` records, execute via `ActionExecutor` plugins (webhook, Gotify, etc.), run legacy notification loop with nag policy (renotify, expire, snooze wake-up). |
+| **effectd** | Effect delivery daemon: plan `ActionExecution` records, execute via `ActionExecutor` plugins (webhook, Gotify, etc.), run legacy notification loop with nag policy (renotify, expire, snooze wake-up). Actions bridge triggers to external effects — see [docs/actions.md](actions.md). |
 | **captured** | Minimal FastAPI capture-ingress: `POST /v1/capture/note` and `/v1/capture/file` with pluggable handlers. |
 | **STT** | faster-whisper (via existing n8n pipeline); multilingual German/French/English. Swappable — it just flips `Captured` statuses. |
 | **LLM access** | LiteLLM proxy (OpenAI-compatible) in front of any model — every service sees one interface. |

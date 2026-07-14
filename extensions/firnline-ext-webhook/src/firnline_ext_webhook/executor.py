@@ -131,18 +131,24 @@ class WebhookExecutor:
                     external_ref=external_ref,
                 )
             elif 400 <= response.status_code < 500:
+                text = response.text
+                if len(text) > 500:
+                    text = text[:500]
                 return ExecutionResult(
                     ok=False,
-                    detail=f"Webhook client error: {response.status_code} {response.text}",
+                    detail=f"Webhook client error: {response.status_code} {text}",
                     retryable=False,
                 )
             else:
+                text = response.text
+                if len(text) > 500:
+                    text = text[:500]
                 return ExecutionResult(
                     ok=False,
-                    detail=f"Webhook server error: {response.status_code} {response.text}",
+                    detail=f"Webhook server error: {response.status_code} {text}",
                     retryable=True,
                 )
-        except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError):
+        except (httpx.TimeoutException, httpx.NetworkError):
             return ExecutionResult(
                 ok=False,
                 detail="Webhook network/timeout error",

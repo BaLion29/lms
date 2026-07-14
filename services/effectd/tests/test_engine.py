@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 import structlog
 
-from effectd.engine import EffectEngine
+from effectd.engine import EffectEngine, _scheduled_after
 from effectd.legacy_notify import _strip_nones
 from effectd.settings import EffectdSettings
 from firnline_core.base import _format_datetime
@@ -920,6 +920,71 @@ class TestOrderingAndCap:
         # The old one's idempotency_key was "wa_old#f1"
         assert executor.calls[0]["ctx"].idempotency_key == "wa_old#f1"
 
+    @pytest.mark.asyncio
+    async def test_due_execution_runs_past_not_due_in_cap(self):
+        """A due execution beyond the cap position still runs when
+        earlier ones are not yet due (next_attempt_at in future)."""
+        now = _frozen_now()
+        future = now + timedelta(hours=1)
+        action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+
+        # Two not-yet-due executions (first positions), one due execution
+        exec_not_due_1 = {
+            "@id": "ActionExecution/ae_nd1",
+            "@type": "ActionExecution",
+            "action": "WebhookAction/wa",
+            "firing": "TriggerFiring/f1",
+            "status": "pending",
+            "attempt": 0,
+            "idempotency_key": "wa_nd1#f1",
+            "next_attempt_at": _utc_iso(future),
+            "created_at": _format_datetime(now - timedelta(hours=3)),
+            "updated_at": _format_datetime(now),
+        }
+        exec_not_due_2 = {
+            "@id": "ActionExecution/ae_nd2",
+            "@type": "ActionExecution",
+            "action": "WebhookAction/wa",
+            "firing": "TriggerFiring/f1",
+            "status": "pending",
+            "attempt": 0,
+            "idempotency_key": "wa_nd2#f1",
+            "next_attempt_at": _utc_iso(future),
+            "created_at": _format_datetime(now - timedelta(hours=2)),
+            "updated_at": _format_datetime(now),
+        }
+        exec_due = {
+            "@id": "ActionExecution/ae_due",
+            "@type": "ActionExecution",
+            "action": "WebhookAction/wa",
+            "firing": "TriggerFiring/f1",
+            "status": "pending",
+            "attempt": 0,
+            "idempotency_key": "wa_due#f1",
+            "created_at": _format_datetime(now - timedelta(hours=1)),
+            "updated_at": _format_datetime(now),
+        }
+
+        executor = FakeExecutor(kinds=("webhook",), ok=True)
+        settings = EffectdSettings(
+            tdb_db="test", tdb_password="pw", legacy_notification_loop=False,
+            max_executions_per_cycle=1,  # only 1 slot, but the due one is position 3
+        )
+        engine, tdb = _make_engine(
+            actions=[action], firings=[firing],
+            executions=[exec_not_due_1, exec_not_due_2, exec_due],
+            executors=[executor],
+            now=now, settings=settings,
+        )
+        engine.repo.create = AsyncMock()
+
+        await engine.run_cycle()
+
+        # The cap=1 slot should go to the due execution, not the not-due ones
+        assert len(executor.calls) == 1
+        assert executor.calls[0]["ctx"].idempotency_key == "wa_due#f1"
+
 
 class TestProvenance:
     """Every written execution carries correct provenance."""
@@ -1131,6 +1196,42 @@ class TestGotifyExecutorE2E:
             assert len(success_calls) >= 1
             updated = success_calls[-1][0][0][0]
             assert updated.get("external_ref") == "55"
+
+
+class TestScheduledAfter:
+    """Tests for _scheduled_after lookback filter."""
+
+    def test_scheduled_for_in_window_returns_true(self):
+        """Firing within lookback window → included."""
+        window = datetime(2026, 7, 1, tzinfo=UTC)
+        firing = {"@id": "Firing/f1", "scheduled_for": _utc_iso(datetime(2026, 7, 2, tzinfo=UTC))}
+        assert _scheduled_after(firing, window) is True
+
+    def test_scheduled_for_before_window_returns_false(self):
+        """Firing before lookback window → excluded."""
+        window = datetime(2026, 7, 10, tzinfo=UTC)
+        firing = {"@id": "Firing/f1", "scheduled_for": _utc_iso(datetime(2026, 7, 2, tzinfo=UTC))}
+        assert _scheduled_after(firing, window) is False
+
+    def test_missing_scheduled_for_excluded_and_warns(self):
+        """Missing scheduled_for → excluded with warning."""
+        window = _frozen_now()
+        firing = {"@id": "Firing/f1"}
+        with structlog.testing.capture_logs() as captured:
+            result = _scheduled_after(firing, window)
+        assert result is False
+        warnings = [e for e in captured if e.get("event") == "firing_missing_scheduled_for"]
+        assert len(warnings) >= 1
+
+    def test_unparseable_scheduled_for_excluded_and_warns(self):
+        """Unparseable scheduled_for → excluded with warning."""
+        window = _frozen_now()
+        firing = {"@id": "Firing/f1", "scheduled_for": "not-a-date"}
+        with structlog.testing.capture_logs() as captured:
+            result = _scheduled_after(firing, window)
+        assert result is False
+        warnings = [e for e in captured if e.get("event") == "firing_unparseable_scheduled_for"]
+        assert len(warnings) >= 1
 
 
 def test_module_imports_with_zero_extensions():
