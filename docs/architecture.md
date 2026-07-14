@@ -54,7 +54,7 @@
        per-cycle commit
           │
           ▼
-       NOTIFYD
+       EFFECTD
        poll pending → deliver via channels
        → nag policy (renotify / expire / snooze wake-up)
        per-firing commit
@@ -71,7 +71,7 @@
 | **mcpd** | MCP server — exposes firnline to external AI agents via Model Context Protocol (streamable HTTP). Tools: graphql_query, get_document, find_entity/class/field, get_schema, list_modules, capture. | 8090 |
 | **indexed** | Precision grounding service — mirrors TDB documents + schema into a hybrid vector+lexical index and serves precise-lookup endpoints to ingestd and queryd. | 8089 |
 | **triggerd** | Polling worker — evaluates Trigger documents, materializes TriggerFiring records. | — |
-| **notifyd** | Notification delivery daemon — polls pending TriggerFiring records, executes nag policy (renotify, expire, snooze wake-up), delivers via `NotificationChannel` plugins. | — |
+| **effectd** | Effect delivery daemon — polls pending TriggerFiring records, executes nag policy (renotify, expire, snooze wake-up), delivers via `NotificationChannel` plugins. | — |
 | **bootstrap** | One-shot container (profile `bootstrap`) — creates database, composes & applies schema, installs extensions into shared overlay volume. | — |
 
 An **external LiteLLM proxy** is required for LLM access — it is NOT part of
@@ -94,7 +94,7 @@ the compose stack.
    materializes `TriggerFiring` records with `status=pending`.  Firing
    statuses are the queue for downstream consumers (reminder delivery,
    notification routing).  The database is the only integration point.
-5. **Notify** — `notifyd` polls `TriggerFiring` documents: delivers pending
+5. **Notify** — `effectd` polls `TriggerFiring` documents: delivers pending
    firings via `NotificationChannel` plugins (entry-point group
    `firnline.notifyd.channels`), executes the nag policy (renotify after
    `renotify_every`, expire after `expire_after`, wake up snoozed firings),
@@ -174,7 +174,7 @@ Seven entry-point groups, discovered via `importlib.metadata.entry_points`:
 | `firnline.captured.handlers` | `CaptureHandler` | captured | Handle capture requests by kind (e.g. "note", "file") |
 | `firnline.triggerd.evaluators` | `TriggerEvaluator` | triggerd | Evaluate trigger types, propose occurrence instants |
 | `firnline.indexed.indexers` | `IndexerPlugin` | indexed | Declare which TDB classes to mirror and how to extract entity text + aliases |
-| `firnline.notifyd.channels` | `NotificationChannel` | notifyd | Deliver `TriggerFiring` records via external notification services (e.g. Gotify) |
+| `firnline.notifyd.channels` | `NotificationChannel` | effectd | Deliver `TriggerFiring` records via external notification services (e.g. Gotify) |
 
 All host services boot through the shared `PluginHost` in `firnline-core`
 (discover → validate → check_requirements → collision check → select →
@@ -191,7 +191,7 @@ startup. Per-service policies:
 | captured | true | false | configurable | false (graceful degradation) |
 | triggerd | true | false | configurable | default (true) |
 | indexed | configurable (strict) | false | configurable (strict) | default (true) |
-| notifyd | false | false | false | default (true) |
+| effectd | false | false | false | default (true) |
 
 ## Shared Core (`firnline-core`)
 
@@ -239,7 +239,7 @@ firnline/
 │   ├── queryd/                 # conversational agent (FastAPI)
 │   ├── mcpd/                   # MCP server for external agents
 │   ├── triggerd/               # trigger evaluation polling worker
-│   ├── notifyd/                # notification delivery daemon (nag policy + channels)
+│   ├── effectd/                # effect delivery daemon (nag policy + channels)
 │   └── indexed/                # precision grounding service (hybrid vector+lexical index)
 ├── extensions/
 │   ├── firnline-ext-gotify/    # Gotify notification channel

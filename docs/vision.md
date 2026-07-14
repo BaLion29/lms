@@ -37,7 +37,7 @@ its **commit graph** gives every change an author, a message, and a way back.
 | **AI acts, never invisibly** | Every AI write is a distinct TerminusDB commit with `author=service:ingestd`, full `Provenance` on each document (agent, at, method, confidence — every Entity has exactly one birth certificate), and one commit per captured item — attributable, auditable, and revertible. The commit graph is the biography: updates are attributed there, not on the document. Writes can be pointed at a staging branch; dry-run mode exists for trust-building. |
 | **Ask your life anything** | `queryd` exposes a conversational agent ("was steht diese Woche an?", "when did I last plan something with Anna?") over the graph, with a small set of explicitly gated write actions. |
 | **Everything is traceable** | The `Entity` base carries a **required** `Provenance` subdocument (birth certificate: agent, at, method, confidence). Multi-source derivation lives in `Entity.derived_from: Set<Source>` (n-ary). Every Task and Event knows where it came from — an audio, a note, a routine, or another entity. The source chain is always walkable. The agent naming grammar is reserved: `service:<name>`, `user:<name>`, `ext:<name>`. |
-| **Everything is remindable** | Reminders are an extension concern, not kernel. The triggers module provides `Triggerable` (a mixin for things that own a trigger) and an `Anchored` pure role marker for temporal anchoring. Concrete classes implementing `Anchored` declare a class-level `@metadata.anchor_field` naming an `xsd:dateTime` field. A rich `Trigger` model (schedule/rrule, relative offsets over Anchored entities, event-based triggers over the kernel change feed, boolean composition) drives when they fire. If an anchor's `anchor_field` is unset, relative triggers are **dormant** — evaluators skip them explicitly (triggerd logs `trigger_dormant`). `triggerd` materialises `TriggerFiring` records; `notifyd` executes the nag policy (renotify, expire, snooze) and delivers via notification channels. |
+| **Everything is remindable** | Reminders are an extension concern, not kernel. The triggers module provides `Triggerable` (a mixin for things that own a trigger) and an `Anchored` pure role marker for temporal anchoring. Concrete classes implementing `Anchored` declare a class-level `@metadata.anchor_field` naming an `xsd:dateTime` field. A rich `Trigger` model (schedule/rrule, relative offsets over Anchored entities, event-based triggers over the kernel change feed, boolean composition) drives when they fire. If an anchor's `anchor_field` is unset, relative triggers are **dormant** — evaluators skip them explicitly (triggerd logs `trigger_dormant`). `triggerd` materialises `TriggerFiring` records; `effectd` executes the nag policy (renotify, expire, snooze) and delivers via notification channels. |
 | **Multiple contexts, no hierarchies** | The `Context` marker lets a Task be tagged with `Person`, `Location`, `Event`, or custom contexts — as many as needed. |
 | **Processing pipeline** | Captured documents flow through explicit statuses (`new → transcribed → processed / failed / archived`), spawning core entities along the way. Statuses *are* the queue; the database is the only integration point. Capture is a kernel schema module (`schema/modules/capture`) — the capture raison d'être ships with core. |
 | **Modular by design** | The schema is split into versioned **modules** (core, capture, triggers, planning, people, …) composed at build time; services load **plugins** via Python entry points. New domains = new module + plugins, no core changes. |
@@ -132,7 +132,7 @@ they fire is fully delegated to the Trigger family — recurring schedules
 (RFC 5545 rrule), offsets relative to an `Anchored` entity's anchor field,
 event triggers over the kernel change feed, and boolean composition of all
 of these. The trigger lifecycle (pending→notified→renotify→expire→snoozed)
-is fully materialised and enforced by `triggerd` + `notifyd`.
+is fully materialised and enforced by `triggerd` + `effectd`.
 
 ### Context (flat, multi-valued tagging)
 
@@ -226,7 +226,7 @@ compose the schema, run codegen, pass `uv run pytest`, and idle gracefully
 | **ingestd** | AI ingestion polling worker: poll Captured → LLM extraction → entity linking → one commit per item → status flip. |
 | **queryd** | FastAPI conversational agent: read tools, guarded write tools (plugins), stateless `/v1/chat`. |
 | **triggerd** | Trigger evaluation polling worker: poll Trigger → evaluate → materialise TriggerFiring records. |
-| **notifyd** | Notification delivery daemon: consume pending TriggerFiring records, execute nag policy (pending→notified, renotify, expire, snooze wake-up), deliver via `NotificationChannel` plugins (e.g. Gotify). |
+| **effectd** | Effect delivery daemon: consume pending TriggerFiring records, execute nag policy (pending→notified, renotify, expire, snooze wake-up), deliver via `NotificationChannel` plugins (e.g. Gotify). |
 | **captured** | Minimal FastAPI capture-ingress: `POST /v1/capture/note` and `/v1/capture/file` with pluggable handlers. |
 | **STT** | faster-whisper (via existing n8n pipeline); multilingual German/French/English. Swappable — it just flips `Captured` statuses. |
 | **LLM access** | LiteLLM proxy (OpenAI-compatible) in front of any model — every service sees one interface. |
@@ -236,7 +236,7 @@ compose the schema, run codegen, pass `uv run pytest`, and idle gracefully
 
 - **Reminder engine** — trigger evaluation and firing materialization
   implemented by `triggerd`; nag/snooze/expiry lifecycle and notification
-  delivery implemented by `notifyd` (first channel: Gotify).
+  delivery implemented by `effectd` (first channel: Gotify).
 - **Routine engine** — Routines spawning Tasks/Activities from their steps.
 - **Branch review tooling** — comfortable per-commit review + promote flow for
   staging-branch mode.

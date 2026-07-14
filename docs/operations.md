@@ -205,11 +205,11 @@ curl http://localhost:8088/healthz   # captured
 curl http://localhost:8089/healthz   # indexed
 ```
 
-For polling workers (ingestd, triggerd, notifyd), verify liveness files
+For polling workers (ingestd, triggerd, effectd), verify liveness files
 are fresh (< 5 minutes old):
 
 ```bash
 docker compose exec ingestd find /tmp/ingestd-alive -mmin -5
 docker compose exec triggerd find /tmp/triggerd-alive -mmin -5
-docker compose exec notifyd find /tmp/notifyd-alive -mmin -5
+docker compose exec effectd find /tmp/effectd-alive -mmin -5
 ```

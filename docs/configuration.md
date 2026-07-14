@@ -7,16 +7,16 @@ edit as needed.
 ## Shared TerminusDB settings
 
 Every service inherits these from `firnline_core.settings.TdbSettings`, using
-its own prefix (`CAPTURED_`, `INGESTD_`, `QUERYD_`, `TRIGGERD_`, `NOTIFYD_`):
+its own prefix (`CAPTURED_`, `INGESTD_`, `QUERYD_`, `TRIGGERD_`, `EFFECTD_`):
 
 | Variable | Default | Required | Consumed by |
 |---|---|---|---|
-| `{PREFIX}_TDB_URL` | `http://localhost:6363` | yes | captured, ingestd, queryd, triggerd, notifyd |
-| `{PREFIX}_TDB_ORG` | `admin` | no | captured, ingestd, queryd, triggerd, notifyd |
-| `{PREFIX}_TDB_DB` | — | yes | captured, ingestd, queryd, triggerd, notifyd |
-| `{PREFIX}_TDB_BRANCH` | `main` | no | captured, ingestd, queryd, triggerd, notifyd |
-| `{PREFIX}_TDB_USER` | `admin` | no | captured, ingestd, queryd, triggerd, notifyd |
-| `{PREFIX}_TDB_PASSWORD` | — | yes | captured, ingestd, queryd, triggerd, indexed, notifyd |
+| `{PREFIX}_TDB_URL` | `http://localhost:6363` | yes | captured, ingestd, queryd, triggerd, effectd |
+| `{PREFIX}_TDB_ORG` | `admin` | no | captured, ingestd, queryd, triggerd, effectd |
+| `{PREFIX}_TDB_DB` | — | yes | captured, ingestd, queryd, triggerd, effectd |
+| `{PREFIX}_TDB_BRANCH` | `main` | no | captured, ingestd, queryd, triggerd, effectd |
+| `{PREFIX}_TDB_USER` | `admin` | no | captured, ingestd, queryd, triggerd, effectd |
+| `{PREFIX}_TDB_PASSWORD` | — | yes | captured, ingestd, queryd, triggerd, indexed, effectd |
 
 In `compose.yaml`, these are populated from the shared `TDB_*` variables
 (e.g. `CAPTURED_TDB_URL: ${TDB_URL:?}`).
@@ -106,20 +106,20 @@ Prefixed `TRIGGERD_`.
 | `TRIGGERD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
 | `TRIGGERD_LIVENESS_FILE` | `/tmp/triggerd-alive` | Path touched on each successful cycle for healthchecks |
 
-## notifyd
+## effectd
 
-Prefixed `NOTIFYD_`.
+Prefixed `EFFECTD_`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `NOTIFYD_TDB_URL` | `http://localhost:6363` | TerminusDB base URL |
-| `NOTIFYD_TDB_ORG` | `admin` | TerminusDB organisation |
-| `NOTIFYD_TDB_DB` | `firnline` | TerminusDB database name |
-| `NOTIFYD_TDB_BRANCH` | `main` | TerminusDB branch |
-| `NOTIFYD_TDB_USER` | `admin` | TerminusDB username |
-| `NOTIFYD_TDB_PASSWORD` | — | TerminusDB password |
-| `NOTIFYD_POLL_INTERVAL_SECONDS` | `30` | Seconds between poll cycles |
-| `NOTIFYD_LIVENESS_FILE` | `/tmp/notifyd-alive` | Path touched on each successful cycle for healthchecks |
+| `EFFECTD_TDB_URL` | `http://localhost:6363` | TerminusDB base URL |
+| `EFFECTD_TDB_ORG` | `admin` | TerminusDB organisation |
+| `EFFECTD_TDB_DB` | `firnline` | TerminusDB database name |
+| `EFFECTD_TDB_BRANCH` | `main` | TerminusDB branch |
+| `EFFECTD_TDB_USER` | `admin` | TerminusDB username |
+| `EFFECTD_TDB_PASSWORD` | — | TerminusDB password |
+| `EFFECTD_POLL_INTERVAL_SECONDS` | `30` | Seconds between poll cycles |
+| `EFFECTD_LIVENESS_FILE` | `/tmp/effectd-alive` | Path touched on each successful cycle for healthchecks |
 
 ## gotify (extension firnline-ext-gotify)
 

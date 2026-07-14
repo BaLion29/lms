@@ -1,4 +1,4 @@
-"""Tests for notifyd.engine — no network, AsyncMock TdbClient, fake channel objects."""
+"""Tests for effectd.engine — no network, AsyncMock TdbClient, fake channel objects."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 import structlog
 
-from notifyd.engine import NotifyEngine
+from effectd.engine import EffectEngine
 from firnline_core.plugins import DeliveryResult, ModuleRequirement
 
 UTC = timezone.utc
@@ -82,8 +82,8 @@ def _make_engine(
     trigger_doc: dict | None = None,
     subject_doc: dict | None = None,
     now: datetime | None = None,
-) -> NotifyEngine:
-    """Build a NotifyEngine backed by an AsyncMock TdbClient wrapped in FakeRepo."""
+) -> EffectEngine:
+    """Build a EffectEngine backed by an AsyncMock TdbClient wrapped in FakeRepo."""
     tdb = AsyncMock()
     tdb.get_documents_by_status = AsyncMock()
     tdb.get_document = AsyncMock()
@@ -130,7 +130,7 @@ def _make_engine(
     if now is None:
         now = _frozen_now()
 
-    return NotifyEngine(repo=repo, channels=channels, now=lambda: now)
+    return EffectEngine(repo=repo, channels=channels, now=lambda: now)
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +172,7 @@ class TestPendingToNotified:
             "status",
             "pending",
             "notified",
-            agent="service:notifyd",
+            agent="service:effectd",
         )
         # insert_documents called for bump
         engine.repo.tdb.insert_documents.assert_called_once()
@@ -539,7 +539,7 @@ class TestRenotifyAndExpiry:
             "status",
             "notified",
             "expired",
-            agent="service:notifyd",
+            agent="service:effectd",
         )
 
     @pytest.mark.asyncio
@@ -697,7 +697,7 @@ class TestSnoozed:
             "status",
             "snoozed",
             "notified",
-            agent="service:notifyd",
+            agent="service:effectd",
         )
         # insert_documents called for unsnooze bump
         engine.repo.tdb.insert_documents.assert_called_once()

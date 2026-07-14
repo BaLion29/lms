@@ -507,10 +507,10 @@ def validate_plugin(obj: object, protocol: type) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Notification channel protocol (notifyd seam)
+# Notification channel protocol (effectd seam)
 # ---------------------------------------------------------------------------
-# Entry-point group convention: "firnline.notifyd.channels"
-# A future notifyd service discovers and invokes these.
+# Entry-point group convention: "firnline.notifyd.channels" (legacy group name)
+# effectd discovers and invokes these.
 
 
 @dataclass
@@ -524,10 +524,10 @@ class DeliveryResult:
 
 @runtime_checkable
 class NotificationChannel(Protocol):
-    """Protocol for notifyd notification channel plugins.
+    """Protocol for effectd notification channel plugins.
 
     Each channel handles a specific delivery mechanism (email, push, etc.)
-    and is discovered under ``firnline.notifyd.channels``.
+    and is discovered under ``firnline.notifyd.channels`` (legacy group name).
     """
 
     name: str

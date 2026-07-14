@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from notifyd.main import async_main
+from effectd.main import async_main
 from firnline_core.plugins import HostResult
 from firnline_core.tdb import TdbClient
 
@@ -25,15 +25,15 @@ async def test_once_cycle_completes(monkeypatch):
 
     tdb_mock = AsyncMock(spec=TdbClient)
     tdb_mock.aclose = AsyncMock()
-    monkeypatch.setattr("notifyd.main.TdbClient", lambda **kw: tdb_mock)
-    monkeypatch.setenv("NOTIFYD_TDB_DB", "smoke")
-    monkeypatch.setenv("NOTIFYD_TDB_PASSWORD", "smoke")
+    monkeypatch.setattr("effectd.main.TdbClient", lambda **kw: tdb_mock)
+    monkeypatch.setenv("EFFECTD_TDB_DB", "smoke")
+    monkeypatch.setenv("EFFECTD_TDB_PASSWORD", "smoke")
 
     run_cycle_mock = AsyncMock()
 
-    import notifyd.engine
+    import effectd.engine
 
-    monkeypatch.setattr(notifyd.engine.NotifyEngine, "run_cycle", run_cycle_mock)
+    monkeypatch.setattr(effectd.engine.EffectEngine, "run_cycle", run_cycle_mock)
 
     should_stop = asyncio.Event()
 
@@ -56,15 +56,15 @@ async def test_once_failed_cycle_exits_nonzero(monkeypatch):
 
     tdb_mock = AsyncMock(spec=TdbClient)
     tdb_mock.aclose = AsyncMock()
-    monkeypatch.setattr("notifyd.main.TdbClient", lambda **kw: tdb_mock)
-    monkeypatch.setenv("NOTIFYD_TDB_DB", "smoke")
-    monkeypatch.setenv("NOTIFYD_TDB_PASSWORD", "smoke")
+    monkeypatch.setattr("effectd.main.TdbClient", lambda **kw: tdb_mock)
+    monkeypatch.setenv("EFFECTD_TDB_DB", "smoke")
+    monkeypatch.setenv("EFFECTD_TDB_PASSWORD", "smoke")
 
     run_cycle_mock = AsyncMock(side_effect=RuntimeError("boom"))
 
-    import notifyd.engine
+    import effectd.engine
 
-    monkeypatch.setattr(notifyd.engine.NotifyEngine, "run_cycle", run_cycle_mock)
+    monkeypatch.setattr(effectd.engine.EffectEngine, "run_cycle", run_cycle_mock)
 
     should_stop = asyncio.Event()
 

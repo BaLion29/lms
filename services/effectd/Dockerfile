@@ -13,14 +13,14 @@ COPY pyproject.toml uv.lock /app/
 
 # Copy the two workspace members needed for this service.
 COPY packages/firnline-core/ /app/packages/firnline-core/
-COPY services/notifyd/ /app/services/notifyd/
+COPY services/effectd/ /app/services/effectd/
 
-WORKDIR /app/services/notifyd
+WORKDIR /app/services/effectd
 
-# --package notifyd ensures uv only syncs this member; other workspace
+# --package effectd ensures uv only syncs this member; other workspace
 # directories (extensions/*, other services/*) are absent from the build
 # context and would cause discovery errors otherwise.
-RUN uv sync --frozen --no-dev --package notifyd
+RUN uv sync --frozen --no-dev --package effectd
 
 # Build first-party extension wheels so they are baked into the image.
 COPY extensions/ /app/extensions/
@@ -35,15 +35,15 @@ RUN mkdir -p /app/wheels && \
 FROM python:3.12-slim-bookworm
 
 # Create non-root user (uid 1000)
-RUN useradd -m -u 1000 notifyd
+RUN useradd -m -u 1000 effectd
 
 # Copy the application venv + source from builder, owned by the runtime user.
-COPY --from=builder --chown=notifyd:notifyd /app /app
+COPY --from=builder --chown=effectd:effectd /app /app
 
 # Baked-in first-party extension wheels (FIRNLINE_EXTENSIONS picks from here).
-COPY --from=builder --chown=notifyd:notifyd /app/wheels/ /extensions/
+COPY --from=builder --chown=effectd:effectd /app/wheels/ /extensions/
 
-# Put the workspace venv on PATH so the notifyd console script is found directly.
+# Put the workspace venv on PATH so the effectd console script is found directly.
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/opt/firnline-ext-venv/lib
@@ -51,16 +51,16 @@ ENV PATH="/app/.venv/bin:$PATH" \
 # Shared extension-installer entrypoint
 COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
 
-WORKDIR /app/services/notifyd
+WORKDIR /app/services/effectd
 
-USER notifyd
+USER effectd
 
-# All configuration is supplied via environment variables (NOTIFYD_ prefix).
-# See src/notifyd/settings.py for the full list.
+# All configuration is supplied via environment variables (EFFECTD_ prefix).
+# See src/effectd/settings.py for the full list.
 
 # The entrypoint script handles extension installation, then execs CMD.
-# CMD defaults to "notifyd" (polling mode).
+# CMD defaults to "effectd" (polling mode).
 # NOTE: With ENTRYPOINT + CMD, additional docker-run args REPLACE CMD.
-# To pass --once:  docker run firnline/notifyd notifyd --once
+# To pass --once:  docker run firnline/effectd effectd --once
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["notifyd"]
+CMD ["effectd"]

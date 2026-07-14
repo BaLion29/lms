@@ -45,7 +45,7 @@ docker compose --profile bootstrap up bootstrap --abort-on-container-exit
 docker compose up -d
 ```
 
-This starts **captured** (port 8088), **ingestd**, **triggerd**, **notifyd**,
+This starts **captured** (port 8088), **ingestd**, **triggerd**, **effectd**,
 **indexed** (port 8089), and **queryd** (port 8087). The optional search index
 sidecar (`indexed`) provides entity and schema lookup; it is opt-in via
 `INGESTD_INDEXED_ENABLED` / `QUERYD_INDEXED_ENABLED` env vars (see

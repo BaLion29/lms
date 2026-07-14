@@ -392,16 +392,16 @@ class TestCapturedMelt:
 
 
 # ---------------------------------------------------------------------------
-# 5. notifyd — zero channels
+# 5. effectd — zero channels
 # ---------------------------------------------------------------------------
 
 
-class TestNotifydMelt:
-    """NotifyEngine completes a cycle with zero channel plugins."""
+class TestEffectdMelt:
+    """EffectEngine completes a cycle with zero channel plugins."""
 
     @pytest.mark.asyncio
     async def test_run_cycle_zero_channels(self) -> None:
-        from notifyd.engine import NotifyEngine
+        from effectd.engine import EffectEngine
         from firnline_core.repository import Repository
 
         tdb = AsyncMock()
@@ -409,7 +409,7 @@ class TestNotifydMelt:
 
         repo = Repository(tdb)
 
-        engine = NotifyEngine(
+        engine = EffectEngine(
             repo=repo,
             channels=[],  # zero channels → idles
         )
@@ -610,8 +610,8 @@ class TestPluginHostZeroPlugins:
         assert len(result.failed) == 0
 
     @pytest.mark.asyncio
-    async def test_notifyd_zero_plugin_boot(self) -> None:
-        """notifyd PluginHost boots with zero channel plugins (not fatal)."""
+    async def test_effectd_zero_plugin_boot(self) -> None:
+        """effectd PluginHost boots with zero channel plugins (not fatal)."""
         from firnline_core.plugins import (
             DiscoveryResult,
             HostPolicy,

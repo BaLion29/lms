@@ -1,4 +1,4 @@
-"""Console entrypoint for the notifyd notification delivery service."""
+"""Console entrypoint for the effectd effect delivery service."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ import sys
 import structlog
 from typing import Any
 
-from notifyd.engine import NotifyEngine
-from notifyd.settings import NotifydSettings
+from effectd.engine import EffectEngine
+from effectd.settings import EffectdSettings
 from firnline_core.plugins import (
     HostPolicy,
     NotificationChannel,
@@ -38,7 +38,7 @@ def _configure_logging() -> None:
     )
 
 
-async def run_cycle_safe(engine: NotifyEngine, should_stop: asyncio.Event | None) -> bool:
+async def run_cycle_safe(engine: EffectEngine, should_stop: asyncio.Event | None) -> bool:
     """Run one cycle, returning False if a cycle-level exception was caught."""
     try:
         await engine.run_cycle(should_stop)
@@ -78,7 +78,7 @@ async def async_main(
     once: bool,
     should_stop: asyncio.Event,
 ) -> None:
-    settings = NotifydSettings()  # type: ignore[call-arg]
+    settings = EffectdSettings()  # type: ignore[call-arg]
 
     logger = structlog.get_logger(__name__)
     branch = settings.tdb_branch
@@ -89,7 +89,7 @@ async def async_main(
         db=settings.tdb_db,
         user=settings.tdb_user,
         password=settings.tdb_password,
-        author="service:notifyd",
+        author="service:effectd",
     )
 
     repo = Repository(tdb, transitions={
@@ -115,7 +115,7 @@ async def async_main(
         channel_names=[getattr(c, "name", "?") for c in channels],
     )
 
-    engine = NotifyEngine(repo=repo, channels=channels, logger=logger)
+    engine = EffectEngine(repo=repo, channels=channels, logger=logger)
 
     last_cycle_ok = True
     liveness_path = pathlib.Path(settings.liveness_file)
@@ -147,7 +147,7 @@ def main() -> None:
     _configure_logging()
     logger = structlog.get_logger(__name__)
 
-    parser = argparse.ArgumentParser(description="notifyd — notification delivery daemon")
+    parser = argparse.ArgumentParser(description="effectd — effect delivery daemon")
     parser.add_argument(
         "--once",
         action="store_true",

@@ -255,21 +255,21 @@ services:
       retries: 3
       start_period: 90s
 
-  # ── notifyd — notification delivery daemon ──────────────────────────────
-  notifyd:
+  # ── effectd — effect delivery daemon ────────────────────────────────
+  effectd:
     build:
       context: .
-      dockerfile: services/notifyd/Dockerfile
-    image: firnline/notifyd:local
+      dockerfile: services/effectd/Dockerfile
+    image: firnline/effectd:local
     environment:
-      NOTIFYD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
-      NOTIFYD_TDB_ORG: ${TDB_ORG:-admin}
-      NOTIFYD_TDB_DB: ${TDB_DB:-firnline}
-      NOTIFYD_TDB_BRANCH: ${TDB_BRANCH:-main}
-      NOTIFYD_TDB_USER: ${TDB_USER:-admin}
-      NOTIFYD_TDB_PASSWORD: ${TDB_PASSWORD:?}
-      NOTIFYD_POLL_INTERVAL_SECONDS: ${NOTIFYD_POLL_INTERVAL_SECONDS:-30}
-      NOTIFYD_LIVENESS_FILE: ${NOTIFYD_LIVENESS_FILE:-/tmp/notifyd-alive}
+      EFFECTD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
+      EFFECTD_TDB_ORG: ${TDB_ORG:-admin}
+      EFFECTD_TDB_DB: ${TDB_DB:-firnline}
+      EFFECTD_TDB_BRANCH: ${TDB_BRANCH:-main}
+      EFFECTD_TDB_USER: ${TDB_USER:-admin}
+      EFFECTD_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      EFFECTD_POLL_INTERVAL_SECONDS: ${EFFECTD_POLL_INTERVAL_SECONDS:-30}
+      EFFECTD_LIVENESS_FILE: ${EFFECTD_LIVENESS_FILE:-/tmp/effectd-alive}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
       - firnline_ext_venv:/opt/firnline-ext-venv:ro
@@ -279,7 +279,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - "find /tmp/notifyd-alive -mmin -5 2>/dev/null | grep -q ."
+        - "find /tmp/effectd-alive -mmin -5 2>/dev/null | grep -q ."
       interval: 60s
       timeout: 10s
       retries: 3

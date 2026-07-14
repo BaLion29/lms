@@ -23,7 +23,7 @@ An extension package may contain any subset of:
 - **Trigger evaluator plugins** — evaluate trigger conditions for triggerd
   (`firnline.triggerd.evaluators`).
 - **Notification channels** — deliver `TriggerFiring` records via external
-  notification services (`firnline.notifyd.channels`).
+  notification services (`firnline.notifyd.channels`, legacy group name, consumed by effectd).
 - **MCP tools** — mcpd exposes firnline tools and resources to external
   AI agents via Model Context Protocol. See [mcpd.md](mcpd.md).
 
@@ -256,7 +256,7 @@ returns a `DeliveryResult(ok, detail, retryable)`. Duplicate channel
 `NotifyContext` provides `tdb`, `logger`, and `now()`.
 
 Example: `firnline-ext-gotify` registers a `firnline.notifyd.channels`
-entry point that forwards firings to a Gotify server. Configure via
+entry point (legacy group name, consumed by effectd) that forwards firings to a Gotify server. Configure via
 `GOTIFY_URL`, `GOTIFY_TOKEN`, `GOTIFY_PRIORITY`, `GOTIFY_TIMEOUT_SECONDS`
 (see [Configuration](configuration.md)).
 

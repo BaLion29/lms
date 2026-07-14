@@ -1,4 +1,4 @@
-"""Notification engine — consumes TriggerFiring documents and delivers via channel plugins."""
+"""Effect engine — consumes TriggerFiring documents and delivers via channel plugins."""
 
 from __future__ import annotations
 
@@ -45,8 +45,8 @@ _TRANSITIONS = {
 # ---------------------------------------------------------------------------
 
 
-class NotifyEngine:
-    """Notification delivery engine.
+class EffectEngine:
+    """Effect delivery engine.
 
     Each cycle processes TriggerFiring documents by status:
     1. **pending** — deliver via channels, transition to notified.
@@ -66,7 +66,7 @@ class NotifyEngine:
         self.channels = channels
         self.log = logger or structlog.get_logger(__name__)
         self._now = now if now is not None else self._utc_now
-        self._agent = agent_id("service", "notifyd")
+        self._agent = agent_id("service", "effectd")
 
     @staticmethod
     def _utc_now() -> datetime:
@@ -127,7 +127,7 @@ class NotifyEngine:
                     doc["last_notified_at"] = _format_datetime(now)
                     doc["notification_count"] = 1
                     doc["updated_at"] = _format_datetime(now)
-                    await repo.tdb.insert_documents([doc], message=f"notifyd: bump {firing.get('@id', '?')}")
+                    await repo.tdb.insert_documents([doc], message=f"effectd: bump {firing.get('@id', '?')}")
                 except Exception:
                     self.log.warning("firing_bump_failed", firing=firing.get("@id"), exc_info=True)
             else:
@@ -210,7 +210,7 @@ class NotifyEngine:
                                 doc["notification_count"] = notification_count + 1
                                 doc["last_notified_at"] = _format_datetime(now)
                                 doc["updated_at"] = _format_datetime(now)
-                                await repo.tdb.insert_documents([doc], message=f"notifyd: renotify {firing.get('@id', '?')}")
+                                await repo.tdb.insert_documents([doc], message=f"effectd: renotify {firing.get('@id', '?')}")
                             except Exception:
                                 self.log.warning("renotify_bump_failed", firing=firing.get("@id"), exc_info=True)
                         else:
@@ -250,7 +250,7 @@ class NotifyEngine:
                         doc["snoozed_until"] = None
                         doc["updated_at"] = _format_datetime(now)
                         cleaned = _strip_nones(doc)
-                        await repo.tdb.insert_documents([cleaned], message=f"notifyd: unsnooze {firing.get('@id', '?')}")
+                        await repo.tdb.insert_documents([cleaned], message=f"effectd: unsnooze {firing.get('@id', '?')}")
                     except Exception:
                         self.log.warning("unsnooze_bump_failed", firing=firing.get("@id"), exc_info=True)
                 else:
