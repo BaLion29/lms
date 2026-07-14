@@ -20,6 +20,15 @@ from firnline_core.plugins import (
 from firnline_core.tdb import TdbClient
 
 
+def _fake_gotify_settings():
+    """Return a GotifySettings with dummy values so the channel/executor
+    pass the configuration guard during adapter tests."""
+    import importlib
+
+    mod = importlib.import_module("firnline_ext_gotify._common")
+    return mod.GotifySettings(url="https://gotify.example.com", token="test-token")
+
+
 @pytest.fixture
 def _patch_discovery(monkeypatch):
     """Patch PluginHost.start for both channel and executor groups."""
@@ -141,6 +150,28 @@ class TestAdaptChannels:
         channel = FakeChannel()
         adapted = _adapt_channels([channel], [native], None)
         assert len(adapted) == 1
+
+    def test_real_gotify_channel_skipped_for_native_executor(self):
+        """With the real GotifyChannel + GotifyExecutor both named 'gotify',
+        the channel is skipped and the native executor wins (no collision)."""
+        from firnline_ext_gotify.channel import GotifyChannel
+        from firnline_ext_gotify.executor import GotifyExecutor
+
+        native = GotifyExecutor()
+        native._settings = _fake_gotify_settings()
+
+        channel = GotifyChannel()
+        channel._settings = _fake_gotify_settings()
+
+        # Adapt: channel should be skipped
+        adapted = _adapt_channels([channel], [native], None)
+        assert len(adapted) == 0
+
+        # Merge + collision check: native notify:gotify must be present,
+        # no adapted executor with the same kind.
+        _check_merged_kind_collisions([native], adapted, None)
+        assert native in [native]  # native executor is present
+        assert native.kinds == ("notify:gotify",)
 
 
 class TestCollisionCheck:

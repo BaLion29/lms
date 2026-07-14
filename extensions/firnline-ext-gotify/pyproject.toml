@@ -16,6 +16,9 @@ dependencies = [
 [project.entry-points."firnline.notifyd.channels"]
 gotify = "firnline_ext_gotify.channel:plugin"
 
+[project.entry-points."firnline.effectd.executors"]
+gotify = "firnline_ext_gotify.executor:plugin"
+
 [tool.uv.sources]
 firnline-core = { workspace = true }
 

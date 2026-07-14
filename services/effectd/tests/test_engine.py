@@ -1041,5 +1041,97 @@ class TestEffectEngineDelegation:
         await engine.run_cycle()  # no-op, should not raise
 
 
+class TestGotifyExecutorE2E:
+    """End-to-end: NotifyAction + GotifyExecutor via respx-mocked Gotify API."""
+
+    @pytest.mark.asyncio
+    async def test_notify_action_gotify_sends_and_succeeds(self):
+        """NotifyAction (auto) + firing → exactly one HTTP call, succeeded with external_ref."""
+        pytest.importorskip("respx")
+        import json
+        import respx
+
+        from firnline_ext_gotify.executor import GotifyExecutor, GotifySettings
+
+        now = _frozen_now()
+
+        action = {
+            "@id": "NotifyAction/na1",
+            "@type": "NotifyAction",
+            "trigger": "OneShotTrigger/t1",
+            "mode": "auto",
+            "enabled": True,
+            "executor": "notify:gotify",
+            "name": "na1",
+        }
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+        execution = {
+            "@id": "ActionExecution/ae1",
+            "@type": "ActionExecution",
+            "action": "NotifyAction/na1",
+            "firing": "TriggerFiring/f1",
+            "status": "pending",
+            "attempt": 0,
+            "idempotency_key": "na1#f1",
+            "created_at": _format_datetime(now),
+            "updated_at": _format_datetime(now),
+        }
+
+        executor = GotifyExecutor()
+        executor._settings = GotifySettings(
+            url="https://gotify.example.com",
+            token="test-token",
+            priority=5,
+            timeout_seconds=10,
+        )
+
+        settings = EffectdSettings(
+            tdb_db="test", tdb_password="pw", legacy_notification_loop=False,
+        )
+
+        async with respx.MockRouter() as router:
+            route = router.post("https://gotify.example.com/message").respond(
+                200, json={"id": 55}
+            )
+
+            engine, tdb = _make_engine(
+                actions=[action],
+                firings=[firing],
+                executions=[execution],
+                executors=[executor],
+                now=now,
+                settings=settings,
+            )
+            engine.repo.create = AsyncMock()
+
+            await engine.run_cycle()
+
+            # ── Exactly one HTTP call ──
+            assert route.call_count == 1
+
+            request = route.calls.last.request
+            assert request.headers["X-Gotify-Key"] == "test-token"
+            assert request.headers["X-Firnline-Idempotency-Key"] == "na1#f1"
+
+            payload = json.loads(request.content)
+            assert payload["priority"] == 5
+            assert "Firnline" in payload["title"]
+
+            # ── Transition to succeeded ──
+            engine.repo.transition.assert_called_once_with(
+                "ActionExecution/ae1", "status", "pending", "succeeded",
+                agent="service:effectd",
+            )
+
+            # ── external_ref persisted ──
+            success_calls = [
+                c for c in tdb.insert_documents.call_args_list
+                if "success" in str(c)
+            ]
+            assert len(success_calls) >= 1
+            updated = success_calls[-1][0][0][0]
+            assert updated.get("external_ref") == "55"
+
+
 def test_module_imports_with_zero_extensions():
     """All modules import successfully even with no extensions installed."""
