@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -10,6 +9,7 @@ import structlog
 
 from firnline_core.base import _format_datetime
 from firnline_core.conventions import agent_id
+from firnline_core.durations import parse_duration, parse_iso_datetime
 from firnline_core.plugins import DeliveryResult, NotifyContext
 from firnline_core.repository import TransitionError as RepoTransitionError
 from firnline_core.tdb import TdbConflictError
@@ -17,61 +17,6 @@ from firnline_core.tdb import TdbConflictError
 logger = structlog.get_logger(__name__)
 
 _UTC = timezone.utc
-
-# ---------------------------------------------------------------------------
-# ISO-8601 duration parser (same subset as triggerd.evaluators._parse_duration)
-# TODO: promote to firnline_core (duplicated in triggerd)
-# ---------------------------------------------------------------------------
-
-_DURATION_RE = re.compile(
-    r"^(?P<sign>-?)P"
-    r"(?:(?P<days>\d+)D)?"
-    r"(?:T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?)?"
-    r"$"
-)
-
-
-def _parse_duration(raw: str) -> timedelta | None:
-    """Parse an ISO-8601 duration string into a ``timedelta``.
-
-    Supported subset: optional leading ``-``, ``P[nD][T[nH][nM][nS]]``.
-    Returns ``None`` on malformed input.
-    """
-    m = _DURATION_RE.match(raw)
-    if not m:
-        return None
-
-    days = int(m.group("days") or 0)
-    hours = int(m.group("hours") or 0)
-    minutes = int(m.group("minutes") or 0)
-    seconds = int(m.group("seconds") or 0)
-
-    # Require at least one component (reject bare "P" or trailing "T")
-    if days == 0 and hours == 0 and minutes == 0 and seconds == 0:
-        return None
-    if raw.rstrip().endswith("T"):
-        return None
-
-    td = timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
-    if m.group("sign") == "-":
-        td = -td
-    return td
-
-
-# ---------------------------------------------------------------------------
-# Datetime parsing
-# ---------------------------------------------------------------------------
-
-
-def _parse_iso_datetime(raw: str) -> datetime:
-    """Parse an ISO-8601 datetime string to a tz-aware UTC datetime.
-
-    Naive values are treated as UTC.
-    """
-    dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -211,11 +156,11 @@ class NotifyEngine:
             renotify_every_raw = trigger_doc.get("renotify_every")
             max_renotifications = trigger_doc.get("max_renotifications")
 
-            scheduled_for = _parse_iso_datetime(firing["scheduled_for"])
+            scheduled_for = parse_iso_datetime(firing["scheduled_for"])
 
             # ── Expiry check ─────────────────────────────────────────
             if expire_after_raw:
-                expire_delta = _parse_duration(expire_after_raw)
+                expire_delta = parse_duration(expire_after_raw)
                 if expire_delta is not None:
                     if now >= scheduled_for + expire_delta:
                         try:
@@ -238,7 +183,7 @@ class NotifyEngine:
 
             # ── Renotify check ───────────────────────────────────────
             if renotify_every_raw:
-                renotify_delta = _parse_duration(renotify_every_raw)
+                renotify_delta = parse_duration(renotify_every_raw)
                 if renotify_delta is None:
                     self.log.warning(
                         "unparseable_renotify_every",
@@ -251,7 +196,7 @@ class NotifyEngine:
                 if not last_notified_raw:
                     continue
 
-                last_notified = _parse_iso_datetime(last_notified_raw)
+                last_notified = parse_iso_datetime(last_notified_raw)
                 if now >= last_notified + renotify_delta:
                     notification_count = firing.get("notification_count") or 0
                     cap = (1 + max_renotifications) if max_renotifications is not None else None
@@ -282,7 +227,7 @@ class NotifyEngine:
             snoozed_until_raw = firing.get("snoozed_until")
             if not snoozed_until_raw:
                 continue
-            snoozed_until = _parse_iso_datetime(snoozed_until_raw)
+            snoozed_until = parse_iso_datetime(snoozed_until_raw)
             if now >= snoozed_until:
                 subject = await _resolve_subject(firing.get("subject"))
                 ctx = NotifyContext(tdb=repo.tdb, logger=self.log, now=lambda: now)

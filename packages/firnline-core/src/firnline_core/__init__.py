@@ -37,6 +37,10 @@ from firnline_core.conventions import (
     parse_agent,
     utc_now,
 )
+from firnline_core.durations import (
+    parse_duration,
+    parse_iso_datetime,
+)
 from firnline_core.indexed_client import (
     ClassCandidate,
     EntityCandidate,
@@ -167,4 +171,7 @@ __all__ = [
     "ToolTraceEntry",
     "now_utc_str",
     "traced",
+    # durations
+    "parse_duration",
+    "parse_iso_datetime",
 ]

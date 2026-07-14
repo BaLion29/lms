@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import structlog
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
 
@@ -16,8 +16,6 @@ from triggerd.evaluators import (
     CompositeEvaluator,
     EventTriggerEvaluator,
     _class_short_name,
-    _parse_duration,
-    _parse_iso_datetime,
     resolve_anchor,
     oneshot_plugin,
     schedule_plugin,
@@ -69,55 +67,6 @@ def _make_ctx(tdb=None, default_tz=ZURICH, now=None, resolve_anchor=None, get_oc
         get_occurrences=get_occurrences,
         changes=changes,
     )
-
-
-# ---------------------------------------------------------------------------
-# _parse_iso_datetime
-# ---------------------------------------------------------------------------
-
-
-class TestParseIsoDatetime:
-    def test_z_suffix(self):
-        assert _parse_iso_datetime("2026-07-06T09:00:00Z") == datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)
-
-    def test_offset(self):
-        assert _parse_iso_datetime("2026-07-06T11:00:00+02:00") == datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)
-
-    def test_naive_treated_as_utc(self):
-        assert _parse_iso_datetime("2026-07-06T09:00:00") == datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)
-
-    def test_subsecond(self):
-        result = _parse_iso_datetime("2026-07-06T09:00:00.500Z")
-        assert result == datetime(2026, 7, 6, 9, 0, 0, 500000, tzinfo=UTC)
-
-
-# ---------------------------------------------------------------------------
-# _parse_duration
-# ---------------------------------------------------------------------------
-
-
-class TestParseDuration:
-    def test_days_only(self):
-        assert _parse_duration("P1D") == timedelta(days=1)
-
-    def test_hours_minutes(self):
-        assert _parse_duration("PT2H30M") == timedelta(hours=2, minutes=30)
-
-    def test_full(self):
-        assert _parse_duration("P1DT2H30M15S") == timedelta(days=1, hours=2, minutes=30, seconds=15)
-
-    def test_negative(self):
-        assert _parse_duration("-PT15M") == timedelta(minutes=-15)
-
-    def test_negative_with_days(self):
-        assert _parse_duration("-P1DT1H") == timedelta(days=-1, hours=-1)
-
-    def test_pt_only(self):
-        assert _parse_duration("PT1H") == timedelta(hours=1)
-
-    @pytest.mark.parametrize("bad", ["garbage", "P", "T1H", "P1DT", "1D", "P1H", "", "P1M", "P2Y"])
-    def test_malformed_returns_none(self, bad):
-        assert _parse_duration(bad) is None
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 import structlog
 
-from notifyd.engine import NotifyEngine, _parse_duration
+from notifyd.engine import NotifyEngine
 from firnline_core.plugins import DeliveryResult, ModuleRequirement
 
 UTC = timezone.utc
@@ -131,39 +131,6 @@ def _make_engine(
         now = _frozen_now()
 
     return NotifyEngine(repo=repo, channels=channels, now=lambda: now)
-
-
-# ---------------------------------------------------------------------------
-# Duration parser tests
-# ---------------------------------------------------------------------------
-
-
-class TestDurationParser:
-    def test_simple_hours(self):
-        td = _parse_duration("PT1H")
-        assert td == timedelta(hours=1)
-
-    def test_minutes(self):
-        td = _parse_duration("PT30M")
-        assert td == timedelta(minutes=30)
-
-    def test_complex(self):
-        td = _parse_duration("P1DT2H30M10S")
-        assert td == timedelta(days=1, hours=2, minutes=30, seconds=10)
-
-    def test_bare_p_is_none(self):
-        assert _parse_duration("P") is None
-
-    def test_invalid_is_none(self):
-        assert _parse_duration("not-a-duration") is None
-
-    def test_days_only(self):
-        td = _parse_duration("P7D")
-        assert td == timedelta(days=7)
-
-    def test_seconds_only(self):
-        td = _parse_duration("PT45S")
-        assert td == timedelta(seconds=45)
 
 
 # ---------------------------------------------------------------------------
