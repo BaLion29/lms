@@ -440,6 +440,8 @@ async def test_idempotency_path_logged_fallback():
     ]
     assert len(warning_logs) == 1
     assert warning_logs[0]["fallback"] == "class_scan"
+    assert warning_logs[0]["error"] == "GraphQL error"
+    assert warning_logs[0]["status"] == 500
 
     path_logs = [
         e for e in captured

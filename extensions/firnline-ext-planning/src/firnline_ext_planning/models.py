@@ -46,7 +46,6 @@ class Event(TdbDocument):
     name: str
     status: EventStatus
     updated_at: TdbDateTime
-    anchor_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)
     description: str | None = None
     end_datetime: TdbDateTime | None = None
@@ -68,7 +67,6 @@ class Task(TdbDocument):
     name: str
     status: TaskStatus
     updated_at: TdbDateTime
-    anchor_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)
     description: str | None = None
     due_date: TdbDateTime | None = None

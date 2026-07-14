@@ -234,11 +234,13 @@ class Pipeline:
 
                 return isinstance(entities, list) and len(entities) > 0
 
-            except TdbError:
+            except TdbError as e:
                 logger.warning(
                     "idempotency_graphql_failed",
                     iri=doc_iri,
                     fallback="class_scan",
+                    error=e.body,
+                    status=e.status,
                 )
                 self._idempotency_graphql_ok = False
                 self._idempotency_fallback_cache = (

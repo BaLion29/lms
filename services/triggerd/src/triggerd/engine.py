@@ -284,15 +284,16 @@ class Engine:
                 subjects_resolved += 1
 
             now_val = self._now()
-            firing_doc = {
+            firing_doc: dict[str, Any] = {
                 "@type": "TriggerFiring",
                 "trigger": trigger_iri,
                 "occurrence_key": occurrence_key,
                 "scheduled_for": _format_datetime(scheduled),
                 "fired_at": _format_datetime(window_end),
                 "status": "pending",
-                "subject": subject,
             }
+            if subject is not None:
+                firing_doc["subject"] = subject
             grouped.setdefault(trigger_iri, []).append(firing_doc)
 
         for trigger_iri, firings in grouped.items():

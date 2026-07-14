@@ -224,7 +224,7 @@ async def test_create_task(respx_mock):
     assert "created_at" in doc
     assert "updated_at" in doc
     assert doc["created_at"] == doc["updated_at"]
-    # No due_date → anchor_at should be None → excluded by exclude_none
+    # anchor_at field is no longer on the model
     assert "anchor_at" not in doc
     assert "derived_from" not in doc
     prov = doc["provenance"]
@@ -260,7 +260,7 @@ async def test_create_task_with_all_fields(respx_mock):
     assert doc["description"] == "desc"
     assert doc["due_date"] == "2026-12-31T12:00:00Z"
     assert doc["priority"] == 5
-    assert doc["anchor_at"] == "2026-12-31T12:00:00Z"
+    assert "anchor_at" not in doc
     assert doc["provenance"]["agent"] == "ext:planning"
     assert "source" not in doc["provenance"]
 

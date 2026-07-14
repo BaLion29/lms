@@ -157,7 +157,7 @@ class TestBuildDocuments:
     def setup_method(self):
         self.plugin = PlanningPlugin()
 
-    async def test_task_proposal_builds_with_provenance_and_anchor(self):
+    async def test_task_proposal_builds_with_provenance(self):
         ctx = _FakeBuildContext()
         proposal = TaskProposal(
             name="Buy milk",
@@ -174,7 +174,8 @@ class TestBuildDocuments:
         assert doc["status"] == "open"
         assert doc["created_at"] == "2026-07-07T12:00:00Z"
         assert doc["updated_at"] == "2026-07-07T12:00:00Z"
-        assert doc["anchor_at"] == "2026-07-10T17:00:00Z"
+        assert "anchor_at" not in doc
+        assert doc["due_date"] == "2026-07-10T17:00:00Z"
         assert doc["derived_from"] == ["InboxNote/test123"]
         assert doc["provenance"] == {
             "@type": "Provenance",
@@ -197,7 +198,7 @@ class TestBuildDocuments:
         assert doc["name"] == "Meeting"
         assert doc["status"] == "open"
         assert doc["start_datetime"] == "2026-07-08T09:00:00Z"
-        assert doc["anchor_at"] == "2026-07-08T09:00:00Z"
+        assert "anchor_at" not in doc
         assert "location" not in doc  # exclude_none
         assert doc["derived_from"] == ["InboxNote/test123"]
         assert doc["provenance"]["agent"] == "ingestd"
@@ -262,16 +263,16 @@ class TestBuildDocuments:
         assert "created_at" in doc
         assert "updated_at" in doc
 
-    async def test_event_anchor_at_none_when_no_start(self):
+    async def test_event_no_anchor_field_emitted(self):
         ctx = _FakeBuildContext()
         proposal = EventProposal(name="Undated Event")
         docs = await self.plugin.build_documents(proposal, ctx)
         doc = docs[0]
-        assert "anchor_at" not in doc  # exclude_none when None
+        assert "anchor_at" not in doc
 
-    async def test_task_anchor_at_none_when_no_due_date(self):
+    async def test_task_no_anchor_field_emitted(self):
         ctx = _FakeBuildContext()
         proposal = TaskProposal(name="No due date")
         docs = await self.plugin.build_documents(proposal, ctx)
         doc = docs[0]
-        assert "anchor_at" not in doc  # exclude_none when None
+        assert "anchor_at" not in doc

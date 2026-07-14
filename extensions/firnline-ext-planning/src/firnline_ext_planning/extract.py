@@ -105,7 +105,6 @@ class PlanningPlugin(ExtractorPlugin):
                 status=TaskStatus.OPEN,
                 created_at=now,
                 updated_at=now,
-                anchor_at=proposal.due_date,
                 derived_from=[source_iri],
                 provenance=Provenance(
                     agent="ingestd",
@@ -126,7 +125,6 @@ class PlanningPlugin(ExtractorPlugin):
                 status=EventStatus.OPEN,
                 created_at=now,
                 updated_at=now,
-                anchor_at=proposal.start_datetime,
                 derived_from=[source_iri],
                 provenance=Provenance(
                     agent="ingestd",

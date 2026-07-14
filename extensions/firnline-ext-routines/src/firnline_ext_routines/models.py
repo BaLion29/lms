@@ -29,7 +29,6 @@ class Activity(TdbDocument):
     created_at: TdbDateTime
     name: str
     updated_at: TdbDateTime
-    anchor_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)
     description: str | None = None
     end_datetime: TdbDateTime | None = None

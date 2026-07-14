@@ -151,7 +151,6 @@ async def create_task(
         due_date=due_date,
         priority=priority,
         status=TaskStatus.OPEN,
-        anchor_at=due_date,
         created_at=now,
         updated_at=now,
     ).to_tdb()
