@@ -416,6 +416,7 @@ dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "structlog" },
 ]
 
 [package.dev-dependencies]
@@ -431,6 +432,7 @@ requires-dist = [
     { name = "httpx" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pydantic-settings" },
+    { name = "structlog" },
 ]
 
 [package.metadata.requires-dev]
