@@ -19,6 +19,7 @@ members = [
     "firnline-ext-planning",
     "firnline-ext-reminders",
     "firnline-ext-routines",
+    "firnline-ext-webhook",
     "firnline-schema",
     "firnline-webui",
     "firnline-workspace",
@@ -611,6 +612,37 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest" },
+    { name = "ruff" },
+]
+
+[[package]]
+name = "firnline-ext-webhook"
+version = "0.1.0"
+source = { editable = "extensions/firnline-ext-webhook" }
+dependencies = [
+    { name = "firnline-core" },
+    { name = "httpx" },
+    { name = "pydantic-settings" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "firnline-core", editable = "packages/firnline-core" },
+    { name = "httpx" },
+    { name = "pydantic-settings" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
+    { name = "respx" },
     { name = "ruff" },
 ]
 
