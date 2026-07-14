@@ -439,6 +439,7 @@ def automations_page() -> rx.Component:
                 json_var=AutomationsState.selected_json,
                 iri_var=AutomationsState.selected_iri,
                 on_close=AutomationsState.clear_selection,
+                open_var=AutomationsState.has_selection,
             ),
             spacing="5",
             width="100%",
