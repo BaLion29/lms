@@ -12,6 +12,9 @@ graph database — the single source of truth.
   data flow, schema module system, and plugin mechanism.
 - **[Configuration](configuration.md)** — complete environment variable reference
   for all services.
+- **[Actions](actions.md)** — action model, trust ladder, execution lifecycle,
+  idempotency, template variables, effectd settings, and a worked Home
+  Assistant webhook example.
 - **[Extensions](extensions.md)** — how to write and install a firnline
   extension: package layout, entry-point groups and protocols, schema module
   format, `@metadata` keys, and a worked example.

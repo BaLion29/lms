@@ -226,7 +226,7 @@ compose the schema, run codegen, pass `uv run pytest`, and idle gracefully
 | **ingestd** | AI ingestion polling worker: poll Captured → LLM extraction → entity linking → one commit per item → status flip. |
 | **queryd** | FastAPI conversational agent: read tools, guarded write tools (plugins), stateless `/v1/chat`. |
 | **triggerd** | Trigger evaluation polling worker: poll Trigger → evaluate → materialise TriggerFiring records. |
-| **effectd** | Effect delivery daemon: consume pending TriggerFiring records, execute nag policy (pending→notified, renotify, expire, snooze wake-up), deliver via `NotificationChannel` plugins (e.g. Gotify). |
+| **effectd** | Effect delivery daemon: plan `ActionExecution` records, execute via `ActionExecutor` plugins (webhook, Gotify, etc.), run legacy notification loop with nag policy (renotify, expire, snooze wake-up). |
 | **captured** | Minimal FastAPI capture-ingress: `POST /v1/capture/note` and `/v1/capture/file` with pluggable handlers. |
 | **STT** | faster-whisper (via existing n8n pipeline); multilingual German/French/English. Swappable — it just flips `Captured` statuses. |
 | **LLM access** | LiteLLM proxy (OpenAI-compatible) in front of any model — every service sees one interface. |
@@ -234,9 +234,9 @@ compose the schema, run codegen, pass `uv run pytest`, and idle gracefully
 
 ## Future Directions (not yet implemented)
 
-- **Reminder engine** — trigger evaluation and firing materialization
-  implemented by `triggerd`; nag/snooze/expiry lifecycle and notification
-  delivery implemented by `effectd` (first channel: Gotify).
+- **Nag-policy consolidation** — reimplement renotify/expire/snooze on top of
+  `ActionExecution` documents (currently the legacy notification loop handles
+  these policies independently of the action engine).
 - **Routine engine** — Routines spawning Tasks/Activities from their steps.
 - **Branch review tooling** — comfortable per-commit review + promote flow for
   staging-branch mode.

@@ -55,8 +55,8 @@
           │
           ▼
        EFFECTD
-       poll pending → deliver via channels
-       → nag policy (renotify / expire / snooze wake-up)
+       poll → plan ActionExecutions → execute via executors
+       → legacy notify loop (renotify / expire / snooze wake-up)
        per-firing commit
 ```
 
@@ -71,7 +71,7 @@
 | **mcpd** | MCP server — exposes firnline to external AI agents via Model Context Protocol (streamable HTTP). Tools: graphql_query, get_document, find_entity/class/field, get_schema, list_modules, capture. | 8090 |
 | **indexed** | Precision grounding service — mirrors TDB documents + schema into a hybrid vector+lexical index and serves precise-lookup endpoints to ingestd and queryd. | 8089 |
 | **triggerd** | Polling worker — evaluates Trigger documents, materializes TriggerFiring records. | — |
-| **effectd** | Effect delivery daemon — polls pending TriggerFiring records, executes nag policy (renotify, expire, snooze wake-up), delivers via `NotificationChannel` plugins. | — |
+| **effectd** | Effect delivery daemon — plans `ActionExecution` records, executes via `ActionExecutor` plugins (webhook, notify, etc.), runs legacy notification loop with nag policy (renotify, expire, snooze wake-up). | — |
 | **bootstrap** | One-shot container (profile `bootstrap`) — creates database, composes & applies schema, installs extensions into shared overlay volume. | — |
 
 An **external LiteLLM proxy** is required for LLM access — it is NOT part of
@@ -244,7 +244,8 @@ firnline/
 │   ├── effectd/                # effect delivery daemon (nag policy + channels)
 │   └── indexed/                # precision grounding service (hybrid vector+lexical index)
 ├── extensions/
-│   ├── firnline-ext-gotify/    # Gotify notification channel
+│   ├── firnline-ext-gotify/    # Gotify notification channel & action executor
+│   ├── firnline-ext-webhook/   # Webhook action executor (reference)
 │   ├── firnline-ext-people/    # people schema + extractor
 │   ├── firnline-ext-places/    # places/Location schema
 │   ├── firnline-ext-planning/  # planning schema + extractor + queryd tools

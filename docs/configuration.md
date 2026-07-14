@@ -120,6 +120,15 @@ Prefixed `EFFECTD_`.
 | `EFFECTD_TDB_PASSWORD` | — | TerminusDB password |
 | `EFFECTD_POLL_INTERVAL_SECONDS` | `30` | Seconds between poll cycles |
 | `EFFECTD_LIVENESS_FILE` | `/tmp/effectd-alive` | Path touched on each successful cycle for healthchecks |
+| `EFFECTD_DRY_RUN` | `false` | Global override: forces all executions to `skipped` |
+| `EFFECTD_LEGACY_NOTIFICATION_LOOP` | `true` | Run the zero-config default notify path (nag policy renotify/expire/snooze) |
+| `EFFECTD_DEFAULT_NOTIFY_EXECUTOR` | `notify:gotify` | Executor kind for the legacy notify loop |
+| `EFFECTD_PLANNING_LOOKBACK` | `P7D` | ISO-8601 duration bounding the planner query window |
+| `EFFECTD_MAX_EXECUTIONS_PER_CYCLE` | `50` | Max pending executions processed per poll cycle |
+| `EFFECTD_DEFAULT_MAX_ATTEMPTS` | `3` | Default retry limit per execution |
+| `EFFECTD_DEFAULT_RETRY_BACKOFF` | `PT1M` | Base backoff, doubled per attempt |
+| `EFFECTD_DEFAULT_TIMEOUT` | `PT30S` | Default per-execution timeout |
+| `EFFECTD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
 
 ## gotify (extension firnline-ext-gotify)
 
@@ -131,6 +140,15 @@ Prefixed `GOTIFY_`.
 | `GOTIFY_TOKEN` | `""` | Gotify app token |
 | `GOTIFY_PRIORITY` | `5` | Gotify message priority (0–10, higher = more urgent) |
 | `GOTIFY_TIMEOUT_SECONDS` | `10.0` | HTTP timeout for Gotify API calls |
+
+## webhook (extension firnline-ext-webhook)
+
+Prefixed `WEBHOOK_`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEBHOOK_DEFAULT_TOKEN` | `""` | Optional bearer token sent as `Authorization: Bearer <token>` |
+| `WEBHOOK_TIMEOUT_SECONDS` | `10.0` | HTTP timeout for webhook calls |
 
 ## indexed
 

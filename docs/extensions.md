@@ -24,6 +24,8 @@ An extension package may contain any subset of:
   (`firnline.triggerd.evaluators`).
 - **Notification channels** — deliver `TriggerFiring` records via external
   notification services (`firnline.notifyd.channels`, legacy group name, consumed by effectd).
+- **Action executors** — execute external effects (webhook, notification, home-automation)
+  via `firnline.effectd.executors` (canonical group).
 - **MCP tools** — mcpd exposes firnline tools and resources to external
   AI agents via Model Context Protocol. See [mcpd.md](mcpd.md).
 
@@ -260,8 +262,11 @@ returns a `DeliveryResult(ok, detail, retryable)`. Duplicate channel
 `NotifyContext` provides `tdb`, `logger`, and `now()`.
 
 Example: `firnline-ext-gotify` registers a `firnline.notifyd.channels`
-entry point (legacy group name, consumed by effectd) that forwards firings to a Gotify server. Configure via
-`GOTIFY_URL`, `GOTIFY_TOKEN`, `GOTIFY_PRIORITY`, `GOTIFY_TIMEOUT_SECONDS`
+entry point (legacy group name, consumed by effectd) that forwards firings to a Gotify server.
+`firnline-ext-webhook` is the reference `firnline.effectd.executors` implementation
+that calls arbitrary HTTP endpoints. Configure via
+`GOTIFY_URL`, `GOTIFY_TOKEN`, `GOTIFY_PRIORITY`, `GOTIFY_TIMEOUT_SECONDS`,
+`WEBHOOK_DEFAULT_TOKEN`, `WEBHOOK_TIMEOUT_SECONDS`
 (see [Configuration](configuration.md)).
 
 ### `firnline.effectd.executors` — ActionExecutor
@@ -291,8 +296,8 @@ MUST NOT produce side effects.
 
 ```toml
 [project.entry-points."firnline.effectd.executors"]
-gotify = "firnline_ext_gotify.channel:plugin"
-webhook = "my_ext.webhooks:executor"
+gotify = "firnline_ext_gotify.executor:plugin"
+webhook = "firnline_ext_webhook.executor:plugin"
 ```
 
 ## Schema Module Format
