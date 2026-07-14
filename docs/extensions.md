@@ -51,16 +51,16 @@ Register entry points in `pyproject.toml`:
 
 ```toml
 [project.entry-points."firnline.schema_modules"]
-planning = "firnline_ext_planning"
+time_management = "firnline_ext_time_management"
 
 [project.entry-points."firnline.ingestd.sources"]
 inbox_note = "ingestd.sources:inbox_note_plugin"
 
 [project.entry-points."firnline.ingestd.extractors"]
-planning_people = "firnline_ext_planning.extract:plugin"
+time_management_extractor = "firnline_ext_time_management.extract:plugin"
 
 [project.entry-points."firnline.queryd.tools"]
-planning_tools = "firnline_ext_planning.tools:plugin"
+time_management_tools = "firnline_ext_time_management.tools:plugin"
 
 [project.entry-points."firnline.captured.handlers"]
 inbox_note = "captured.handlers:captured_note_handler"
@@ -86,12 +86,12 @@ The entry-point value may be:
 Example:
 ```toml
 [project.entry-points."firnline.schema_modules"]
-planning = "firnline_ext_planning:SCHEMA_MODULE_DIR"
+time_management = "firnline_ext_time_management:SCHEMA_MODULE_DIR"
 ```
 ```python
-# firnline_ext_planning/__init__.py
+# firnline_ext_time_management/__init__.py
 import importlib.resources
-SCHEMA_MODULE_DIR = str(importlib.resources.files("firnline_ext_planning"))
+SCHEMA_MODULE_DIR = str(importlib.resources.files("firnline_ext_time_management"))
 ```
 
 ### `firnline.ingestd.sources` — IngestSourcePlugin
@@ -306,12 +306,12 @@ webhook = "firnline_ext_webhook.executor:plugin"
 
 ```json
 {
-  "name": "planning",
+  "name": "time_management",
   "version": "0.1.0",
-  "depends_on": [{"name": "places", "range": ">=0.1.0 <0.2.0"}],
-  "models_target": "firnline_ext_planning.models",
-  "exports": ["Task", "TaskSpec", "Event", "TaskStatus", "EventStatus"],
-  "description": "Tasks, events and their specs"
+  "depends_on": [{"name": "places", "range": ">=0.1.0 <0.2.0"}, {"name": "reminders", "range": ">=0.1.0 <0.2.0"}, {"name": "triggers", "range": ">=0.1.0 <0.2.0"}],
+  "models_target": "firnline_ext_time_management.models",
+  "exports": ["Task", "TaskSpec", "Event", "TaskStatus", "EventStatus", "Routine", "RoutineStep", "Activity", "ActivitySpec"],
+  "description": "Tasks, events, routines, activities and their specs"
 }
 ```
 

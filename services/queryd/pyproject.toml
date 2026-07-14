@@ -30,12 +30,12 @@ packages = ["src/queryd"]
 
 [tool.uv.sources]
 firnline-core = { workspace = true }
-firnline-ext-planning = { workspace = true }
+firnline-ext-time-management = { workspace = true }
 firnline-ext-reminders = { workspace = true }
 
 [dependency-groups]
 dev = [
-    "firnline-ext-planning",
+    "firnline-ext-time-management",
     "firnline-ext-reminders",
     "pytest",
     "pytest-asyncio",

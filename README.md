@@ -54,7 +54,7 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `services/triggerd/` | Trigger evaluation daemon (poll → evaluate → insert TriggerFiring) |
 | `services/effectd/` | Effect delivery daemon (pending firing → channel delivery → nag policy) |
 | `services/webui/` | Reflex WebUI: capture, inbox (Captured), generic browser, health, modules |
-| `extensions/` | Six first-party extensions (gotify, people, places, planning, reminders, routines) |
+| `extensions/` | First-party extensions (gotify, people, places, time-management, reminders, webhook) |
 | `schema/modules/core/` | Kernel schema module (Entity, markers, registry, provenance) |
 | `schema/modules/triggers/` | Kernel schema module (abstract Trigger and concrete trigger types) |
 | `schema/modules/capture/` | Kernel schema module (Captured) |

@@ -374,7 +374,10 @@ async def plan_branch(
 
     disk_migrations: dict[str, list[PendingMigration]] = {}
     for info in compose_result.modules:
-        mod_dir = modules_dir / info.name
+        # Use the module's on-disk directory when available (entry-point
+        # extensions); fall back to the repo-tree modules_dir / <name> for
+        # repo-tree modules.
+        mod_dir = info.module_dir if info.module_dir is not None else modules_dir / info.name
         mig_files = list_migrations(mod_dir)
         if mig_files:
             disk_migrations[info.name] = [

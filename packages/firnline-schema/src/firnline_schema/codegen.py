@@ -30,7 +30,7 @@ def _top_level_pkg(target: str) -> str:
     """Return the top-level package prefix (first two dotted components).
 
     ``firnline_core.generated.core`` → ``firnline_core``
-    ``firnline_ext_planning.models`` → ``firnline_ext_planning``
+    ``firnline_ext_time_management.models`` → ``firnline_ext_time_management``
 
     Returns the full string if the target has fewer than 2 components.
     """

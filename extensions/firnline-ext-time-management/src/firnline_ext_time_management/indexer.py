@@ -1,4 +1,4 @@
-"""IndexerPlugin for Task and Event documents."""
+"""IndexerPlugin for Task, Event, Routine, and Activity documents."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ from typing import Any
 from firnline_core.plugins import IndexerPlugin, ModuleRequirement
 
 
-class PlanningIndexerPlugin(IndexerPlugin):
-    name: str = "planning_indexer"
+class TimeManagementIndexerPlugin(IndexerPlugin):
+    name: str = "time_management_indexer"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="planning", range=">=0.1.0 <0.2.0"),
+        ModuleRequirement(name="time_management", range=">=0.1.0 <0.2.0"),
     ]
 
     def indexed_classes(self) -> list[str]:
-        return ["Task", "Event"]
+        return ["Task", "Event", "Routine", "Activity"]
 
     def entity_text(self, doc: dict[str, Any]) -> str:
         name = doc.get("name", "")
@@ -34,4 +34,4 @@ class PlanningIndexerPlugin(IndexerPlugin):
         return []
 
 
-plugin = PlanningIndexerPlugin()
+plugin = TimeManagementIndexerPlugin()

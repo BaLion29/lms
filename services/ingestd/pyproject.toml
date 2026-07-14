@@ -18,9 +18,10 @@ dependencies = [
 
 [tool.uv.sources]
 firnline-core = { workspace = true }
-firnline-ext-planning = { workspace = true }
+firnline-ext-time-management = { workspace = true }
 firnline-ext-reminders = { workspace = true }
 firnline-ext-people = { workspace = true }
+firnline-ext-places = { workspace = true }
 
 [project.entry-points."firnline.ingestd.sources"]
 inbox_note = "ingestd.sources:captured_text_plugin"
@@ -38,7 +39,7 @@ packages = ["src/ingestd"]
 
 [dependency-groups]
 dev = [
-    "firnline-ext-planning",
+    "firnline-ext-time-management",
     "firnline-ext-reminders",
     "firnline-ext-people",
     "pytest",

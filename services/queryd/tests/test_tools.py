@@ -24,7 +24,7 @@ from queryd.tools import (
 )
 # Write-tool plugin imports are now from extension packages (tested there).
 # queryd only tests host-level integration via fixture plugins that import
-# from firnline_ext_planning / firnline_ext_reminders as dev-deps.
+# from firnline_ext_time_management / firnline_ext_reminders as dev-deps.
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -109,7 +109,7 @@ def test_build_tools_no_writes():
 
 def test_build_tools_with_writes():
     s = _settings(enable_writes=True)
-    from firnline_ext_planning.tools import plugin as _planning_plugin
+    from firnline_ext_time_management.tools import plugin as _planning_plugin
     from firnline_ext_reminders.tools import plugin as _reminder_plugin
 
     plugin_tools = _planning_plugin.tools(deps=None) + _reminder_plugin.tools(deps=None)
@@ -127,7 +127,10 @@ def test_build_tools_with_writes():
         "set_event_status",
         "create_task",
         "create_reminder",
+        "create_routine",
         "update_task",
+        "update_routine",
+        "log_activity",
     }
 
 

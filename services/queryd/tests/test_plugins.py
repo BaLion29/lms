@@ -26,7 +26,7 @@ from firnline_core.plugins import (
 
 from queryd.app import create_app, _collect_plugin_tools
 from queryd.settings import Settings
-from firnline_ext_planning.tools import plugin as _planning_plugin
+from firnline_ext_time_management.tools import plugin as _planning_plugin
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -158,14 +158,14 @@ def test_enable_writes_false_suppresses_plugins(respx_mock):
     if discovered — but plugin names are still reported in healthz."""
     respx_mock.get(_tdb_exists_route()).respond(200)
 
-    # PluginHost's collision_key calls p.tools(None); planning_plugin supports it.
+    # PluginHost's collision_key calls p.tools(None); time_management_plugin supports it.
     with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
-            active=[("planning", _planning_plugin)],
+            active=[("time_management", _planning_plugin)],
         )
         with patch("firnline_core.plugins.select_plugins") as mock_select:
             mock_select.return_value = PluginSelection(
-                active=[("planning", _planning_plugin)],
+                active=[("time_management", _planning_plugin)],
             )
 
             settings = _settings(enable_writes=False)
@@ -182,7 +182,7 @@ def test_enable_writes_false_suppresses_plugins(respx_mock):
                 resp = client.get("/healthz")
             assert resp.status_code == 200
             # Plugins are discovered and reported but tools are suppressed
-            assert resp.json()["plugins"] == ["planning_tools"]
+            assert resp.json()["plugins"] == ["time_management_tools"]
 
 
 # ---------------------------------------------------------------------------
@@ -328,7 +328,7 @@ def test_healthz_reports_modules_and_plugins(respx_mock):
 
     # Mock get_documents (for module registry — will be called multiple times)
     respx_mock.get(DOC_PATH).respond(
-        json=[_mock_schema_module("core", "1.1.0"), _mock_schema_module("planning", "1.0.0")]
+        json=[_mock_schema_module("core", "1.1.0"), _mock_schema_module("time_management", "0.1.0")]
     )
     respx_mock.get(_tdb_exists_route()).respond(200)
 
@@ -339,11 +339,11 @@ def test_healthz_reports_modules_and_plugins(respx_mock):
 
     with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
-            active=[("planning", _planning_plugin)],
+            active=[("time_management", _planning_plugin)],
         )
         with patch("firnline_core.plugins.select_plugins") as mock_select:
             mock_select.return_value = PluginSelection(
-                active=[("planning", _planning_plugin)],
+                active=[("time_management", _planning_plugin)],
             )
 
             app = create_app(settings, model=model)
@@ -358,9 +358,9 @@ def test_healthz_reports_modules_and_plugins(respx_mock):
     assert data["terminusdb"] == "up"
     assert "modules" in data
     assert data["modules"]["core"] == "1.1.0"
-    assert data["modules"]["planning"] == "1.0.0"
+    assert data["modules"]["time_management"] == "0.1.0"
     assert "plugins" in data
-    assert "planning_tools" in data["plugins"]
+    assert "time_management_tools" in data["plugins"]
 
 
 # ---------------------------------------------------------------------------
@@ -412,16 +412,19 @@ def test_collect_plugin_tools_empty():
 
 def test_collect_plugin_tools_success():
     tools, names = _collect_plugin_tools(
-        [("planning", _planning_plugin)], _settings(enable_writes=True), MagicMock()
+        [("time_management", _planning_plugin)], _settings(enable_writes=True), MagicMock()
     )
-    assert len(tools) == 4
-    assert names == ["planning_tools"]
+    assert len(tools) == 7
+    assert names == ["time_management_tools"]
     tool_names = {t.name for t in tools}
     assert tool_names == {
         "set_task_status",
         "set_event_status",
         "create_task",
         "update_task",
+        "create_routine",
+        "update_routine",
+        "log_activity",
     }
 
 
@@ -491,11 +494,11 @@ def test_nonstrict_writes_disabled_allows_skipped(respx_mock):
 
     with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
-            active=[("planning", _planning_plugin), ("fake", _FakePluginMissingModule())],
+            active=[("time_management", _planning_plugin), ("fake", _FakePluginMissingModule())],
         )
         with patch("firnline_core.plugins.select_plugins") as mock_select:
             mock_select.return_value = PluginSelection(
-                active=[("planning", _planning_plugin)],
+                active=[("time_management", _planning_plugin)],
                 skipped=[("fake", ["module 'nonexistent' not installed"])],
             )
 
@@ -513,4 +516,4 @@ def test_nonstrict_writes_disabled_allows_skipped(respx_mock):
                 resp = client.get("/healthz")
             assert resp.status_code == 200
             # Only active (post-selection) plugins reported; skipped are not listed
-            assert set(resp.json()["plugins"]) == {"planning_tools"}
+            assert set(resp.json()["plugins"]) == {"time_management_tools"}

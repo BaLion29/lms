@@ -40,7 +40,7 @@ Example `pyproject.toml`:
 
 ```toml
 [project.entry-points."firnline.schema_modules"]
-planning = "firnline_ext_planning:SCHEMA_MODULE_DIR"
+time_management = "firnline_ext_time_management:SCHEMA_MODULE_DIR"
 ```
 
 Discovery runs automatically during `firnline-schema compose` (opt-out with
@@ -77,10 +77,10 @@ hard error listing all failures — extensions are never silently ignored.
       "checksum": "abc123...",
       "source": "repo:core"
     },
-    "planning": {
-      "version": "0.1.0a1",
+    "time_management": {
+      "version": "0.1.0",
       "checksum": "def456...",
-      "source": "pkg:firnline-ext-planning==0.1.0a1"
+      "source": "pkg:firnline-ext-time-management==0.1.0"
     }
   }
 }

@@ -259,6 +259,27 @@ class TdbClient:
         )
         await self._raise_on_error(response)
 
+    async def delete_document(
+        self,
+        iri: str,
+        branch: str = "main",
+        message: str = "ingestd",
+    ) -> None:
+        """Delete a document by *iri* from *branch*.
+
+        Raises ``TdbError`` on non-2xx response (including 404).
+        """
+        short = short_iri(iri)
+        response = await self._client.delete(
+            self._doc_path(branch),
+            params={
+                "id": short,
+                "author": self._author,
+                "message": message,
+            },
+        )
+        await self._raise_on_error(response)
+
     async def graphql(
         self,
         query: str,

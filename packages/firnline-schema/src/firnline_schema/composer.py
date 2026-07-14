@@ -119,6 +119,7 @@ class ModuleInfo:
     exports: list[str] | None = None  # from manifest
     source: str | None = None  # "repo:<name>" or "pkg:<dist>==<version>"
     description: str | None = None  # from manifest
+    module_dir: Path | None = None  # filesystem directory (for migration discovery)
 
 
 @dataclass
@@ -910,6 +911,7 @@ def _assemble(
             exports=list(m.exports),
             source=sources.get(name),
             description=m.description,
+            module_dir=m.module_dir,
         ))
         module_to_target[name] = m.models_target
         module_to_import[name] = m.models_import

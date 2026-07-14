@@ -1,8 +1,0 @@
-{
-  "name": "planning",
-  "version": "0.1.0",
-  "depends_on": [{"name": "places", "range": ">=0.1.0 <0.2.0"}, {"name": "reminders", "range": ">=0.1.0 <0.2.0"}],
-  "models_target": "firnline_ext_planning.models",
-  "exports": ["Task", "TaskSpec", "Event", "TaskStatus", "EventStatus"],
-  "description": "Tasks, events and their specs"
-}

@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`firnline-ext-time-management` 0.1.0 merges planning + routines.** The
+  `firnline-ext-planning` and `firnline-ext-routines` extensions are combined
+  into a single `time_management` schema module (9 classes: Task, TaskSpec,
+  Event, TaskStatus, EventStatus, Routine, RoutineStep, Activity, ActivitySpec).
+  Schema improvements: `ActivitySpec` gains `priority` and `estimated_duration`
+  (mirroring TaskSpec); `Activity` gains a `routine` back-reference to `Routine`.
+  The new extension provides three entry points — `firnline.schema_modules`
+  (`time_management`), `firnline.ingestd.extractors`
+  (`time_management_extractor` covering routines/activities in addition to
+  task/event/person extraction), and `firnline.queryd.tools`
+  (`time_management_tools` with `create_routine`, `update_routine`, and
+  `log_activity`). The old extensions are removed. Extension migration
+  discovery is now supported in `firnline-schema`.
+
 - **Marker grammar refactored.** `Source`, `Context`, and `Anchored` are now all
   pure role markers. `Anchored` no longer carries `anchor_at`; concrete classes
   implementing it declare `@metadata.anchor_field` at the class level. Relative

@@ -406,7 +406,7 @@ def test_equivalence_with_monolithic() -> None:
         assert comp_cls == mono_cls, f"Mismatch for class '{cid}'"
 
     # Extension modules must be present with pkg: source prefix
-    extension_modules = {"inbox", "places", "routines", "people", "planning", "reminders"}
+    extension_modules = {"inbox", "places", "time_management", "people", "reminders"}
     repo_modules = {"core", "triggers"}
     module_names = {m.name for m in result.modules}
     for ext_name in extension_modules:
@@ -619,13 +619,13 @@ def test_triggers_discovered_from_repo() -> None:
     assert "RelativeTrigger" in ids
 
 
-def test_routines_without_reminders_resolves_triggers() -> None:
-    """Compose with repo modules + routines/planning/places (no reminders) resolves triggers dep."""
+def test_time_management_resolves_transitive_deps() -> None:
+    """Compose with repo modules + time_management/places/reminders resolves transitive trigger dep."""
     _EXT_DIR = Path(__file__).parents[3] / "extensions"
 
     # Check if extension manifests exist and have models_target
-    for ext_name in ("places", "planning", "routines"):
-        manifest_path = _EXT_DIR / f"firnline-ext-{ext_name}" / "src" / f"firnline_ext_{ext_name}" / "manifest.json"
+    for ext_name in ("places", "time-management"):
+        manifest_path = _EXT_DIR / f"firnline-ext-{ext_name}" / "src" / f"firnline_ext_{ext_name.replace('-', '_')}" / "manifest.json"
         if manifest_path.is_file():
             try:
                 m = json.loads(manifest_path.read_text())
@@ -642,20 +642,15 @@ def test_routines_without_reminders_resolves_triggers() -> None:
             path=_EXT_DIR / "firnline-ext-places" / "src" / "firnline_ext_places",
             origin="pkg:test-places",
         ),
-        "planning": ModuleSource(
-            name="planning",
-            path=_EXT_DIR / "firnline-ext-planning" / "src" / "firnline_ext_planning",
-            origin="pkg:test-planning",
+        "time_management": ModuleSource(
+            name="time_management",
+            path=_EXT_DIR / "firnline-ext-time-management" / "src" / "firnline_ext_time_management",
+            origin="pkg:test-time-management",
         ),
         "reminders": ModuleSource(
             name="reminders",
             path=_EXT_DIR / "firnline-ext-reminders" / "src" / "firnline_ext_reminders" / "reminders_module",
             origin="pkg:test-reminders",
-        ),
-        "routines": ModuleSource(
-            name="routines",
-            path=_EXT_DIR / "firnline-ext-routines" / "src" / "firnline_ext_routines",
-            origin="pkg:test-routines",
         ),
     }
 
@@ -666,8 +661,7 @@ def test_routines_without_reminders_resolves_triggers() -> None:
 
     names = {m.name for m in result.modules}
     assert "triggers" in names
-    assert "routines" in names
-    assert "planning" in names
+    assert "time_management" in names
     assert "places" in names
     assert "reminders" in names
 

@@ -115,7 +115,7 @@ containing:
   `[{name, range}]`, `exports [ClassNames]`, `description`, and the required
   codegen routing field `models_target` (dotted Python module path, e.g.
   `firnline_core.generated.core` for kernel modules or
-  `firnline_ext_planning.models` for extensions).
+  `firnline_ext_time_management.models` for extensions).
 - **`schema.json`** — JSON array of TerminusDB class/enum definitions.
 - **`migrations/`** — optional ordered `NNNN_description.py` data migration
   scripts (schema shape changes come from the fragment diff, never from
@@ -212,7 +212,7 @@ startup. Per-service policies:
   storage), `ExternalRef` convention, `agent_id()`/`parse_agent()` for the
   reserved agent naming grammar (`service:<name>`, `user:<name>`, `ext:<name>`).
 - **`generated/`** — codegen output for kernel modules (core, capture, triggers).
-  Extension models land in their own packages (e.g. `firnline_ext_planning/
+  Extension models land in their own packages (e.g. `firnline_ext_time_management/
   models.py`), routed by the `models_target` manifest field. **Never
   hand-edit any generated file.**
 
@@ -248,8 +248,7 @@ firnline/
 │   ├── firnline-ext-webhook/   # Webhook action executor (reference)
 │   ├── firnline-ext-people/    # people schema + extractor
 │   ├── firnline-ext-places/    # places/Location schema
-│   ├── firnline-ext-planning/  # planning schema + extractor + queryd tools
+│   ├── firnline-ext-time-management/  # tasks, events, routines, activities schema + extractor + queryd tools
 │   ├── firnline-ext-reminders/ # reminders schema + extractor + tools
-│   └── firnline-ext-routines/  # routines schema
 └── docker/entrypoint.sh        # extension overlay management in containers
 ```

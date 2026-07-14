@@ -388,28 +388,28 @@ def test_absolute_cross_target_imports():
     ]
     class_to_module = {
         "Entity": "core",
-        "TaskSpec": "planning",
+        "TaskSpec": "mod_a",
         "Provenance": "core",
-        "Task": "routines",
+        "Task": "mod_b",
     }
     module_to_target = {
         "core": "firnline_core.generated.core",
-        "planning": "firnline_ext_planning.models",
-        "routines": "firnline_ext_routines.models",
+        "mod_a": "firnline_ext_time_management.mod_a",
+        "mod_b": "firnline_ext_time_management.mod_b",
     }
     checksum = schema_checksum(schema)
     files = generate(schema, class_to_module, module_to_target, checksum)
 
-    routines_src = files.get("routines.py", "")
+    mod_b_src = files.get("mod_b.py", "")
     # Provenance (subdocument) is a nested cross-target ref → absolute import
-    assert "from firnline_core.generated.core import Provenance" in routines_src
+    assert "from firnline_core.generated.core import Provenance" in mod_b_src
     # Should NOT use relative imports
-    assert "from ." not in routines_src
+    assert "from ." not in mod_b_src
 
     # TaskSpec is referenced only via @inherits → fields are flattened, so no import needed.
     # But TaskSpec's own file should only have local imports.
-    planning_src = files.get("planning.py", "")
-    assert "from ." not in planning_src
+    mod_a_src = files.get("mod_a.py", "")
+    assert "from ." not in mod_a_src
 
 
 # ---------------------------------------------------------------------------
@@ -529,28 +529,28 @@ def test_cross_target_uses_models_import():
     class_to_module = {
         "Entity": "core",
         "Provenance": "core",
-        "Address": "planning",
-        "RoutineStep": "routines",
+        "Address": "mod_a",
+        "RoutineStep": "mod_b",
     }
     module_to_target = {
         "core": "firnline_core.generated.core",
-        "planning": "firnline_ext_planning.models",
-        "routines": "firnline_ext_routines.models",
+        "mod_a": "firnline_ext_time_management.mod_a",
+        "mod_b": "firnline_ext_time_management.mod_b",
     }
     module_to_import = {
         "core": "firnline_core.models",
-        "planning": "firnline_ext_planning.models",
-        "routines": "firnline_ext_routines.models",
+        "mod_a": "firnline_ext_time_management.mod_a",
+        "mod_b": "firnline_ext_time_management.mod_b",
     }
     checksum = schema_checksum(schema)
     files = generate(schema, class_to_module, module_to_target, checksum, module_to_import=module_to_import)
 
-    routines_src = files["routines.py"]
+    mod_b_src = files["mod_b.py"]
     # Should import from firnline_core.models, not firnline_core.generated.core
-    assert "from firnline_core.models import Provenance" in routines_src
-    assert "from firnline_core.generated.core" not in routines_src
-    # planning has no special models_import → uses models_target
-    assert "from firnline_ext_planning.models import Address" in routines_src
+    assert "from firnline_core.models import Provenance" in mod_b_src
+    assert "from firnline_core.generated.core" not in mod_b_src
+    # mod_a has no special models_import → uses models_target
+    assert "from firnline_ext_time_management.mod_a import Address" in mod_b_src
 
 
 def test_cross_target_fallback_when_no_models_import():
@@ -573,18 +573,18 @@ def test_cross_target_fallback_when_no_models_import():
     class_to_module = {
         "Entity": "core",
         "Provenance": "core",
-        "RoutineStep": "routines",
+        "RoutineStep": "mod_b",
     }
     module_to_target = {
         "core": "firnline_core.generated.core",
-        "routines": "firnline_ext_routines.models",
+        "mod_b": "firnline_ext_time_management.mod_b",
     }
     checksum = schema_checksum(schema)
     files = generate(schema, class_to_module, module_to_target, checksum)  # no module_to_import
 
-    routines_src = files["routines.py"]
+    mod_b_src = files["mod_b.py"]
     # Falls back to module_to_target
-    assert "from firnline_core.generated.core import Provenance" in routines_src
+    assert "from firnline_core.generated.core import Provenance" in mod_b_src
 
 
 # ---------------------------------------------------------------------------

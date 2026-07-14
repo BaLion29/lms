@@ -347,10 +347,10 @@ class TestPromptConstruction:
     def test_prompt_contains_actual_schema_content(self):
         """Prompt from PlanningPlugin contains known field names from each proposal model."""
         try:
-            from firnline_ext_planning.extract import PlanningPlugin
+            from firnline_ext_time_management.extract import TimeManagementPlugin
         except ImportError:
             pytest.skip("extension pending kernel migration")
-        ctx = build_extraction_context([PlanningPlugin()])
+        ctx = build_extraction_context([TimeManagementPlugin()])
         prompt = ctx.system_prompt
         assert "estimated_duration" in prompt
         assert "location_name" in prompt

@@ -514,14 +514,14 @@ def test_render_module_briefing_with_origin_and_description():
     """origin and description both rendered."""
     modules = [
         {
-            "name": "planning",
+            "name": "time_management",
             "version": "0.1.0",
-            "origin": "firnline-ext-planning",
-            "description": "Task/Event planning module",
+            "origin": "firnline-ext-time-management",
+            "description": "Tasks, events, routines, activities and their specs",
         }
     ]
     result = render_module_briefing(modules)
-    assert "planning 0.1.0 (firnline-ext-planning): Task/Event planning module" in result
+    assert "time_management 0.1.0 (firnline-ext-time-management): Tasks, events, routines, activities and their specs" in result
 
 
 def test_render_module_briefing_multiple_modules_sorted():

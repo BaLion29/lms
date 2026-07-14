@@ -1,7 +1,7 @@
 [project]
-name = "firnline-ext-planning"
+name = "firnline-ext-time-management"
 version = "0.1.0"
-description = "Firnline planning extension — Task/Event schema module, queryd write tools, and ingest extractors"
+description = "Firnline time-management extension — unified Task, Event, Routine, Activity schema module"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
 ]
@@ -11,21 +11,20 @@ dependencies = [
     "firnline-core",
     "firnline-ext-people",
     "firnline-ext-places",
-    "pydantic-ai-slim",
     "structlog",
 ]
 
 [project.entry-points."firnline.schema_modules"]
-planning = "firnline_ext_planning"
-
-[project.entry-points."firnline.queryd.tools"]
-planning_tools = "firnline_ext_planning.tools:plugin"
+time_management = "firnline_ext_time_management"
 
 [project.entry-points."firnline.ingestd.extractors"]
-planning_people = "firnline_ext_planning.extract:plugin"
+time_management_extractor = "firnline_ext_time_management.extract:plugin"
+
+[project.entry-points."firnline.queryd.tools"]
+time_management_tools = "firnline_ext_time_management.tools:plugin"
 
 [project.entry-points."firnline.indexed.indexers"]
-planning_indexer = "firnline_ext_planning.indexer:plugin"
+time_management_indexer = "firnline_ext_time_management.indexer:plugin"
 
 [tool.uv.sources]
 firnline-core = { workspace = true }
@@ -37,7 +36,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/firnline_ext_planning"]
+packages = ["src/firnline_ext_time_management"]
 
 [dependency-groups]
 dev = [

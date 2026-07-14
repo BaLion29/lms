@@ -23,11 +23,11 @@ from firnline_core.tdb import TdbError
 
 # Try importing extension plugins; skip tests if they're broken
 try:
-    from firnline_ext_planning.extract import (
+    from firnline_ext_time_management.extract import (
         EventProposal,
         PersonProposal,
-        PlanningPlugin,
         TaskProposal,
+        TimeManagementPlugin,
     )
     _planning_ok = True
 except ImportError:
@@ -46,7 +46,7 @@ except ImportError:
 
 # Shared extraction context for all pipeline tests
 if _planning_ok and _people_ok:
-    _PLANNING_PLUGIN = PlanningPlugin()
+    _PLANNING_PLUGIN = TimeManagementPlugin()
     _PEOPLE_PLUGIN = PeopleLinkingPlugin()
     _EXTRACTION_CTX = build_extraction_context([_PLANNING_PLUGIN, _PEOPLE_PLUGIN])
 else:
