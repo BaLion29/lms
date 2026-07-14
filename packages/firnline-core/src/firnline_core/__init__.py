@@ -9,14 +9,18 @@ Re-exports the most commonly used names for convenience.
 import firnline_core.generated  # noqa: F401 (side-effect: loads all submodules)
 
 from firnline_core.models import (
+    ActionExecution,
+    ActionMode,
     Captured,
     CapturedStatus,
     CompositeMode,
     CompositeTrigger,
     EventKind,
     EventTrigger,
+    ExecutionStatus,
     ExternalRef,
     FiringStatus,
+    NotifyAction,
     OneShotTrigger,
     Provenance,
     RelativeTrigger,
@@ -27,6 +31,7 @@ from firnline_core.models import (
     TdbDateTime,
     TdbDocument,
     TriggerFiring,
+    WebhookAction,
     _format_datetime,
 )
 from firnline_core.conventions import (
@@ -97,14 +102,18 @@ from firnline_core.tooling import (
 
 __all__ = [
     # models
+    "ActionExecution",
+    "ActionMode",
     "Captured",
     "CapturedStatus",
     "CompositeMode",
     "CompositeTrigger",
     "EventKind",
     "EventTrigger",
+    "ExecutionStatus",
     "ExternalRef",
     "FiringStatus",
+    "NotifyAction",
     "OneShotTrigger",
     "Provenance",
     "RelativeTrigger",
@@ -115,6 +124,7 @@ __all__ = [
     "TdbDateTime",
     "TdbDocument",
     "TriggerFiring",
+    "WebhookAction",
     "_format_datetime",
     # tdb
     "ChangeEvent",

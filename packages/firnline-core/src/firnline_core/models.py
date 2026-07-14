@@ -32,6 +32,15 @@ from firnline_core.generated.capture import (
     CapturedStatus,
 )
 
+# Actions generated models
+from firnline_core.generated.actions import (
+    ActionExecution,
+    ActionMode,
+    ExecutionStatus,
+    NotifyAction,
+    WebhookAction,
+)
+
 __all__ = [
     # base
     "TdbDateTime",
@@ -56,4 +65,10 @@ __all__ = [
     # capture
     "Captured",
     "CapturedStatus",
+    # actions
+    "ActionExecution",
+    "ActionMode",
+    "ExecutionStatus",
+    "NotifyAction",
+    "WebhookAction",
 ]

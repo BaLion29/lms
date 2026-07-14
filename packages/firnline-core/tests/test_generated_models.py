@@ -1,7 +1,8 @@
 """Golden-JSON round-trip tests for generated TerminusDB kernel models.
 
 Covers the kernel-only facade: Captured, Tag, OneShotTrigger, ScheduleTrigger,
-TriggerFiring, Provenance, ExternalRef, and SchemaModule.
+TriggerFiring, WebhookAction, ActionExecution, Provenance, ExternalRef,
+and SchemaModule.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
+from firnline_core.generated.actions import (
+    ActionExecution,
+    ActionMode,
+    ExecutionStatus,
+    WebhookAction,
+)
 from firnline_core.generated.core import ExternalRef, Provenance, SchemaModule, Tag
 from firnline_core.generated.capture import Captured, CapturedStatus
 from firnline_core.generated.triggers import (
@@ -655,3 +662,233 @@ def test_trigger_firing_all_statuses():
         firing = TriggerFiring.model_validate(data)
         assert firing.status.value == value
         assert firing.to_tdb()["status"] == value
+
+
+# ========================================================================
+# WebhookAction round-trip
+# ========================================================================
+
+
+def test_webhook_action_round_trip():
+    """WebhookAction round-trips with all optional fields set."""
+    data = {
+        "@id": "WebhookAction/alert",
+        "@type": "WebhookAction",
+        "name": "alert-webhook",
+        "enabled": True,
+        "trigger": "ScheduleTrigger/repeat1",
+        "executor": "webhook",
+        "mode": "approval",
+        "url": "https://hooks.example.com/alert",
+        "http_method": "POST",
+        "payload_template": '{"text": "$name"}',
+        "timeout": "PT30S",
+        "max_attempts": 3,
+        "retry_backoff": "PT10S",
+        "params": '{"headers": {"X-Token": "{{TOKEN}}"}}',
+        "created_at": "2026-07-05T14:00:00Z",
+        "updated_at": "2026-07-05T14:00:00Z",
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "user:basti",
+            "at": "2026-07-05T14:00:00Z",
+        },
+        "derived_from": [],
+    }
+    wa = WebhookAction.model_validate(data)
+
+    assert wa.id_ == "WebhookAction/alert"
+    assert wa.type_ == "WebhookAction"
+    assert wa.name == "alert-webhook"
+    assert wa.enabled is True
+    assert wa.trigger == "ScheduleTrigger/repeat1"
+    assert wa.executor == "webhook"
+    assert wa.mode == ActionMode.APPROVAL
+    assert wa.url == "https://hooks.example.com/alert"
+    assert wa.http_method == "POST"
+    assert wa.payload_template == '{"text": "$name"}'
+    assert wa.timeout == "PT30S"
+    assert wa.max_attempts == 3
+    assert wa.retry_backoff == "PT10S"
+    assert wa.params == '{"headers": {"X-Token": "{{TOKEN}}"}}'
+
+    result = wa.to_tdb()
+    assert result["@id"] == "WebhookAction/alert"
+    assert result["@type"] == "WebhookAction"
+    assert result["mode"] == "approval"
+    assert result["url"] == "https://hooks.example.com/alert"
+
+
+def test_webhook_action_minimal():
+    """WebhookAction with only required fields omits None optionals."""
+    wa = WebhookAction(
+        name="minimal-webhook",
+        enabled=True,
+        trigger="ScheduleTrigger/r1",
+        executor="webhook",
+        mode=ActionMode.AUTO,
+        url="https://example.com/hook",
+        created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        provenance=Provenance(
+            agent="service:test",
+            at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        ),
+    )
+    result = wa.to_tdb()
+    assert result["contexts"] == []
+    assert result["external_refs"] == []
+    assert result["derived_from"] == []
+    assert result["provenance"]["agent"] == "service:test"
+    for key in ("http_method", "payload_template", "timeout",
+                "max_attempts", "retry_backoff", "params"):
+        assert key not in result, f"{key!r} must be absent"
+
+
+# ========================================================================
+# ActionExecution round-trip
+# ========================================================================
+
+
+def test_action_execution_round_trip():
+    """ActionExecution round-trips with all optional fields set."""
+    data = {
+        "@id": "ActionExecution/WebhookAction%2Falert/TriggerFiring%2FScheduleTrigger%252Frepeat1%2F2026-07-06T09%3A00%3A00Z",
+        "@type": "ActionExecution",
+        "action": "WebhookAction/alert",
+        "firing": "TriggerFiring/ScheduleTrigger%252Frepeat1/2026-07-06T09:00:00Z",
+        "status": "succeeded",
+        "idempotency_key": "WebhookAction/alert#ScheduleTrigger/repeat1/2026-07-06T09:00:00Z",
+        "attempt": 1,
+        "executed_at": "2026-07-06T09:00:02Z",
+        "next_attempt_at": "2026-07-06T09:01:00Z",
+        "result_detail": "HTTP 200 OK",
+        "external_ref": "github:deploy/42",
+        "approved_at": "2026-07-06T08:55:00Z",
+        "approved_by": "user:alice",
+        "created_at": "2026-07-05T14:00:00Z",
+        "updated_at": "2026-07-05T14:00:00Z",
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "service:effectd",
+            "at": "2026-07-06T09:00:02Z",
+        },
+        "derived_from": [],
+    }
+    ae = ActionExecution.model_validate(data)
+
+    assert ae.type_ == "ActionExecution"
+    assert ae.action == "WebhookAction/alert"
+    assert ae.firing == "TriggerFiring/ScheduleTrigger%252Frepeat1/2026-07-06T09:00:00Z"
+    assert ae.status == ExecutionStatus.SUCCEEDED
+    assert ae.idempotency_key == "WebhookAction/alert#ScheduleTrigger/repeat1/2026-07-06T09:00:00Z"
+    assert ae.attempt == 1
+    assert ae.executed_at == datetime(2026, 7, 6, 9, 0, 2, tzinfo=UTC)
+    assert ae.next_attempt_at == datetime(2026, 7, 6, 9, 1, 0, tzinfo=UTC)
+    assert ae.result_detail == "HTTP 200 OK"
+    assert ae.external_ref == "github:deploy/42"
+    assert ae.approved_at == datetime(2026, 7, 6, 8, 55, 0, tzinfo=UTC)
+    assert ae.approved_by == "user:alice"
+
+    result = ae.to_tdb()
+    assert result["@type"] == "ActionExecution"
+    assert result["status"] == "succeeded"
+    assert result["idempotency_key"] == "WebhookAction/alert#ScheduleTrigger/repeat1/2026-07-06T09:00:00Z"
+
+
+def test_action_execution_minimal():
+    """ActionExecution with optional fields unset excludes them from output."""
+    ae = ActionExecution(
+        action="WebhookAction/alert",
+        firing="TriggerFiring/ScheduleTrigger%252Frepeat1/2026-07-06T09:00:00Z",
+        status=ExecutionStatus.PENDING_APPROVAL,
+        idempotency_key="WebhookAction/alert#ScheduleTrigger/repeat1/2026-07-06T09:00:00Z",
+        attempt=0,
+        created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        provenance=Provenance(
+            agent="service:effectd",
+            at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        ),
+    )
+    result = ae.to_tdb()
+    assert result["status"] == "pending_approval"
+    assert result["attempt"] == 0
+    assert result["contexts"] == []
+    assert result["external_refs"] == []
+    assert result["derived_from"] == []
+    assert result["provenance"]["agent"] == "service:effectd"
+    for key in ("executed_at", "next_attempt_at", "result_detail",
+                "external_ref", "approved_at", "approved_by"):
+        assert key not in result, f"{key!r} must be absent"
+
+
+def test_action_execution_all_statuses():
+    """All ExecutionStatus enum values can be used."""
+    for value in ("pending_approval", "pending", "succeeded", "failed", "dead", "skipped"):
+        data = {
+            "@type": "ActionExecution",
+            "action": "WebhookAction/alert",
+            "firing": "TriggerFiring/ScheduleTrigger%252Frepeat1/2026-07-06T09:00:00Z",
+            "status": value,
+            "idempotency_key": "WebhookAction/alert#ScheduleTrigger/repeat1/2026-07-06T09:00:00Z",
+            "attempt": 0,
+            "created_at": "2026-07-05T14:00:00Z",
+            "updated_at": "2026-07-05T14:00:00Z",
+            "provenance": {
+                "@type": "Provenance",
+                "agent": "service:test",
+                "at": "2026-07-05T14:00:00Z",
+            },
+            "derived_from": [],
+        }
+        ae = ActionExecution.model_validate(data)
+        assert ae.status.value == value
+        assert ae.to_tdb()["status"] == value
+
+
+def test_action_execution_transitions_classvar():
+    """ActionExecution has transitions ClassVar set."""
+    assert ActionExecution.transitions == {
+        "pending_approval": ["pending"],
+        "pending": ["succeeded", "failed", "dead"],
+        "succeeded": [],
+        "failed": [],
+        "dead": [],
+        "skipped": [],
+    }
+
+
+def test_action_execution_label_field_classvar():
+    """ActionExecution has label_field ClassVar set to 'idempotency_key'."""
+    assert ActionExecution.label_field == "idempotency_key"
+
+
+def test_webhook_action_label_field_classvar():
+    """WebhookAction has label_field ClassVar set to 'name'."""
+    assert WebhookAction.label_field == "name"
+
+
+def test_action_execution_extra_fields_preserved():
+    """Unknown extra fields survive round-trip (extra='allow')."""
+    data = {
+        "@id": "ActionExecution/ae1",
+        "@type": "ActionExecution",
+        "action": "WebhookAction/alert",
+        "firing": "TriggerFiring/f1",
+        "status": "pending",
+        "idempotency_key": "WebhookAction/alert#f1",
+        "attempt": 0,
+        "created_at": "2026-07-05T14:00:00Z",
+        "updated_at": "2026-07-05T14:00:00Z",
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "service:test",
+            "at": "2026-07-05T14:00:00Z",
+        },
+        "derived_from": [],
+        "custom_field": "forward-compat",
+    }
+    ae = ActionExecution.model_validate(data)
+    result = ae.to_tdb()
+    assert result["custom_field"] == "forward-compat"

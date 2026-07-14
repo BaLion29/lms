@@ -53,7 +53,7 @@ if _uv run --package firnline-schema firnline-schema compose \
     --modules-dir schema/modules \
     --out-dir "$TMP" \
     --no-entry-points 2>/dev/null; then
-    pass "compose completed (3 kernel modules)"
+    pass "compose completed (4 kernel modules)"
 else
     fail "compose failed"
 fi
