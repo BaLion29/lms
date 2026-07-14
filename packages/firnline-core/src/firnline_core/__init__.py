@@ -94,6 +94,10 @@ from firnline_core.tdb import (
     full_iri,
     short_iri,
 )
+from firnline_core.templates import (
+    default_webhook_payload,
+    render as render_template,
+)
 from firnline_core.tooling import (
     ToolTraceEntry,
     now_utc_str,
@@ -185,6 +189,9 @@ __all__ = [
     "FieldCandidate",
     "IndexedClient",
     "IndexedError",
+    # templates
+    "default_webhook_payload",
+    "render_template",
     # tooling
     "ToolTraceEntry",
     "now_utc_str",

@@ -36,6 +36,7 @@ packages = ["src/effectd"]
 dev = [
     "pytest",
     "pytest-asyncio",
+    "respx",
     "ruff",
 ]
 
