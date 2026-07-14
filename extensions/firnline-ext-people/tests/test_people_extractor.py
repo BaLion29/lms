@@ -86,6 +86,6 @@ class TestPluginMetadata:
         import asyncio
         from firnline_core.plugins import BuildContext
 
-        ctx = BuildContext(tdb=None, inbox_iri="test")
+        ctx = BuildContext(tdb=None, captured_iri="test")
         result = asyncio.run(PeopleLinkingPlugin().build_documents(type("P", (), {"kind": "fake", "name": "x"})(), ctx))
         assert result == []

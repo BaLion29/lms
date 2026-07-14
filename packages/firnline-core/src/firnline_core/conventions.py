@@ -1,4 +1,4 @@
-"""Shared conventions: UTC helpers, content-addressed blob storage.
+"""Shared conventions: UTC helpers, content-addressed blob storage, agent grammar.
 
 Design law L6: Blob storage is content-addressed and deduplicated with atomic
 writes, organised by date.
@@ -13,7 +13,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 
 # ---------------------------------------------------------------------------
@@ -220,3 +220,45 @@ def blob_root_from_env() -> Path | None:
     """
     raw = os.environ.get("FIRNLINE_BLOB_ROOT", "")
     return Path(raw) if raw else None
+
+
+# ---------------------------------------------------------------------------
+# Agent grammar helpers
+# ---------------------------------------------------------------------------
+
+_AGENT_RE = re.compile(r"^(service|user|ext):(.+)$")
+
+
+def agent_id(kind: Literal["service", "user", "ext"], name: str) -> str:
+    """Build a Provenance ``agent`` string from *kind* and *name*.
+
+    The agent naming grammar reserves three prefixes:
+
+    * ``service:<name>`` — automated services (e.g. ``service:ingestd``)
+    * ``user:<name>``    — human actors (e.g. ``user:basti``)
+    * ``ext:<name>``     — external systems (e.g. ``ext:mail``)
+
+    The grammar is designed so that a future first-class ``Agent``
+    document migration can parse historical provenance strings.
+    """
+    if not name:
+        raise ValueError("agent_id name must not be empty")
+    return f"{kind}:{name}"
+
+
+def parse_agent(value: str) -> tuple[str, str]:
+    """Parse a Provenance ``agent`` string into ``(kind, name)``.
+
+    Returns:
+        ``(kind, name)`` where *kind* is ``"service"``, ``"user"``, or ``"ext"``.
+
+    Raises:
+        ValueError: if *value* does not match the reserved agent grammar.
+    """
+    m = _AGENT_RE.match(value)
+    if m is None:
+        raise ValueError(
+            f"Invalid agent string {value!r}: must match 'service:<name>', "
+            f"'user:<name>', or 'ext:<name>'"
+        )
+    return m.group(1), m.group(2)

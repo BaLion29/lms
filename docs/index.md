@@ -14,7 +14,9 @@ graph database — the single source of truth.
   for all services.
 - **[Extensions](extensions.md)** — how to write and install a firnline
   extension: package layout, entry-point groups and protocols, schema module
-  format, and a worked example.
+  format, `@metadata` keys, and a worked example.
+- **[mcpd](mcpd.md)** — MCP server for external AI agents: tools, resources,
+  and configuration.
 - **[Operations](operations.md)** — production runbook: backup, schema
   diff/plan/apply, validation, promote, and rollback.
 - **[TerminusDB API Notes](terminusdb-notes.md)** — empirically verified

@@ -448,11 +448,23 @@ def test_timeout_returns_504_json(respx_mock: respx.MockRouter):
 def test_provider_error_returns_502_no_secrets(respx_mock: respx.MockRouter):
     """Model raises ModelHTTPError → 502, body does NOT contain api key."""
     respx_mock.get(_tdb_exists_route()).respond(200)
+    # Mock GQL introspection so lifespan / lazy refetch don't fail
+    respx_mock.post(GQL_PATH).respond(
+        json={
+            "data": {
+                "__schema": {
+                    "queryType": {"name": "Query"},
+                    "types": [],
+                }
+            }
+        }
+    )
 
     async def _fn(messages: list[ModelMessage], agent_info: AgentInfo) -> ModelResponse:
         # Simulate a provider error
         raise ModelHTTPError(
             status_code=500,
+            model_name="test-model",
             body='{"error": "internal server error", "api_key": "sk-leaked"}',
         )
 

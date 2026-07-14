@@ -70,4 +70,7 @@ def test_codegen_freshness():
 
     # Also verify the generated package imports cleanly
     import firnline_core.generated  # noqa: F401
-    assert firnline_core.generated.InboxNote is not None
+    # Pick any currently-present class (avoid stale refs from removed modules)
+    import importlib
+    gen_mod = importlib.import_module("firnline_core.generated.core")
+    assert gen_mod.SchemaModule is not None

@@ -195,7 +195,7 @@ Prefixed `QUERYD_`.
 | `QUERYD_TDB_BRANCH` | `main` | TerminusDB branch |
 | `QUERYD_TDB_USER` | `admin` | TerminusDB username |
 | `QUERYD_TDB_PASSWORD` | — | TerminusDB password |
-| `QUERYD_API_TOKEN` | — | Bearer token for `/v1/chat` |
+| `QUERYD_API_TOKEN` | — | Bearer token for `/v1/chat` and structured API endpoints |
 | `QUERYD_LLM_BASE_URL` | — | LLM API base URL |
 | `QUERYD_LLM_API_KEY` | — | LLM API key |
 | `QUERYD_LLM_MODEL` | — | LLM model name |
@@ -205,6 +205,21 @@ Prefixed `QUERYD_`.
 | `QUERYD_REQUEST_TIMEOUT_SECONDS` | `60` | Total request timeout |
 | `QUERYD_LISTEN_ADDR` | `0.0.0.0:8087` | Host:port to bind |
 | `QUERYD_CORS_ORIGINS` | `[]` | Comma-separated CORS origins |
+
+### Structured API endpoints (bearer-authed)
+
+Beyond `/v1/chat`, queryd serves:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/schema` | Rendered schema summary |
+| `GET` | `/v1/schema/introspection` | Raw GraphQL introspection JSON |
+| `GET` | `/v1/modules` | SchemaModule registry docs |
+| `GET` | `/v1/documents/{iri}` | Fetch a single document by IRI |
+| `POST` | `/v1/graphql` | Read-only GraphQL query (mutations rejected) |
+| `POST` | `/v1/find/entity` | Semantic entity search (requires indexed) |
+| `POST` | `/v1/find/class` | Semantic class search (requires indexed) |
+| `POST` | `/v1/find/field` | Semantic field search (requires indexed) |
 
 The compose file additionally uses:
 
@@ -255,6 +270,45 @@ The compose file additionally uses:
 |---|---|---|
 | `WEBUI_HOST_PORT` | `3000` | Host port mapped to the container's port 3000 |
 | `WEBUI_API_URL` | `http://localhost:3000` | Browser-facing URL (maps to `REFLEX_API_URL` — must be absolute) |
+
+## mcpd (Model Context Protocol server)
+
+Prefixed `MCPD_`.
+
+mcpd exposes firnline to external AI agents via MCP (streamable HTTP). It
+talks to queryd and captured over HTTP — no direct database access.
+
+| Variable | Default | Description |
+|---|---|---|
+| `MCPD_HOST` | `0.0.0.0` | Host to bind |
+| `MCPD_PORT` | `8090` | Port to bind |
+| `MCPD_QUERYD_URL` | `http://queryd:8087` | Base URL of the queryd service |
+| `MCPD_QUERYD_TOKEN` | — | Bearer token for queryd endpoints |
+| `MCPD_CAPTURED_URL` | `http://captured:8088` | Base URL of the captured service |
+| `MCPD_CAPTURED_TOKEN` | — | Bearer token for captured endpoints |
+
+### MCP tools
+
+| Tool | Backed by |
+|---|---|
+| `graphql_query` | queryd `POST /v1/graphql` |
+| `get_document` | queryd `GET /v1/documents/{iri}` |
+| `find_entity` | queryd `POST /v1/find/entity` |
+| `find_class` | queryd `POST /v1/find/class` |
+| `find_field` | queryd `POST /v1/find/field` |
+| `get_schema` | queryd `GET /v1/schema` |
+| `list_modules` | queryd `GET /v1/modules` |
+| `capture` | captured `POST /v1/capture/note` |
+
+### MCP resources
+
+| URI | Backed by |
+|---|---|
+| `firnline://schema` | queryd `GET /v1/schema` |
+| `firnline://schema/introspection` | queryd `GET /v1/schema/introspection` |
+| `firnline://modules` | queryd `GET /v1/modules` |
+
+For full details see [docs/mcpd.md](mcpd.md).
 
 ## Bundled TerminusDB overlay
 

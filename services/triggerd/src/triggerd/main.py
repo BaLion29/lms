@@ -12,7 +12,7 @@ import structlog
 
 from triggerd.engine import Engine
 from triggerd.settings import Settings
-from firnline_core.plugins import discover_plugins, select_plugins
+from firnline_core.plugins import HostPolicy, PluginHost, TriggerEvaluator
 from firnline_core.tdb import TdbClient
 
 
@@ -41,7 +41,7 @@ async def run_cycle_safe(engine: Engine, should_stop: asyncio.Event | None) -> b
 
 
 # ---------------------------------------------------------------------------
-# Plugin discovery helpers
+# Plugin discovery via PluginHost
 # ---------------------------------------------------------------------------
 
 _EVALUATOR_GROUP = "firnline.triggerd.evaluators"
@@ -53,72 +53,22 @@ async def _discover_evaluator_plugins_async(
     logger,
     strict: bool = False,
 ) -> list[object]:
-    """Discover evaluator plugins, check requirements, return active ones.
+    """Discover evaluator plugins via :class:`PluginHost`.
 
-    Raises ``RuntimeError`` on broken entry points or
-    ``trigger_types`` collisions.  Unlike ingestd, zero active evaluators
-    is *not* fatal: an evaluator-less triggerd is semantically "everything
-    unsupported" rather than broken.  Evaluators are added in a later
-    phase.
+    Returns a flat list of active plugin objects.  Raises
+    ``RuntimeError`` on broken entry points or trigger_types collisions.
+    Zero active evaluators is a warning, not fatal.
     """
-    discovered = discover_plugins(_EVALUATOR_GROUP)
-    logger.info(
-        "evaluator_plugins_discovered",
+    host = PluginHost(
         group=_EVALUATOR_GROUP,
-        count=len(discovered.active),
-        failed=len(discovered.failed),
+        protocol=TriggerEvaluator,
+        tdb=tdb,
+        branch=branch,
+        policy=HostPolicy(broken_entry_point_fatal=True, zero_active_fatal=False, strict=strict),
+        logger=logger,
     )
-
-    # Broken entry points ARE fatal
-    if discovered.failed:
-        names = [n for n, _ in discovered.failed]
-        raise RuntimeError(f"Evaluator plugin entry points failed to load: {names}")
-
-    selection = await select_plugins(tdb, discovered, strict=strict, branch=branch)
-
-    for name, violations in selection.skipped:
-        logger.warning(
-            "evaluator_plugin_skipped",
-            plugin=name,
-            violations=violations,
-        )
-
-    # Deviating from ingestd: zero active evaluators is a warning, not fatal.
-    # An evaluator-less triggerd is semantically "everything unsupported."
-    if not selection.active:
-        logger.warning("no_active_evaluator_plugins", message="no evaluators — nothing will fire")
-        return []
-
-    # Duck-typing: each evaluator needs name, trigger_types, and occurrences method
-    evaluators: list[object] = []
-    seen_types: set[str] = set()
-
-    for name, obj in selection.active:
-        if not hasattr(obj, "name") or not hasattr(obj, "trigger_types") or not hasattr(obj, "occurrences"):
-            logger.warning("plugin_not_evaluator", name=name)
-            continue
-
-        trigger_types = obj.trigger_types
-        if not isinstance(trigger_types, (tuple, list)):
-            logger.warning("plugin_bad_trigger_types", name=name, reason="trigger_types must be a tuple/list")
-            continue
-        if not callable(obj.occurrences):
-            logger.warning("plugin_bad_occurrences", name=name, reason="occurrences must be callable")
-            continue
-
-        for ttype in trigger_types:
-            if ttype in seen_types:
-                raise RuntimeError(
-                    f"Evaluator collision: @type {ttype!r} claimed by both {name!r} and another active evaluator"
-                )
-            seen_types.add(ttype)
-
-        evaluators.append(obj)
-
-    if not evaluators:
-        logger.warning("no_valid_evaluator_plugins", message="discovered plugins are not valid evaluators")
-
-    return evaluators
+    result = await host.start(collision_key=lambda ev: ev.trigger_types)
+    return [obj for _, obj in result.active]
 
 
 # ---------------------------------------------------------------------------

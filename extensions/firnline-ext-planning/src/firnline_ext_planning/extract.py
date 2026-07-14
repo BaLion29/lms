@@ -92,7 +92,7 @@ class PlanningPlugin(ExtractorPlugin):
     ) -> list[dict[str, Any]]:
         """Convert a single proposal into TerminusDB document dicts."""
         now = ctx.now()
-        source_iri = short_iri(ctx.inbox_iri)
+        source_iri = short_iri(ctx.captured_iri)
         confidence = getattr(proposal, "confidence", None)
 
         if isinstance(proposal, TaskProposal):

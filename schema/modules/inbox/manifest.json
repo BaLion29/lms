@@ -1,9 +1,0 @@
-{
-  "name": "inbox",
-  "version": "0.1.0",
-  "depends_on": [],
-  "models_target": "firnline_core.generated.inbox",
-  "models_import": "firnline_core.models",
-  "exports": ["InboxNote", "InboxAudio"],
-  "description": "Inbox capture documents for notes and audio — the kernel's capture raison d'être"
-}

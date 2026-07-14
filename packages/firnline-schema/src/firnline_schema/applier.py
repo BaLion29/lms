@@ -466,6 +466,8 @@ async def apply_plan(
             doc["origin"] = info.source
         if info.description:
             doc["description"] = info.description
+        # Include exports (sorted for determinism, always written)
+        doc["exports"] = sorted(info.exports) if info.exports else []
         # Use deterministic @id from Lexical key
         doc["@id"] = f"SchemaModule/{info.name}"
         await _upsert_registry_doc(tdb, branch, doc)

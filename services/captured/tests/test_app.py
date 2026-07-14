@@ -120,7 +120,7 @@ def _fake_discover_factory(result: DiscoveryResult):
 
 def _fake_select_factory(result: PluginSelection):
     """Return an **async** function (select_plugins is async)."""
-    async def _inner(tdb, discovered, *, strict=False, branch="main", protocol=None):
+    async def _inner(tdb, discovered, *, strict=False, branch="main", protocol=None, registry=None):
         if strict and result.skipped:
             skipped_names = [n for n, _ in result.skipped]
             raise RuntimeError(
@@ -140,29 +140,30 @@ def _patch_app(monkeypatch, *, handlers=None, tdb_client=None, selection=None, d
     tc = tdb_client if tdb_client is not None else FakeTdbClient()
     monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: tc)
 
+    # PluginHost calls discover_plugins / select_plugins from firnline_core.plugins
     if discovery is not None:
-        monkeypatch.setattr(app_mod, "discover_plugins", _fake_discover_factory(discovery))
+        monkeypatch.setattr("firnline_core.plugins.discover_plugins", _fake_discover_factory(discovery))
     elif handlers is not None:
         monkeypatch.setattr(
-            app_mod, "discover_plugins",
+            "firnline_core.plugins.discover_plugins",
             _fake_discover_factory(_make_discovery(*handlers)),
         )
     else:
         monkeypatch.setattr(
-            app_mod, "discover_plugins",
+            "firnline_core.plugins.discover_plugins",
             _fake_discover_factory(DiscoveryResult(active=[], failed=[])),
         )
 
     if selection is not None:
-        monkeypatch.setattr(app_mod, "select_plugins", _fake_select_factory(selection))
+        monkeypatch.setattr("firnline_core.plugins.select_plugins", _fake_select_factory(selection))
     elif handlers is not None:
         monkeypatch.setattr(
-            app_mod, "select_plugins",
+            "firnline_core.plugins.select_plugins",
             _fake_select_factory(_make_selection(*handlers)),
         )
     else:
         monkeypatch.setattr(
-            app_mod, "select_plugins",
+            "firnline_core.plugins.select_plugins",
             _fake_select_factory(PluginSelection(active=[], skipped=[])),
         )
 
@@ -332,6 +333,25 @@ def test_note_capture_with_metadata(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Note capture with blob-requiring kind → 422
+# ---------------------------------------------------------------------------
+
+
+def test_note_capture_with_blob_kind_422(monkeypatch):
+    """kind='file' in /note → 422 because file requires a blob upload."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler(), StubFileHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            json={"text": "hello", "kind": "file"},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert "requires a file upload" in detail["message"]
+
+
+# ---------------------------------------------------------------------------
 # Unknown kind → 404
 # ---------------------------------------------------------------------------
 
@@ -357,21 +377,21 @@ def test_unknown_kind_returns_404(monkeypatch):
 
 
 def test_kind_collision_fatal(monkeypatch):
-    """Two handlers claiming same kind raises RuntimeError at startup."""
+    """Two handlers claiming same kind raises RuntimeError at startup (via PluginHost collision_key)."""
     import captured.app as app_mod
 
     tc = FakeTdbClient()
     monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: tc)
     monkeypatch.setattr(
-        app_mod, "discover_plugins",
+        "firnline_core.plugins.discover_plugins",
         _fake_discover_factory(_make_discovery(StubNoteHandler(), StubConflictingHandler())),
     )
     monkeypatch.setattr(
-        app_mod, "select_plugins",
+        "firnline_core.plugins.select_plugins",
         _fake_select_factory(_make_selection(StubNoteHandler(), StubConflictingHandler())),
     )
 
-    with pytest.raises(RuntimeError, match="Kind collision"):
+    with pytest.raises(RuntimeError, match="collision"):
         with TestClient(create_app(_make_settings())):
             pass
 
@@ -492,11 +512,11 @@ def test_upload_exceeds_max_bytes(monkeypatch, tmp_path):
 
     monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: FakeTdbClient())
     monkeypatch.setattr(
-        app_mod, "discover_plugins",
+        "firnline_core.plugins.discover_plugins",
         _fake_discover_factory(_make_discovery(StubFileHandler())),
     )
     monkeypatch.setattr(
-        app_mod, "select_plugins",
+        "firnline_core.plugins.select_plugins",
         _fake_select_factory(_make_selection(StubFileHandler())),
     )
 
@@ -666,11 +686,11 @@ def test_strict_plugins_fails_on_skipped(monkeypatch):
     tc = FakeTdbClient()
     monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: tc)
     monkeypatch.setattr(
-        app_mod, "discover_plugins",
+        "firnline_core.plugins.discover_plugins",
         _fake_discover_factory(_make_discovery(_HandlerWithUnmetReq())),
     )
     monkeypatch.setattr(
-        app_mod, "select_plugins",
+        "firnline_core.plugins.select_plugins",
         _fake_select_factory(
             PluginSelection(
                 active=[],
@@ -694,11 +714,11 @@ def test_strict_plugins_off_allows_skipped(monkeypatch):
     tc = FakeTdbClient()
     monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: tc)
     monkeypatch.setattr(
-        app_mod, "discover_plugins",
+        "firnline_core.plugins.discover_plugins",
         _fake_discover_factory(_make_discovery(_HandlerWithUnmetReq())),
     )
     monkeypatch.setattr(
-        app_mod, "select_plugins",
+        "firnline_core.plugins.select_plugins",
         _fake_select_factory(
             PluginSelection(
                 active=[],

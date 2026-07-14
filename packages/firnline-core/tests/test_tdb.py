@@ -27,10 +27,10 @@ DB = "testdb"
 
 class TestShortIri:
     def test_full_to_short(self):
-        assert short_iri("terminusdb:///data/InboxNote/abc123") == "InboxNote/abc123"
+        assert short_iri("terminusdb:///data/Captured/abc123") == "Captured/abc123"
 
     def test_already_short_passthrough(self):
-        assert short_iri("InboxNote/abc123") == "InboxNote/abc123"
+        assert short_iri("Captured/abc123") == "Captured/abc123"
 
     def test_arbitrary_already_short(self):
         assert short_iri("Foo/bar") == "Foo/bar"
@@ -38,12 +38,12 @@ class TestShortIri:
 
 class TestFullIri:
     def test_short_to_full(self):
-        assert full_iri("InboxNote/abc123") == "terminusdb:///data/InboxNote/abc123"
+        assert full_iri("Captured/abc123") == "terminusdb:///data/Captured/abc123"
 
     def test_already_full_passthrough(self):
         assert (
-            full_iri("terminusdb:///data/InboxNote/abc123")
-            == "terminusdb:///data/InboxNote/abc123"
+            full_iri("terminusdb:///data/Captured/abc123")
+            == "terminusdb:///data/Captured/abc123"
         )
 
     def test_arbitrary_short(self):
@@ -84,22 +84,22 @@ async def test_get_documents(client, respx_mock):
         f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
     ).respond(
         json=[
-            {"@id": "InboxNote/abc", "status": "new"},
-            {"@id": "InboxNote/def", "status": "processed"},
+            {"@id": "Captured/abc", "status": "new"},
+            {"@id": "Captured/def", "status": "processed"},
         ],
     )
 
-    result = await client.get_documents("InboxNote")
+    result = await client.get_documents("Captured")
 
     assert route.called
     req = route.calls.last.request
     assert req.url.params["graph_type"] == "instance"
-    assert req.url.params["type"] == "InboxNote"
+    assert req.url.params["type"] == "Captured"
     assert req.url.params["as_list"] == "true"
     assert "authorization" in req.headers  # basic auth present
 
     assert len(result) == 2
-    assert result[0]["@id"] == "InboxNote/abc"
+    assert result[0]["@id"] == "Captured/abc"
 
 
 async def test_get_documents_custom_branch(client, respx_mock):
@@ -120,10 +120,10 @@ async def test_insert_documents(client, respx_mock):
     route = respx_mock.post(
         f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
     ).respond(
-        json=["terminusdb:///data/InboxNote/C29bUs1tzWpLMioB"],
+        json=["terminusdb:///data/Captured/C29bUs1tzWpLMioB"],
     )
 
-    docs = [{"@type": "InboxNote", "content": "hello", "status": "new"}]
+    docs = [{"@type": "Captured", "content": "hello", "status": "new"}]
     result = await client.insert_documents(docs)
 
     assert route.called
@@ -137,7 +137,7 @@ async def test_insert_documents(client, respx_mock):
     parsed = json.loads(body)
     assert parsed == docs
 
-    assert result == ["terminusdb:///data/InboxNote/C29bUs1tzWpLMioB"]
+    assert result == ["terminusdb:///data/Captured/C29bUs1tzWpLMioB"]
 
 
 async def test_insert_documents_custom_message(client, respx_mock):
@@ -171,9 +171,9 @@ async def test_insert_documents_custom_author(client, respx_mock):
 async def test_replace_document(client, respx_mock):
     route = respx_mock.put(
         f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
-    ).respond(json=["terminusdb:///data/InboxNote/abc123"])
+    ).respond(json=["terminusdb:///data/Captured/abc123"])
 
-    doc = {"@id": "InboxNote/abc123", "@type": "InboxNote", "status": "processed"}
+    doc = {"@id": "Captured/abc123", "@type": "Captured", "status": "processed"}
     await client.replace_document(doc)
 
     assert route.called
@@ -182,7 +182,7 @@ async def test_replace_document(client, respx_mock):
     assert req.url.params["graph_type"] == "instance"
 
     sent = json.loads(req.read())
-    assert sent["@id"] == "InboxNote/abc123"
+    assert sent["@id"] == "Captured/abc123"
     assert sent["status"] == "processed"
 
 
@@ -193,7 +193,7 @@ async def test_replace_document_missing_at_id_raises_valueerror(client, respx_mo
     ).respond(json=[])
 
     with pytest.raises(ValueError, match="@id"):
-        await client.replace_document({"@type": "InboxNote", "status": "new"})
+        await client.replace_document({"@type": "Captured", "status": "new"})
 
     assert not route.called
 
@@ -286,7 +286,7 @@ async def test_non_2xx_raises_tdberror_with_verbatim_body(client, respx_mock):
     ).respond(status_code=400, text=error_body)
 
     with pytest.raises(TdbError) as exc_info:
-        await client.get_documents("InboxNote")
+        await client.get_documents("Captured")
 
     assert exc_info.value.status == 400
     assert exc_info.value.body == error_body
@@ -335,26 +335,26 @@ async def test_get_documents_by_status(client, respx_mock):
         f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
     ).respond(
         json=[
-            {"@id": "InboxNote/a", "status": "new"},
-            {"@id": "InboxNote/b", "status": "new"},
+            {"@id": "Captured/a", "status": "new"},
+            {"@id": "Captured/b", "status": "new"},
         ],
     )
 
-    result = await client.get_documents_by_status("InboxNote", "new")
+    result = await client.get_documents_by_status("Captured", "new")
     assert route.called
     req = route.calls.last.request
     # Assert the query param is sent for server-side filtering
     assert "query" in req.url.params
     query_val = json.loads(req.url.params["query"])
-    assert query_val["@type"] == "InboxNote"
+    assert query_val["@type"] == "Captured"
     assert query_val["status"] == "new"
     assert req.url.params["graph_type"] == "instance"
-    assert req.url.params["type"] == "InboxNote"
+    assert req.url.params["type"] == "Captured"
     assert req.url.params["as_list"] == "true"
 
     assert len(result) == 2
     assert all(d["status"] == "new" for d in result)
-    assert result[0]["@id"] == "InboxNote/a"
+    assert result[0]["@id"] == "Captured/a"
 
 
 # ---------------------------------------------------------------------------
@@ -364,23 +364,23 @@ async def test_get_documents_by_status(client, respx_mock):
 
 async def test_graphql_returns_data(client, respx_mock):
     route = respx_mock.post(f"{BASE}/api/graphql/{ORG}/{DB}").respond(
-        json={"data": {"InboxNote": [{"_id": "InboxNote/abc", "status": "new"}]}},
+        json={"data": {"Captured": [{"_id": "Captured/abc", "status": "new"}]}},
     )
 
-    result = await client.graphql("{ InboxNote { _id status } }")
+    result = await client.graphql("{ Captured { _id status } }")
     assert route.called
     assert result == {
-        "InboxNote": [{"_id": "InboxNote/abc", "status": "new"}],
+        "Captured": [{"_id": "Captured/abc", "status": "new"}],
     }
 
 
 async def test_graphql_with_variables(client, respx_mock):
     route = respx_mock.post(f"{BASE}/api/graphql/{ORG}/{DB}").respond(
-        json={"data": {"InboxNote": []}},
+        json={"data": {"Captured": []}},
     )
 
     result = await client.graphql(
-        "query($s: String) { InboxNote(filter:{status:{eq:$s}}){_id} }",
+        "query($s: String) { Captured(filter:{status:{eq:$s}}){_id} }",
         variables={"s": "new"},
     )
 
@@ -388,7 +388,7 @@ async def test_graphql_with_variables(client, respx_mock):
     req = route.calls.last.request
     body = json.loads(req.read())
     assert body["variables"] == {"s": "new"}
-    assert result == {"InboxNote": []}
+    assert result == {"Captured": []}
 
 
 async def test_graphql_200_with_errors_raises_tdberror(client, respx_mock):
@@ -410,7 +410,7 @@ async def test_graphql_non_200_raises_tdberror(client, respx_mock):
     )
 
     with pytest.raises(TdbError) as exc_info:
-        await client.graphql("{ InboxNote { _id } }")
+        await client.graphql("{ Captured { _id } }")
 
     assert exc_info.value.status == 500
     assert exc_info.value.body == "Internal Server Error"
@@ -692,21 +692,21 @@ async def test_get_branch_head_empty_raises(client, respx_mock):
 async def test_graphql_branch_scoped(client, respx_mock):
     route = respx_mock.post(
         f"{BASE}/api/graphql/{ORG}/{DB}/local/branch/feature",
-    ).respond(json={"data": {"InboxNote": [{"_id": "a", "content": "branch"}]}})
+    ).respond(json={"data": {"Captured": [{"_id": "a", "content": "branch"}]}})
 
     result = await client.graphql(
-        "{ InboxNote { _id content } }", branch="feature"
+        "{ Captured { _id content } }", branch="feature"
     )
     assert route.called
-    assert result == {"InboxNote": [{"_id": "a", "content": "branch"}]}
+    assert result == {"Captured": [{"_id": "a", "content": "branch"}]}
 
 
 async def test_graphql_branch_none_uses_default(client, respx_mock):
     route = respx_mock.post(
         f"{BASE}/api/graphql/{ORG}/{DB}",
-    ).respond(json={"data": {"InboxNote": []}})
+    ).respond(json={"data": {"Captured": []}})
 
-    await client.graphql("{ InboxNote { _id } }")
+    await client.graphql("{ Captured { _id } }")
     assert route.called
 
 

@@ -91,7 +91,6 @@ def test_abstract_classes_not_generated():
 def test_task_fields_flattened():
     """Task must inherit TaskSpec fields (name, description, etc.) + its own."""
     schema = [
-        {"@abstract": [], "@id": "Remindable", "@type": "Class"},
         {"@abstract": [], "@id": "Source", "@type": "Class"},
         {
             "@id": "TaskSpec",
@@ -104,7 +103,7 @@ def test_task_fields_flattened():
         },
         {
             "@id": "Task",
-            "@inherits": ["Remindable", "Source", "TaskSpec"],
+            "@inherits": ["Source", "TaskSpec"],
             "@type": "Class",
             "created_at": "xsd:dateTime",
             "due_date": {"@class": "xsd:dateTime", "@type": "Optional"},
@@ -118,7 +117,6 @@ def test_task_fields_flattened():
         },
     ]
     class_to_module = {
-        "Remindable": "core",
         "Source": "core",
         "TaskSpec": "testmod",
         "Task": "testmod",
@@ -587,3 +585,122 @@ def test_cross_target_fallback_when_no_models_import():
     routines_src = files["routines.py"]
     # Falls back to module_to_target
     assert "from firnline_core.generated.core import Provenance" in routines_src
+
+
+# ---------------------------------------------------------------------------
+# @metadata handling — ClassVar emission
+# ---------------------------------------------------------------------------
+
+
+def test_metadata_classvar_emission():
+    """@metadata with label_field/ anchor_field emits ClassVar declarations."""
+    schema = [
+        {"@abstract": [], "@id": "Entity", "@type": "Class",
+         "created_at": "xsd:dateTime", "updated_at": "xsd:dateTime"},
+        {"@abstract": [], "@id": "Anchored", "@type": "Class"},
+        {
+            "@id": "Task",
+            "@inherits": "Entity",
+            "@type": "Class",
+            "@metadata": {"label_field": "name", "anchor_field": "due_date"},
+            "name": "xsd:string",
+            "due_date": {"@class": "xsd:dateTime", "@type": "Optional"},
+        },
+        {
+            "@id": "Reminder",
+            "@inherits": "Anchored",
+            "@type": "Class",
+            "@metadata": {"anchor_field": "trigger_at"},
+            "trigger_at": "xsd:dateTime",
+        },
+    ]
+    class_to_module = {
+        "Entity": "core", "Anchored": "core",
+        "Task": "testmod", "Reminder": "testmod",
+    }
+    module_to_target = {
+        "core": "firnline_core.generated.core",
+        "testmod": "firnline_core.generated.testmod",
+    }
+    checksum = schema_checksum(schema)
+    files = generate(schema, class_to_module, module_to_target, checksum)
+
+    source = files["testmod.py"]
+
+    # ClassVar import should be present
+    assert "from typing import ClassVar, Literal" in source
+
+    # Task class: both label_field and anchor_field
+    assert 'label_field: ClassVar[str | None] = "name"' in source
+    assert 'anchor_field: ClassVar[str | None] = "due_date"' in source
+
+    # Reminder class: only anchor_field
+    assert 'anchor_field: ClassVar[str | None] = "trigger_at"' in source
+
+    # Regular fields should still be present (not treated as @-keys)
+    assert "name: str" in source
+    assert "due_date: TdbDateTime | None = None" in source
+    assert "trigger_at: TdbDateTime" in source
+
+
+def test_metadata_ignored_no_classvar_without_label_anchor():
+    """@metadata with unknown keys does not trigger ClassVar import."""
+    schema = [
+        {"@id": "Foo", "@type": "Class",
+         "@metadata": {"some_future_key": "value"},
+         "name": "xsd:string"},
+    ]
+    class_to_module = {"Foo": "testmod"}
+    module_to_target = {"testmod": "firnline_core.generated.testmod"}
+    checksum = schema_checksum(schema)
+    files = generate(schema, class_to_module, module_to_target, checksum)
+
+    source = files["testmod.py"]
+    # No ClassVar import since no label_field or anchor_field
+    assert "ClassVar" not in source
+    # @metadata should not appear as a field/comment either
+    assert "@metadata" not in source
+
+
+# ---------------------------------------------------------------------------
+# @-prefixed key skipping — no @-key leaks as a model field
+# ---------------------------------------------------------------------------
+
+
+def test_at_prefixed_keys_never_emit_as_fields():
+    """Any top-level class key starting with @ must be skipped, never emitted.
+
+    Regression: accidental ``@properties`` at class level must NOT produce
+    an invalid Python ``@properties: str`` field.
+    """
+    schema = [
+        {
+            "@id": "Foo",
+            "@type": "Class",
+            "@documentation": {"@comment": "A test class"},
+            "@properties": {"name": {"@comment": "The name"}},  # misplaced at class level
+            "name": "xsd:string",
+        },
+        {
+            "@id": "Bar",
+            "@type": "Class",
+            "@some_future_key": "some-value",  # unknown @-key
+            "count": "xsd:integer",
+        },
+    ]
+    class_to_module = {"Foo": "testmod", "Bar": "testmod"}
+    module_to_target = {"testmod": "firnline_core.generated.testmod"}
+    checksum = schema_checksum(schema)
+    files = generate(schema, class_to_module, module_to_target, checksum)
+
+    source = files["testmod.py"]
+
+    # @properties must NOT appear as a field
+    assert "@properties" not in source
+    # @some_future_key must NOT leak
+    assert "@some_future_key" not in source
+    # @documentation must NOT appear as a field
+    assert "@documentation" not in source
+    # But the actual property keys should be present
+    assert "name: str" in source
+    assert "count: int" in source

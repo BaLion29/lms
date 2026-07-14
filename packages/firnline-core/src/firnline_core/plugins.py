@@ -6,9 +6,10 @@ ranges, verified at startup against the in-database registry.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Hashable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
+import logging
 from typing import Any, Callable, Protocol, runtime_checkable
 
 from pydantic import BaseModel
@@ -16,6 +17,13 @@ from pydantic import BaseModel
 from firnline_core.conventions import BlobStore
 from firnline_core.semver import Range, Version
 from firnline_core.tdb import TdbError
+
+try:
+    import httpx
+
+    _REGISTRY_ERRORS: tuple[type[BaseException], ...] = (TdbError, OSError, httpx.HTTPError)
+except ImportError:
+    _REGISTRY_ERRORS = (TdbError, OSError)
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +49,7 @@ async def check_requirements(
     *,
     branch: str = "main",
     registry: list[dict[str, Any]] | None = None,
+    required_classes: list[str] | None = None,
 ) -> list[str]:
     """Return human-readable violations vs the SchemaModule registry docs.
 
@@ -55,15 +64,22 @@ async def check_requirements(
     * *registry unavailable* — ``"schema module registry not available"``
       returned as a single violation when ``tdb.get_documents("SchemaModule")``
       raises ``TdbError`` (e.g. legacy database without the class).
+    * *class not exported* — ``"class 'X' not exported by any installed module"``
+    * *legacy registry* — ``"registry has no exports information; reinstall schema modules"``
 
     When *registry* is provided (a pre-fetched list of SchemaModule docs),
     the database fetch is skipped and *registry* is used directly.
+
+    *required_classes* is an optional list of class ``@id`` strings that must
+    appear in the union of ``exports`` across all installed SchemaModule docs.
+    When provided and no registry doc carries an ``exports`` field, a legacy-
+    registry violation is emitted.
     """
     if registry is None:
         try:
             docs: list[dict[str, Any]] = await tdb.get_documents("SchemaModule", branch=branch)
-        except TdbError as exc:
-            return [f"schema module registry not available: {exc.status} {exc.body}"]
+        except _REGISTRY_ERRORS as exc:
+            return [f"schema module registry not available: {exc}"]
     else:
         docs = registry
 
@@ -95,6 +111,36 @@ async def check_requirements(
         # Check version in range
         if not rng.contains(v):
             violations.append(f"module '{req.name}' {v} does not satisfy '{req.range}'")
+
+    # --- class-export checks ---
+    if required_classes is not None:
+        all_exports: set[str] = set()
+        any_exports = False
+        legacy_modules: list[str] = []
+        for doc in docs:
+            name = doc.get("name")
+            exports = doc.get("exports")
+            if exports is not None:
+                any_exports = True
+                if isinstance(exports, list):
+                    for cls_id in exports:
+                        if isinstance(cls_id, str):
+                            all_exports.add(cls_id)
+            elif isinstance(name, str):
+                legacy_modules.append(name)
+
+        if not any_exports:
+            violations.append("registry has no exports information; reinstall schema modules")
+        else:
+            for cls in required_classes:
+                if cls not in all_exports:
+                    msg = f"class '{cls}' not exported by any installed module"
+                    if legacy_modules:
+                        msg += (
+                            f" (modules {', '.join(sorted(legacy_modules))}"
+                            " predate exports metadata and may need reinstall)"
+                        )
+                    violations.append(msg)
 
     return violations
 
@@ -144,7 +190,7 @@ class BuildContext:
 
     Fields:
         tdb: The TerminusDB client (``Any`` — avoids a service dep in firnline-core).
-        inbox_iri: The IRI of the inbox item being processed.
+        captured_iri: The IRI of the entity being processed.
         now: Callable returning ``datetime`` (default: ``datetime.now``).
         ensure_entity: ``async ensure_entity(type_name: str, name: str, factory: Callable[[], dict | None]) -> str | None``
             Resolves an entity by name via the generic index / match service, or
@@ -157,14 +203,14 @@ class BuildContext:
     def __init__(
         self,
         tdb: Any,
-        inbox_iri: str,
+        captured_iri: str,
         *,
         now: Callable[[], datetime] | None = None,
         ensure_entity: Any = None,
         branch: str = "main",
     ) -> None:
         self.tdb = tdb
-        self.inbox_iri = inbox_iri
+        self.captured_iri = captured_iri
         self._now = now if now is not None else datetime.now
         self.ensure_entity = ensure_entity
         self.branch = branch
@@ -326,7 +372,7 @@ class EvalContext:
         default_tz: Default ``zoneinfo.ZoneInfo`` for expanding schedule rules.
         now: Callable returning a tz-aware UTC ``datetime``.
         resolve_anchor: Async callable ``(anchor_iri_or_doc) -> datetime | None``
-            that resolves a Remindable document/IRI to a temporal instant.
+            that resolves an Anchored document/IRI to a temporal instant.
         get_occurrences: Async callable
             ``(trigger_dict, window_start, window_end, visited) -> list[datetime]``
             for CompositeTrigger recursion into operand sub-triggers.
@@ -534,7 +580,6 @@ def discover_plugins(group: str) -> DiscoveryResult:
     ``active`` — ``[(entry_point_name, loaded_object), ...]``
     ``failed`` — ``[(entry_point_name, error_string), ...]``
     """
-    import logging
     import traceback
     from importlib.metadata import entry_points
 
@@ -576,6 +621,7 @@ async def select_plugins(
     strict: bool = False,
     branch: str = "main",
     protocol: type | None = None,
+    registry: list[dict[str, Any]] | None = None,
 ) -> PluginSelection:
     """Check requirements for every discovered plugin and return the selection.
 
@@ -589,15 +635,19 @@ async def select_plugins(
     against the given ``@runtime_checkable`` Protocol via
     :func:`validate_plugin` — structural violations are treated like
     requirement violations (plugin skipped, raised in strict mode).
+
+    When *registry* is provided (a pre-fetched list of SchemaModule docs),
+    the database fetch is skipped.  This is the seam for services that
+    pre-fetch the registry once.
     """
     # Fetch the SchemaModule registry once and reuse across all plugins.
-    registry: list[dict[str, Any]] | None
     registry_error: str | None = None
-    try:
-        registry = await tdb.get_documents("SchemaModule", branch=branch)
-    except TdbError as exc:
-        registry = None
-        registry_error = f"schema module registry not available: {exc.status} {exc.body}"
+    if registry is None:
+        try:
+            registry = await tdb.get_documents("SchemaModule", branch=branch)
+        except TdbError as exc:
+            registry = None
+            registry_error = f"schema module registry not available: {exc.status} {exc.body}"
 
     selection = PluginSelection()
 
@@ -607,15 +657,15 @@ async def select_plugins(
             violations.append(registry_error)
         else:
             requires: list[ModuleRequirement] = getattr(obj, "requires", [])
-            try:
-                violations.extend(
-                    await check_requirements(tdb, requires, branch=branch, registry=registry)
+            requires_classes: list[str] = getattr(obj, "requires_classes", [])
+            violations.extend(
+                await check_requirements(
+                    tdb, requires,
+                    branch=branch,
+                    registry=registry,
+                    required_classes=requires_classes or None,
                 )
-            except TypeError:
-                # Backward compat: old mock replacements may not accept 'registry'
-                violations.extend(
-                    await check_requirements(tdb, requires, branch=branch)
-                )
+            )
         if protocol is not None:
             violations.extend(validate_plugin(obj, protocol))
         if violations:
@@ -629,3 +679,226 @@ async def select_plugins(
         raise RuntimeError(f"Strict plugin mode: skipped={skipped_names}, failed={failed_names}")
 
     return selection
+
+
+# ---------------------------------------------------------------------------
+# PluginHost — canonical startup helper
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class HostPolicy:
+    """Policy flags controlling :class:`PluginHost` behaviour.
+
+    Fields:
+        broken_entry_point_fatal: If ``True`` (default), a broken entry-point
+            raises ``RuntimeError``.  When ``False`` failures are logged as
+            warnings and processing continues.
+        zero_active_fatal: If ``True``, an empty active-plugin list raises
+            ``RuntimeError``.  Default ``False`` — a warning is logged.
+        strict: Propagated to :func:`select_plugins`; skipped plugins are fatal.
+        tdb_unavailable_fatal: If ``True`` (default), a failing registry fetch
+            raises immediately.  When ``False``, the plugin host returns a
+            ``HostResult`` with every discovered plugin in ``skipped`` and an
+            empty active list (graceful degradation).
+    """
+
+    broken_entry_point_fatal: bool = True
+    zero_active_fatal: bool = False
+    strict: bool = False
+    tdb_unavailable_fatal: bool = True
+
+
+@dataclass
+class HostResult:
+    """Result returned by :meth:`PluginHost.start`.
+
+    Fields:
+        active: ``[(entry_point_name, plugin_object), ...]`` — plugins that
+            passed requirement checks, structural validation, and collision
+            detection.
+        skipped: ``[(name, [violation, ...]), ...]`` — plugins that were
+            discovered but filtered out by requirement or validation failures.
+        failed: ``[(entry_point_name, error_string), ...]`` — plugins whose
+            entry-point ``load()`` raised an exception during discovery.
+    """
+
+    active: list[tuple[str, object]] = field(default_factory=list)
+    skipped: list[tuple[str, list[str]]] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)
+
+
+class PluginHost:
+    """Encapsulate the canonical plugin startup sequence.
+
+    Pattern::
+
+        host = PluginHost(group="firnline.my.group", protocol=MyProto, tdb=tdb,
+                          policy=HostPolicy())
+        result = await host.start(collision_key=lambda p: p.my_keys)
+
+    The sequence is: discover → broken-entry-point policy → select
+    (requirements + structural validation) → collision check → log.
+    """
+
+    def __init__(
+        self,
+        *,
+        group: str,
+        protocol: type | None,
+        tdb: Any,
+        branch: str = "main",
+        policy: HostPolicy | None = None,
+        logger: Any = None,
+    ) -> None:
+        self._group = group
+        self._protocol = protocol
+        self._tdb = tdb
+        self._branch = branch
+        self._policy = policy or HostPolicy()
+        self._logger = logger or logging.getLogger(__name__)
+
+    async def start(
+        self,
+        *,
+        collision_key: Callable[[Any], Iterable[Hashable]] | None = None,
+        registry: list[dict[str, Any]] | None = None,
+        discovered: DiscoveryResult | None = None,
+    ) -> HostResult:
+        """Run the startup sequence and return a :class:`HostResult`.
+
+        Parameters:
+            collision_key: Optional callable ``(plugin_obj) -> Iterable[Hashable]``.
+                If two active plugins produce an overlapping key, ``RuntimeError``
+                is raised naming both plugins and the colliding key.
+            registry: Optional pre-fetched list of SchemaModule docs.  When
+                provided the database call inside :func:`select_plugins` is
+                skipped.
+            discovered: Optional pre-built :class:`DiscoveryResult`.  When
+                provided, entry-point discovery is skipped (test seam).
+        """
+        # ── Discover ────────────────────────────────────────────────
+        if discovered is None:
+            discovered = discover_plugins(self._group)
+            self._logger.info(
+                "plugin_discovered group=%s count=%d failed_count=%d",
+                self._group,
+                len(discovered.active),
+                len(discovered.failed),
+            )
+
+        # ── Broken entry-point policy ───────────────────────────────
+        if discovered.failed:
+            names = [n for n, _ in discovered.failed]
+            if self._policy.broken_entry_point_fatal:
+                raise RuntimeError(
+                    f"Plugin entry points failed to load in group "
+                    f"'{self._group}': {names}"
+                )
+            for name, err in discovered.failed:
+                self._logger.warning(
+                    "plugin_load_failed plugin=%s error=%s",
+                    name,
+                    err.split("\n")[-1],
+                )
+
+        # ── Fetch registry (unless pre-fetched) ─────────────────────
+        selection: PluginSelection | None = None
+        if registry is None:
+            try:
+                registry = await self._tdb.get_documents(
+                    "SchemaModule", branch=self._branch
+                )
+            except _REGISTRY_ERRORS as exc:
+                if self._policy.tdb_unavailable_fatal:
+                    raise
+                self._logger.warning(
+                    "plugin_registry_unavailable error=%s group=%s",
+                    str(exc),
+                    self._group,
+                )
+                reason = f"registry unavailable: {exc}"
+                # Degraded path: all plugins skipped, still honor
+                # collision checks, zero_active_fatal, and logging.
+                selection = PluginSelection(
+                    active=[],
+                    skipped=[(name, [reason]) for name, _ in discovered.active],
+                )
+                # Fall through to the shared policy/collision/logging stage.
+                # Registry stays None so select_plugins won't re-fetch.
+
+        else:
+            # Registry was pre-fetched.
+            pass
+
+        # ── Select (requirements + validation) ──────────────────────
+        if selection is None:
+            try:
+                selection = await select_plugins(
+                    self._tdb,
+                    discovered,
+                    strict=self._policy.strict,
+                    branch=self._branch,
+                    protocol=self._protocol,
+                    registry=registry,
+                )
+            except RuntimeError:
+                raise
+            except _REGISTRY_ERRORS as exc:
+                if self._policy.tdb_unavailable_fatal:
+                    raise
+                self._logger.warning(
+                    "plugin_registry_unavailable error=%s group=%s",
+                    str(exc),
+                    self._group,
+                )
+                reason = f"registry unavailable: {exc}"
+                selection = PluginSelection(
+                    active=[],
+                    skipped=[(name, [reason]) for name, _ in discovered.active],
+                )
+                # Fall through to the shared policy/collision/logging stage.
+
+        # ── Log skipped plugins ─────────────────────────────────────
+        for name, violations in selection.skipped:
+            self._logger.warning(
+                "plugin_skipped plugin=%s violations=%s",
+                name,
+                violations,
+            )
+
+        # ── Collision check ─────────────────────────────────────────
+        if collision_key is not None and selection.active:
+            key_map: dict[Hashable, str] = {}
+            for name, obj in selection.active:
+                for key in collision_key(obj):
+                    if key in key_map:
+                        raise RuntimeError(
+                            f"Plugin collision on key {key!r}: "
+                            f"{key_map[key]!r} and {name!r}"
+                        )
+                    key_map[key] = name
+
+        # ── Zero-active policy ──────────────────────────────────────
+        if not selection.active:
+            if self._policy.zero_active_fatal:
+                raise RuntimeError(
+                    f"No active plugins in group '{self._group}'"
+                )
+            self._logger.warning(
+                "plugin_zero_active group=%s",
+                self._group,
+            )
+
+        self._logger.info(
+            "plugin_startup_complete group=%s active_count=%d skipped_count=%d",
+            self._group,
+            len(selection.active),
+            len(selection.skipped),
+        )
+
+        return HostResult(
+            active=selection.active,
+            skipped=selection.skipped,
+            failed=discovered.failed,
+        )

@@ -12,22 +12,20 @@ from firnline_core.tdb import short_iri
 
 
 def inbox_classes(schema: list[dict]) -> list[str]:
-    """Return sorted ``@id`` values of classes whose ``@id`` starts with ``"Inbox"``.
+    """Return ``["Captured"]`` if the ``Captured`` class is present in *schema*.
 
-    Excludes abstract classes (``@abstract`` key) and subdocument classes
-    (``@subdocument`` key).
+    The capture page uses the ``Captured`` class — the kernel's
+    unified capture abstraction.
     """
-    result: list[str] = []
     for entry in schema:
         if entry.get("@type") != "Class":
             continue
         if entry.get("@abstract") or entry.get("@subdocument"):
             continue
         cid = entry.get("@id", "")
-        if isinstance(cid, str) and cid.startswith("Inbox"):
-            result.append(cid)
-    result.sort()
-    return result
+        if isinstance(cid, str) and cid == "Captured":
+            return ["Captured"]
+    return []
 
 
 def browsable_classes(schema: list[dict]) -> list[str]:
@@ -75,6 +73,54 @@ def group_classes_by_module(class_ids: list[str], modules: list[dict]) -> dict[s
         groups["other"] = sorted(other)
 
     return groups
+
+
+def class_label_field(class_def: dict) -> str | None:
+    """Return the preferred label field for a class from ``@metadata.label_field``.
+
+    Returns ``None`` when no metadata is present or the field doesn't exist.
+    """
+    meta = class_def.get("@metadata")
+    if not isinstance(meta, dict):
+        return None
+    lf = meta.get("label_field")
+    if isinstance(lf, str) and lf and lf in class_def:
+        return lf
+    return None
+
+
+def doc_label(doc: dict, *, class_def: dict | None = None) -> str:
+    """Return a human-readable label for *doc*.
+
+    When *class_def* is provided, uses ``@metadata.label_field`` for the
+    primary lookup.  Falls back to ``file_name``, then ``@id`` (last
+    path segment), for null/empty values.  Without a class_def, prefers
+    ``name``, ``title``, then ``@id``.
+    """
+    # Schema-driven label field
+    if class_def is not None:
+        lf = class_label_field(class_def)
+        if lf is not None:
+            val = doc.get(lf)
+            if isinstance(val, str) and val.strip():
+                return val
+            # Null label — fall back to file_name, then @id
+            fn = doc.get("file_name")
+            if isinstance(fn, str) and fn.strip():
+                return fn
+
+    # Generic fallbacks (no class_def or label_field absent/null)
+    for key in ("name", "title"):
+        val = doc.get(key)
+        if isinstance(val, str) and val.strip():
+            return val
+
+    # Last resort: @id last segment
+    doc_id = doc.get("@id", "")
+    if isinstance(doc_id, str):
+        parts = doc_id.rstrip("/").rsplit("/", 1)
+        return parts[-1]
+    return str(doc_id)
 
 
 def doc_preview(doc: dict, limit: int = 120) -> str:

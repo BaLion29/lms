@@ -147,11 +147,14 @@ class TestSchemaScan:
         assert "ConcreteMid" in types
 
     @pytest.mark.asyncio
-    async def test_schema_cached_per_branch(self):
-        """get_schema called exactly once across two cycles for the same branch."""
+    async def test_schema_fetched_once_per_cycle(self):
+        """_build_ctx fetches schema; _get_concrete_trigger_types and
+        _get_triggerable_subclasses reuse it without extra round-trips."""
         engine = _make_engine()
+        await engine._build_ctx("main")
+        assert engine.tdb.get_schema.call_count == 1
         await engine._get_concrete_trigger_types("main")
-        await engine._get_concrete_trigger_types("main")
+        await engine._get_triggerable_subclasses("main")
         assert engine.tdb.get_schema.call_count == 1
 
 

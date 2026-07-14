@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 import structlog
 
 from firnline_core.base import _format_datetime
+from firnline_core.conventions import agent_id
+from firnline_core.generated.core import Provenance
 from firnline_core.generated.triggers import FiringStatus, TriggerFiring
 from firnline_core.plugins import EvalContext
 from firnline_core.tdb import TdbError, short_iri
@@ -54,20 +56,15 @@ class Engine:
             for ttype in ev.trigger_types:
                 self._dispatch[ttype] = ev
 
-        # Per-branch schema cache: branch → set of concrete trigger class names
-        self._concrete_trigger_types_cache: dict[str, set[str]] = {}
-
         # Per-branch last-seen commit for change-feed polling (persisted)
         self._last_commit: dict[str, str | None] = self._load_state()
 
         # Per-cycle state
         self._ctx: EvalContext | None = None
+        self._raw_schema: list[dict] | None = None  # reused by concrete-types + triggerable-subclasses
 
         # One-shot warning flag for GraphQL abstract-Triggerable query failure
         self._triggerable_query_warned: bool = False
-
-        # Per-cycle cache of concrete Triggerable subclass names
-        self._triggerable_subclasses: list[str] | None = None
 
     @staticmethod
     def _utc_now() -> datetime:
@@ -124,9 +121,33 @@ class Engine:
         changes, new_head = await self.tdb.changes_since(last_commit, branch)
         self._last_commit[branch] = new_head
 
+        # ── Build class → anchor_field map from schema ───────────────
+        anchor_map: dict[str, str] = {}
+        try:
+            raw_schema = await self.tdb.get_schema(branch)
+        except Exception:
+            raw_schema = []
+        self._raw_schema = raw_schema
+        for entry in raw_schema:
+            if not isinstance(entry, dict):
+                continue
+            cid = entry.get("@id", "")
+            if not isinstance(cid, str) or not cid:
+                continue
+            meta = entry.get("@metadata")
+            if not isinstance(meta, dict):
+                continue
+            af = meta.get("anchor_field")
+            if isinstance(af, str) and af:
+                # Store by short name (last segment after / or #)
+                short = cid.rstrip("/")
+                idx = max(short.rfind("/"), short.rfind("#"))
+                short = short[idx + 1:] if idx >= 0 else short
+                anchor_map[short] = af
+
         # Closures defined first so they exist before ctx construction.
         async def _resolve_anchor(anchor_ref: str | dict[str, Any]) -> datetime | None:
-            return await resolve_anchor(ctx, anchor_ref)  # noqa: F821 — ctx bound below
+            return await resolve_anchor(ctx, anchor_ref, anchor_map)  # noqa: F821 — ctx bound below
 
         async def _get_occurrences(
             trigger_dict: dict[str, Any],
@@ -144,6 +165,8 @@ class Engine:
             get_occurrences=_get_occurrences,
             changes=changes,
         )
+        # Cache for testability — tests can inspect or pre-set this
+        ctx.class_anchor_fields = anchor_map  # type: ignore[attr-defined]
         return ctx
 
     # ------------------------------------------------------------------
@@ -271,6 +294,7 @@ class Engine:
                 subject=subject,
                 created_at=now_val,
                 updated_at=now_val,
+                provenance=Provenance(agent=agent_id("service", "triggerd"), at=now_val),
             ).to_tdb()
             grouped.setdefault(trigger_iri, []).append(firing_doc)
 
@@ -416,18 +440,17 @@ class Engine:
     async def _get_concrete_trigger_types(self, branch: str) -> set[str]:
         """Return the set of concrete (non-abstract) Trigger subclass names.
 
-        Cached per-branch.  Walks ``@inherits`` transitively.
+        Uses the schema fetched by ``_build_ctx`` (one round-trip per cycle).
+        Falls back to a direct ``get_schema`` call when called outside a cycle
+        (e.g. from tests).
         """
-        cached = self._concrete_trigger_types_cache.get(branch)
-        if cached is not None:
-            return cached
-
-        try:
-            raw_schema = await self.tdb.get_schema(branch)
-        except Exception:
-            self.log.warning("schema_fetch_failed", branch=branch, exc_info=True)
-            self._concrete_trigger_types_cache[branch] = set()
-            return set()
+        raw_schema = self._raw_schema
+        if raw_schema is None:
+            try:
+                raw_schema = await self.tdb.get_schema(branch)
+            except Exception:
+                self.log.warning("schema_fetch_failed", branch=branch, exc_info=True)
+                return set()
 
         # Build lookup: class @id → definition dict
         classes: dict[str, dict[str, Any]] = {}
@@ -463,7 +486,6 @@ class Engine:
             if inherits_from_trigger(cid):
                 concrete.add(cid)
 
-        self._concrete_trigger_types_cache[branch] = concrete
         return concrete
 
     # ------------------------------------------------------------------
@@ -568,17 +590,16 @@ class Engine:
     async def _get_triggerable_subclasses(self, branch: str) -> list[str]:
         """Return concrete (non-abstract) Triggerable subclass names from schema.
 
-        Cached per engine instance (cleared each cycle in practice).
+        Uses the schema fetched by ``_build_ctx`` (one round-trip per cycle).
+        Falls back to a direct ``get_schema`` call when called outside a cycle.
         """
-        if self._triggerable_subclasses is not None:
-            return self._triggerable_subclasses
-
-        try:
-            raw_schema = await self.tdb.get_schema(branch)
-        except Exception:
-            self.log.debug("triggerable_schema_fetch_failed", branch=branch)
-            self._triggerable_subclasses = []
-            return []
+        raw_schema = self._raw_schema
+        if raw_schema is None:
+            try:
+                raw_schema = await self.tdb.get_schema(branch)
+            except Exception:
+                self.log.debug("triggerable_schema_fetch_failed", branch=branch)
+                return []
 
         classes: dict[str, dict[str, Any]] = {}
         for entry in raw_schema:
@@ -613,5 +634,4 @@ class Engine:
             if inherits_from_triggerable(cid):
                 concrete.append(cid)
 
-        self._triggerable_subclasses = concrete
         return concrete

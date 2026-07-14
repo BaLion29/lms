@@ -17,8 +17,9 @@ from firnline_core.plugins import DiscoveryResult
 def _patch_ingestd_for_liveness(monkeypatch, tdb_mock):
     """Common patching so we don't need LLM settings or real plugins."""
     monkeypatch.setattr("ingestd.main.TdbClient", lambda **kw: tdb_mock)
-    monkeypatch.setattr("ingestd.main.discover_plugins", lambda group: DiscoveryResult(active=[]))
-    monkeypatch.setattr("firnline_core.plugins.check_requirements", lambda tdb, reqs, branch="main": [])
+    monkeypatch.setattr("firnline_core.plugins.discover_plugins", lambda group: DiscoveryResult(active=[]))
+    monkeypatch.setattr("firnline_core.plugins.check_requirements",
+                        lambda tdb, reqs, branch="main", registry=None, required_classes=None: [])
 
     # Patch the two discovery helpers so they don't raise on empty plugins
     async def _fake_extractor_ctx(tdb, branch, logger, strict=False):

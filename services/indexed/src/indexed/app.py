@@ -13,7 +13,11 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from firnline_core.plugins import IndexerPlugin, discover_plugins, select_plugins
+from firnline_core.plugins import (
+    HostPolicy,
+    IndexerPlugin,
+    PluginHost,
+)
 from firnline_core.tdb import TdbClient
 
 from indexed.embed import embed_texts
@@ -115,46 +119,20 @@ async def _discover_indexer_plugins(
     branch: str,
     strict: bool = False,
 ) -> list[IndexerPlugin]:
-    discovered = discover_plugins(_INDEXER_GROUP)
-    log.info(
-        "indexer_plugins_discovered",
+    host = PluginHost(
         group=_INDEXER_GROUP,
-        count=len(discovered.active),
-        failed=len(discovered.failed),
+        protocol=IndexerPlugin,
+        tdb=tdb,
+        branch=branch,
+        policy=HostPolicy(
+            broken_entry_point_fatal=strict,
+            zero_active_fatal=False,
+            strict=strict,
+        ),
+        logger=log,
     )
-
-    if discovered.failed:
-        names = [n for n, _ in discovered.failed]
-        if strict:
-            raise RuntimeError(f"Indexer plugin entry points failed to load: {names}")
-        log.warning("indexer_plugin_load_failed", names=names)
-
-    if not discovered.active:
-        return []
-
-    selection = await select_plugins(tdb, discovered, strict=strict, branch=branch)
-
-    for name, violations in selection.skipped:
-        log.warning("indexer_plugin_skipped", plugin=name, violations=violations)
-
-    plugins: list[IndexerPlugin] = []
-    seen_classes: set[str] = set()
-
-    for ep_name, obj in selection.active:
-        if not isinstance(obj, IndexerPlugin):
-            log.warning("plugin_not_indexer", name=ep_name)
-            continue
-
-        for cls in obj.indexed_classes():
-            if cls in seen_classes:
-                raise RuntimeError(
-                    f"Indexed class collision: {cls!r} claimed by both {ep_name!r} and another active indexer plugin"
-                )
-            seen_classes.add(cls)
-
-        plugins.append(obj)
-
-    return plugins
+    result = await host.start(collision_key=lambda p: p.indexed_classes())
+    return [obj for _, obj in result.active]
 
 
 # ---------------------------------------------------------------------------

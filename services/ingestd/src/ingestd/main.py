@@ -19,9 +19,10 @@ from ingestd.pipeline import Pipeline
 from ingestd.settings import Settings
 from firnline_core.plugins import (
     ExtractorPlugin,
+    HostPolicy,
+    HostResult,
     IngestSourcePlugin,
-    discover_plugins,
-    select_plugins,
+    PluginHost,
 )
 from firnline_core.tdb import TdbClient
 
@@ -82,43 +83,34 @@ async def _discover_extractor_plugins_async(
     logger,
     strict: bool = False,
 ):
-    """Discover extractor plugins, check requirements, build ExtractionContext.
+    """Discover extractor plugins via PluginHost.
 
-    Raises ``RuntimeError`` if no plugins are active, on broken entry
-    points, or on kind collisions (which surface as ``ValueError``
-    from ``build_extraction_context``).
+    Raises ``RuntimeError`` if no plugins are active or on severe failures.
+    Returns the ``ExtractionContext`` built from active plugins' proposal models.
     """
-    discovered = discover_plugins(_EXTRACTOR_GROUP)
-    logger.info(
-        "extractor_plugins_discovered",
+    policy = HostPolicy(
+        broken_entry_point_fatal=True,
+        zero_active_fatal=True,
+        strict=strict,
+    )
+    host = PluginHost(
         group=_EXTRACTOR_GROUP,
-        count=len(discovered.active),
-        failed=len(discovered.failed),
+        protocol=ExtractorPlugin,
+        tdb=tdb,
+        branch=branch,
+        policy=policy,
+        logger=logger,
+    )
+    result: HostResult = await host.start(
+        collision_key=lambda p: [
+            m.model_fields["kind"].default
+            for m in p.proposal_models()
+            if hasattr(m, "model_fields") and m.model_fields.get("kind") and m.model_fields["kind"].default is not None
+        ],
     )
 
-    # Broken entry points ARE fatal
-    if discovered.failed:
-        names = [n for n, _ in discovered.failed]
-        raise RuntimeError(f"Extractor plugin entry points failed to load: {names}")
-
-    selection = await select_plugins(
-        tdb, discovered, strict=strict, branch=branch, protocol=ExtractorPlugin
-    )
-
-    for name, violations in selection.skipped:
-        logger.warning(
-            "extractor_plugin_skipped",
-            plugin=name,
-            violations=violations,
-        )
-
-    if not selection.active:
-        raise RuntimeError("No active extractor plugins — nothing to extract.")
-
-    valid_plugins = [obj for _, obj in selection.active]
-
-    # Build ExtractionContext (raises ValueError on kind collisions)
-    return build_extraction_context(valid_plugins)
+    plugins = [obj for _, obj in result.active]
+    return build_extraction_context(plugins)
 
 
 async def _discover_source_plugins_async(
@@ -127,52 +119,29 @@ async def _discover_source_plugins_async(
     logger,
     strict: bool = False,
 ) -> list:
-    """Discover source plugins, check requirements, return active ones."""
-    discovered = discover_plugins(_SOURCE_GROUP)
-    logger.info(
-        "source_plugins_discovered",
+    """Discover source plugins via PluginHost.
+
+    Raises ``RuntimeError`` on fatal conditions.
+    Returns the list of active source plugin instances.
+    """
+    policy = HostPolicy(
+        broken_entry_point_fatal=True,
+        zero_active_fatal=True,
+        strict=strict,
+    )
+    host = PluginHost(
         group=_SOURCE_GROUP,
-        count=len(discovered.active),
-        failed=len(discovered.failed),
+        protocol=IngestSourcePlugin,
+        tdb=tdb,
+        branch=branch,
+        policy=policy,
+        logger=logger,
+    )
+    result: HostResult = await host.start(
+        collision_key=lambda s: [(s.document_type, s.ready_status)],
     )
 
-    # Broken entry points ARE fatal for sources
-    if discovered.failed:
-        names = [n for n, _ in discovered.failed]
-        raise RuntimeError(f"Source plugin entry points failed to load: {names}")
-
-    selection = await select_plugins(
-        tdb, discovered, strict=strict, branch=branch, protocol=IngestSourcePlugin
-    )
-
-    for name, violations in selection.skipped:
-        logger.warning(
-            "source_plugin_skipped",
-            plugin=name,
-            violations=violations,
-        )
-
-    if not selection.active:
-        raise RuntimeError("No active source plugins — nothing to poll.")
-
-    sources: list = []
-    seen_keys: set[tuple[str, str]] = set()
-
-    for name, obj in selection.active:
-        key = (obj.document_type, obj.ready_status)
-        if key in seen_keys:
-            raise RuntimeError(
-                f"Source collision: (document_type={obj.document_type!r}, "
-                f"ready_status={obj.ready_status!r}) already registered by "
-                f"another source plugin"
-            )
-        seen_keys.add(key)
-        sources.append(obj)
-
-    if not sources:
-        raise RuntimeError("No valid source plugins — nothing to poll.")
-
-    return sources
+    return [obj for _, obj in result.active]
 
 
 # ---------------------------------------------------------------------------

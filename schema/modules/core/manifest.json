@@ -1,9 +1,9 @@
 {
   "name": "core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "depends_on": [],
   "models_target": "firnline_core.generated.core",
   "models_import": "firnline_core.models",
-  "exports": ["Entity", "Source", "Context", "Remindable", "Anchored", "Provenance", "ExternalRef", "SchemaModule", "SchemaMigration"],
+  "exports": ["Entity", "Source", "Context", "Anchored", "Provenance", "Tag", "ExternalRef", "SchemaModule", "SchemaMigration"],
   "description": "Abstract markers, universal Entity base with audit/provenance, registry classes, and cross-module conventions"
 }

@@ -15,6 +15,7 @@ from triggerd.evaluators import (
     ScheduleEvaluator,
     CompositeEvaluator,
     EventTriggerEvaluator,
+    _class_short_name,
     _parse_duration,
     _parse_iso_datetime,
     resolve_anchor,
@@ -325,8 +326,29 @@ class TestScheduleEvaluator:
 
 
 # ---------------------------------------------------------------------------
+# _class_short_name
+# ---------------------------------------------------------------------------
+
+
+class TestClassShortName:
+    def test_plain_type(self):
+        assert _class_short_name("Reminder") == "Reminder"
+
+    def test_slash_prefixed(self):
+        assert _class_short_name("terminusdb:///data/Reminder") == "Reminder"
+
+    def test_hash_prefixed(self):
+        assert _class_short_name("terminusdb:///schema#Task") == "Task"
+
+    def test_empty(self):
+        assert _class_short_name("") == ""
+
+
+# ---------------------------------------------------------------------------
 # RelativeEvaluator
 # ---------------------------------------------------------------------------
+
+_ANCHOR_MAP = {"Reminder": "due_date", "Event": "start_at", "Task": "deadline"}
 
 
 class TestRelativeEvaluator:
@@ -391,71 +413,133 @@ class TestRelativeEvaluator:
         assert any("relative_offset_invalid" in r.get("event", "") for r in captured)
 
     @pytest.mark.asyncio
-    async def test_anchor_resolve_uses_anchor_at(self):
-        """resolve_anchor reads anchor_at from any doc (class-agnostic)."""
+    async def test_anchor_resolve_uses_class_anchor_field(self):
+        """resolve_anchor reads the class's anchor_field from the map."""
         tdb = AsyncMock()
         tdb.get_document = AsyncMock(
-            return_value={"@type": "Reminder", "@id": "doc/Reminder/x", "anchor_at": "2026-07-06T09:00:00Z"}
+            return_value={"@type": "Reminder", "@id": "doc/Reminder/x", "due_date": "2026-07-06T09:00:00Z"}
         )
         ctx = _make_ctx(tdb=tdb)
-        result = await resolve_anchor(ctx, "doc/Reminder/x")
+        result = await resolve_anchor(ctx, "doc/Reminder/x", class_anchor_fields=_ANCHOR_MAP)
         assert result == datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)
 
     @pytest.mark.asyncio
-    async def test_anchor_missing_field_returns_none(self):
-        """Doc without anchor_at → None (debug logged)."""
+    async def test_anchor_via_dict_ref(self):
+        """resolve_anchor works with a dict ref (not IRI fetch)."""
         tdb = AsyncMock()
-        tdb.get_document = AsyncMock(
-            return_value={"@type": "Event", "@id": "doc/Event/e", "name": "e"}
-        )
+        doc = {"@type": "Event", "@id": "doc/Event/e", "start_at": "2026-07-06T09:00:00Z"}
         ctx = _make_ctx(tdb=tdb)
-
-        with structlog.testing.capture_logs() as captured:
-            result = await resolve_anchor(ctx, "doc/Event/e")
-
-        assert result is None
-        assert any("anchor_field_missing" in r.get("event", "") for r in captured)
+        result = await resolve_anchor(ctx, doc, class_anchor_fields=_ANCHOR_MAP)
+        assert result == datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)
 
     @pytest.mark.asyncio
-    async def test_anchor_null_returns_none(self):
-        """anchor_at explicitly null → None."""
+    async def test_anchor_no_anchor_field_metadata(self):
+        """Class has no anchor_field in the map → dormant (no anchor_field)."""
         tdb = AsyncMock()
         tdb.get_document = AsyncMock(
-            return_value={"@type": "Foobar", "@id": "doc/Foobar/f", "anchor_at": None}
+            return_value={"@type": "Foobar", "@id": "doc/Foobar/f", "due_date": "2026-07-06T09:00:00Z"}
         )
         ctx = _make_ctx(tdb=tdb)
 
         with structlog.testing.capture_logs() as captured:
-            result = await resolve_anchor(ctx, "doc/Foobar/f")
+            result = await resolve_anchor(ctx, "doc/Foobar/f", class_anchor_fields=_ANCHOR_MAP)
 
         assert result is None
-        assert any("anchor_field_missing" in r.get("event", "") for r in captured)
+        dormant = [e for e in captured if e.get("event") == "trigger_dormant"]
+        assert len(dormant) == 1
+        assert dormant[0]["reason"] == "no anchor_field"
+
+    @pytest.mark.asyncio
+    async def test_anchor_field_missing_from_doc(self):
+        """Doc has class in map but the field is not set → dormant (anchor unset)."""
+        tdb = AsyncMock()
+        tdb.get_document = AsyncMock(
+            return_value={"@type": "Reminder", "@id": "doc/Reminder/r", "title": "test"}
+        )
+        ctx = _make_ctx(tdb=tdb)
+
+        with structlog.testing.capture_logs() as captured:
+            result = await resolve_anchor(ctx, "doc/Reminder/r", class_anchor_fields=_ANCHOR_MAP)
+
+        assert result is None
+        dormant = [e for e in captured if e.get("event") == "trigger_dormant"]
+        assert len(dormant) == 1
+        assert dormant[0]["reason"] == "anchor unset"
+
+    @pytest.mark.asyncio
+    async def test_anchor_null_field_returns_none(self):
+        """Anchor field explicitly null → dormant (anchor unset)."""
+        tdb = AsyncMock()
+        tdb.get_document = AsyncMock(
+            return_value={"@type": "Task", "@id": "doc/Task/t", "deadline": None}
+        )
+        ctx = _make_ctx(tdb=tdb)
+
+        with structlog.testing.capture_logs() as captured:
+            result = await resolve_anchor(ctx, "doc/Task/t", class_anchor_fields=_ANCHOR_MAP)
+
+        assert result is None
+        dormant = [e for e in captured if e.get("event") == "trigger_dormant"]
+        assert len(dormant) == 1
+        assert dormant[0]["reason"] == "anchor unset"
 
     @pytest.mark.asyncio
     async def test_anchor_malformed_value_returns_none(self):
-        """Malformed anchor_at value → None (debug logged)."""
+        """Malformed anchor field value → None (debug logged)."""
         tdb = AsyncMock()
         tdb.get_document = AsyncMock(
-            return_value={"@type": "Task", "@id": "doc/Task/t", "anchor_at": "not-a-date"}
+            return_value={"@type": "Reminder", "@id": "doc/Reminder/r", "due_date": "not-a-date"}
         )
         ctx = _make_ctx(tdb=tdb)
 
         with structlog.testing.capture_logs() as captured:
-            result = await resolve_anchor(ctx, "doc/Task/t")
+            result = await resolve_anchor(ctx, "doc/Reminder/r", class_anchor_fields=_ANCHOR_MAP)
 
         assert result is None
         assert any("anchor_parse_failed" in r.get("event", "") for r in captured)
 
     @pytest.mark.asyncio
     async def test_anchor_present(self):
-        """anchor_at → resolved correctly."""
+        """Anchor field resolved correctly via map."""
         tdb = AsyncMock()
         tdb.get_document = AsyncMock(
-            return_value={"@type": "Event", "@id": "doc/Event/e", "anchor_at": "2026-07-06T09:00:00Z"}
+            return_value={"@type": "Event", "@id": "doc/Event/e", "start_at": "2026-07-06T09:00:00Z"}
         )
         ctx = _make_ctx(tdb=tdb)
-        result = await resolve_anchor(ctx, "doc/Event/e")
+        result = await resolve_anchor(ctx, "doc/Event/e", class_anchor_fields=_ANCHOR_MAP)
         assert result == datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_anchor_prefixed_iri_type(self):
+        """resolve_anchor handles prefixed @type IRIs."""
+        tdb = AsyncMock()
+        tdb.get_document = AsyncMock(
+            return_value={
+                "@type": "terminusdb:///schema#Reminder",
+                "@id": "doc/Reminder/x",
+                "due_date": "2026-07-06T09:00:00Z",
+            }
+        )
+        ctx = _make_ctx(tdb=tdb)
+        result = await resolve_anchor(ctx, "doc/Reminder/x", class_anchor_fields=_ANCHOR_MAP)
+        assert result == datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_anchor_map_none_returns_none(self):
+        """When class_anchor_fields is None (backward compat), returns None with dormant log."""
+        tdb = AsyncMock()
+        tdb.get_document = AsyncMock(
+            return_value={"@type": "Reminder", "@id": "doc/Reminder/x", "due_date": "2026-07-06T09:00:00Z"}
+        )
+        ctx = _make_ctx(tdb=tdb)
+
+        with structlog.testing.capture_logs() as captured:
+            result = await resolve_anchor(ctx, "doc/Reminder/x", class_anchor_fields=None)
+
+        assert result is None
+        dormant = [e for e in captured if e.get("event") == "trigger_dormant"]
+        assert len(dormant) == 1
+        assert dormant[0]["reason"] == "no anchor_field"
 
 
 # ---------------------------------------------------------------------------

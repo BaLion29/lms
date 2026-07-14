@@ -1,0 +1,15 @@
+[
+   {"@id": "Captured", "@inherits": ["Entity", "Source"], "@type": "Class",
+    "@metadata": {"label_field": "content"},
+    "@documentation": {"@comment": "A captured document — quick-capture text note, audio recording, or arbitrary binary blob. Written before processing, later refined or promoted into domain documents. The ``@metadata.label_field`` is ``\"content\"``, which may be null for binary-only captures (e.g. audio). Consumers MUST fall back to ``file_name`` then ``@id`` when the label field is null."},
+   "content_type": "xsd:string",
+   "content": {"@class": "xsd:string", "@type": "Optional"},
+   "blob_sha256": {"@class": "xsd:string", "@type": "Optional"},
+   "file_name": {"@class": "xsd:string", "@type": "Optional"},
+   "captured_at": "xsd:dateTime",
+   "transcription": {"@class": "xsd:string", "@type": "Optional"},
+   "status": "CapturedStatus"},
+  {"@id": "CapturedStatus", "@type": "Enum",
+   "@documentation": {"@comment": "Processing lifecycle of a captured document. Spans text and audio lifecycles: new (fresh capture), transcribed (audio→text complete), processed (promoted to domain documents), failed (processing error), archived (soft-retired)."},
+   "@value": ["new", "transcribed", "processed", "failed", "archived"]}
+]

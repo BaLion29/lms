@@ -1,51 +1,56 @@
-"""Capture handlers for inbox — create InboxNote / InboxAudio documents."""
+"""Capture handlers — create Captured documents."""
 
 from __future__ import annotations
 
-from firnline_core.models import InboxAudio, InboxAudioStatus, InboxNote, InboxNoteStatus, Provenance
+from firnline_core.conventions import agent_id
+from firnline_core.models import Captured, CapturedStatus, Provenance
 from firnline_core.plugins import CaptureContext, CapturePayload, ModuleRequirement
 
 
-class InboxNoteHandler:
-    """Handle ``note`` captures → ``InboxNote@new``."""
+class CapturedNoteHandler:
+    """Handle ``note`` captures → ``Captured`` with content_type ``text/plain``, status ``new``."""
 
-    name: str = "inbox_note"
+    name: str = "captured_note"
     kinds: tuple[str, ...] = ("note",)
-    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=0.1.0 <0.2.0")]
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="capture", range=">=0.1.0 <0.2.0")]
 
     async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
         now = payload.captured_at or ctx.now()
-        doc = InboxNote(
+        doc = Captured(
+            content_type="text/plain",
             content=payload.text or "",
+            captured_at=now,
+            status=CapturedStatus.NEW,
             created_at=now,
-            status=InboxNoteStatus.NEW,
             updated_at=now,
-            provenance=Provenance(agent="captured", at=ctx.now(), method="capture", source=None),
+            provenance=Provenance(
+                agent=agent_id("service", "captured"),
+                at=ctx.now(),
+                method="capture:note",
+            ),
         )
         tdb_doc = doc.to_tdb()
         iris = await ctx.tdb.insert_documents([tdb_doc])
         return iris[0] if iris else ""
 
 
-class InboxAudioHandler:
-    """Handle ``file`` captures → ``InboxAudio@new``.
+class CapturedAudioHandler:
+    """Handle ``file`` captures → ``Captured`` with ``content_type`` from payload, status ``new``.
 
-    Requires ``payload.blob_sha256`` to be set by captured.  The blob digest
-    is stored in ``file_path`` (the closest existing field — there is no
-    dedicated blob/sha256 column on InboxAudio as of schema 0.1.0).
+    Requires ``payload.blob_sha256`` to be set by captured.
     """
 
-    name: str = "inbox_audio"
+    name: str = "captured_audio"
     kinds: tuple[str, ...] = ("file",)
-    requires: list[ModuleRequirement] = [ModuleRequirement(name="inbox", range=">=0.1.0 <0.2.0")]
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="capture", range=">=0.1.0 <0.2.0")]
 
     async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
         if not payload.blob_sha256:
-            raise ValueError("InboxAudio capture requires blob_sha256 (file upload)")
+            raise ValueError("Audio capture requires blob_sha256 (file upload)")
 
         if ctx.blob_store is None:
             raise RuntimeError(
-                "InboxAudio handler requires a BlobStore; the captured service "
+                "Audio handler requires a BlobStore; the captured service "
                 "guarantees the blob was stored before handler dispatch — but "
                 "no BlobStore is available in the CaptureContext."
             )
@@ -58,15 +63,20 @@ class InboxAudioHandler:
             )
 
         now = payload.captured_at or ctx.now()
-        doc = InboxAudio(
-            created_at=now,
+        doc = Captured(
+            content_type=payload.content_type or "application/octet-stream",
+            blob_sha256=payload.blob_sha256,
             file_name=payload.filename or "unnamed",
-            file_path=str(blob_path),
-            recorded_at=now,
-            status=InboxAudioStatus.NEW,
-            transcription="",
+            transcription=None,
+            captured_at=now,
+            status=CapturedStatus.NEW,
+            created_at=now,
             updated_at=now,
-            provenance=Provenance(agent="captured", at=ctx.now(), method="capture", source=None),
+            provenance=Provenance(
+                agent=agent_id("service", "captured"),
+                at=ctx.now(),
+                method="capture:file",
+            ),
         )
         tdb_doc = doc.to_tdb()
         iris = await ctx.tdb.insert_documents([tdb_doc])
@@ -74,5 +84,5 @@ class InboxAudioHandler:
 
 
 # Module-level instances for entry-point discovery
-inbox_note_handler = InboxNoteHandler()
-inbox_audio_handler = InboxAudioHandler()
+captured_note_handler = CapturedNoteHandler()
+captured_audio_handler = CapturedAudioHandler()

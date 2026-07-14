@@ -15,13 +15,17 @@ An extension package may contain any subset of:
 - **Extractor plugins** — LLM extraction logic for turning text into typed
   documents (`firnline.ingestd.extractors`).
 - **Query tool plugins** — write tools the conversational agent can use
-   (`firnline.queryd.tools`).
+  (`firnline.queryd.tools`).
 - **Indexer plugins** — tell the `indexed` service which TDB classes to
-   mirror into the hybrid search index (`firnline.indexed.indexers`).
+  mirror into the hybrid search index (`firnline.indexed.indexers`).
 - **Capture handlers** — handler for captured's `/v1/capture/note` and
-   `/v1/capture/file` endpoints (`firnline.captured.handlers`).
+  `/v1/capture/file` endpoints (`firnline.captured.handlers`).
+- **Trigger evaluator plugins** — evaluate trigger conditions for triggerd
+  (`firnline.triggerd.evaluators`).
 - **Notification channels** — deliver `TriggerFiring` records via external
-   notification services (`firnline.notifyd.channels`).
+  notification services (`firnline.notifyd.channels`).
+- **MCP tools** — mcpd exposes firnline tools and resources to external
+  AI agents via Model Context Protocol. See [mcpd.md](mcpd.md).
 
 ## Package Layout
 
@@ -94,7 +98,7 @@ SCHEMA_MODULE_DIR = str(importlib.resources.files("firnline_ext_planning"))
 class IngestSourcePlugin(Protocol):
     name: str
     requires: list[ModuleRequirement]
-    document_type: str       # e.g. "InboxNote"
+    document_type: str       # e.g. "Captured"
     ready_status: str        # e.g. "new"
     done_status: str         # e.g. "processed"
     failed_status: str       # e.g. "failed"
@@ -113,12 +117,8 @@ ingestd polls `document_type` documents with `status == ready_status`. The
 class ExtractorPlugin(Protocol):
     name: str
     requires: list[ModuleRequirement]
+    requires_classes: list[str]  # optional — class @id values from registry exports
     produces: list[str]  # class @id values this extractor creates (e.g. ["Task", "Event"])
-
-    def proposal_models(self) -> list[type[BaseModel]]: ...
-    def prompt_snippet(self) -> str: ...
-    async def linking_context(self, tdb, *, index, branch: str) -> str: ...
-    async def build_documents(self, proposal: BaseModel, ctx: BuildContext) -> list[dict]: ...
 ```
 
 `produces` declares which TDB class `@id` values the extractor creates.
@@ -152,6 +152,7 @@ is made. Returns the IRI immediately (only `None` if `factory()` returns
 class ToolPlugin(Protocol):
     name: str
     requires: list[ModuleRequirement]
+    requires_classes: list[str]  # optional
 
     def tools(self, deps) -> list[Tool]: ...
 ```
@@ -293,8 +294,30 @@ module only; domain modules must not include it.
 Every class/enum listed in `exports` **must** carry an `@documentation` key
 with a non-empty `@comment` string — "the schema is a prompt". The
 `firnline-schema compose` step enforces this (L3 lint violation raises
-`ComposeL3Error`).  `queryd` derives its agent briefing from these
+`ComposeL3Error`). `queryd` derives its agent briefing from these
 `@documentation` comments.
+
+**Schema authoring — `@metadata` keys:**
+
+- **`label_field`** — **required** on every exported concrete (non-abstract)
+  `Entity` subclass. Names one of the class's own fields whose value is used as
+  the display label (L4 composer validation). Example:
+  `"@metadata": {"label_field": "name"}`.
+- **`anchor_field`** — **required** on every concrete class implementing the
+  `Anchored` role marker. Names an `xsd:dateTime` field that holds the
+  canonical temporal instant. If the field is unset on a document, relative
+  triggers referencing it are dormant (L5 composer validation). Example:
+  `"@metadata": {"anchor_field": "start"}`.
+
+**Removed from core** — extensions that previously relied on core constructs
+must adapt:
+- **`Remindable`** is gone; extensions define their own markers or use
+  `Triggerable` (from triggers module) for trigger-owning semantics.
+- **`anchor_at`** no longer exists; `Anchored` is a pure role marker — use
+  `@metadata.anchor_field` on the implementing class instead.
+- **`Provenance.source`** no longer exists; `Provenance` carries only
+  `agent`, `at`, `method`, `confidence`. Multi-source derivation lives in
+  `Entity.derived_from: Set<Source>`.
 
 `migrations/` — optional directory of `NNNN_description.py` files, each
 exporting `async def up(tdb, branch)`. Migrations are **data** migrations
@@ -318,15 +341,25 @@ exporting `async def up(tdb, branch)`. Migrations are **data** migrations
 
 ## Startup Behaviour (all host services)
 
-1. Discover all plugins for the service's entry-point group.
-2. Load each plugin; a plugin that fails to import is logged at ERROR.
-3. `check_requirements` against the `SchemaModule` registry in TerminusDB.
-4. Plugins with unmet requirements are **skipped with a WARNING** — the service
-   still starts.
-5. Name/kind collisions between plugins are **fatal** at startup.
-6. `--strict-plugins` / `{PREFIX}_STRICT_PLUGINS=true` makes all skips and
-   load failures fatal.
-7. The active plugin set is logged at INFO on every startup.
+All host services boot through the shared `PluginHost` in `firnline-core`:
+
+1. **Discover** all plugins for the service's entry-point group.
+2. **Validate** structural conformance against the protocol (when a protocol
+   is supplied).
+3. **Fetch** the `SchemaModule` registry from TerminusDB (unless pre-fetched).
+4. **check_requirements** against installed modules (semver ranges +
+   `requires_classes` against registry `exports`).
+5. **Collision check** — duplicate keys (e.g. capture kind, tool name, trigger
+   type, indexed class) across active plugins are **fatal**.
+6. **Select** — active plugins pass all checks; failures are skipped or
+   fatal depending on `HostPolicy`.
+7. **Log** the active set at INFO on every startup.
+
+Each service configures its own `HostPolicy(broken_entry_point_fatal,
+zero_active_fatal, strict, tdb_unavailable_fatal)`. See the per-service table
+in [Architecture](architecture.md) for exact values. The `{PREFIX}_STRICT_PLUGINS`
+env var drives `strict` (makes requirement failures fatal). Broken
+entry-points and zero active plugins can be fatal or warning per service.
 
 ## Installing Extensions in Docker
 

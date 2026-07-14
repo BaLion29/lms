@@ -11,7 +11,9 @@ import pytest
 from firnline_core.conventions import (
     BlobRef,
     BlobStore,
+    agent_id,
     blob_root_from_env,
+    parse_agent,
     utc_now,
 )
 
@@ -252,3 +254,56 @@ class TestBlobRootFromEnv:
         monkeypatch.setenv("FIRNLINE_BLOB_ROOT", "")
         result = blob_root_from_env()
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# agent grammar helpers
+# ---------------------------------------------------------------------------
+
+
+class TestAgentId:
+    def test_service_agent(self) -> None:
+        assert agent_id("service", "ingestd") == "service:ingestd"
+
+    def test_user_agent(self) -> None:
+        assert agent_id("user", "basti") == "user:basti"
+
+    def test_ext_agent(self) -> None:
+        assert agent_id("ext", "mail") == "ext:mail"
+
+
+class TestParseAgent:
+    def test_parse_service(self) -> None:
+        kind, name = parse_agent("service:ingestd")
+        assert kind == "service"
+        assert name == "ingestd"
+
+    def test_parse_user(self) -> None:
+        kind, name = parse_agent("user:basti")
+        assert kind == "user"
+        assert name == "basti"
+
+    def test_parse_ext(self) -> None:
+        kind, name = parse_agent("ext:mail")
+        assert kind == "ext"
+        assert name == "mail"
+
+    def test_parse_invalid_raises(self) -> None:
+        with pytest.raises(ValueError, match="Invalid agent string"):
+            parse_agent("invalid-agent")
+
+    def test_parse_empty_raises(self) -> None:
+        with pytest.raises(ValueError, match="Invalid agent string"):
+            parse_agent("")
+
+    def test_parse_wrong_prefix_raises(self) -> None:
+        with pytest.raises(ValueError, match="Invalid agent string"):
+            parse_agent("bot:ingestd")
+
+    def test_round_trip(self) -> None:
+        for kind in ("service", "user", "ext"):
+            assert parse_agent(agent_id(kind, "test")) == (kind, "test")
+
+    def test_empty_name_raises(self) -> None:
+        with pytest.raises(ValueError, match="must not be empty"):
+            agent_id("service", "")

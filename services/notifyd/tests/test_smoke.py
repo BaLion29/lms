@@ -8,22 +8,20 @@ from unittest.mock import AsyncMock
 import pytest
 
 from notifyd.main import async_main
-from firnline_core.plugins import DiscoveryResult
+from firnline_core.plugins import HostResult
 from firnline_core.tdb import TdbClient
 
 
 @pytest.mark.asyncio
 async def test_once_cycle_completes(monkeypatch):
     """Simulate a single --once cycle against an AsyncMock TdbClient."""
+
+    async def _fake_start(self, **kw):
+        return HostResult(active=[])
+
     monkeypatch.setattr(
-        "notifyd.main.discover_plugins",
-        lambda group: DiscoveryResult(active=[]),
+        "firnline_core.plugins.PluginHost.start", _fake_start
     )
-
-    async def _noop_check(tdb, reqs, branch="main"):
-        return []
-
-    monkeypatch.setattr("firnline_core.plugins.check_requirements", _noop_check)
 
     tdb_mock = AsyncMock(spec=TdbClient)
     tdb_mock.aclose = AsyncMock()
@@ -48,15 +46,13 @@ async def test_once_cycle_completes(monkeypatch):
 @pytest.mark.asyncio
 async def test_once_failed_cycle_exits_nonzero(monkeypatch):
     """When once=True and a cycle raises → sys.exit(1)."""
+
+    async def _fake_start(self, **kw):
+        return HostResult(active=[])
+
     monkeypatch.setattr(
-        "notifyd.main.discover_plugins",
-        lambda group: DiscoveryResult(active=[]),
+        "firnline_core.plugins.PluginHost.start", _fake_start
     )
-
-    async def _noop_check(tdb, reqs, branch="main"):
-        return []
-
-    monkeypatch.setattr("firnline_core.plugins.check_requirements", _noop_check)
 
     tdb_mock = AsyncMock(spec=TdbClient)
     tdb_mock.aclose = AsyncMock()

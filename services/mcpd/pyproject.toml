@@ -1,0 +1,43 @@
+[project]
+name = "mcpd"
+version = "0.1.0"
+description = "MCP server exposing firnline knowledge to external agents via the Model Context Protocol"
+authors = [
+    { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
+]
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "firnline-core",
+    "httpx",
+    "mcp>=1.27,<2",
+    "pydantic>=2",
+    "pydantic-settings",
+    "starlette",
+    "structlog",
+    "uvicorn",
+]
+
+[tool.uv.sources]
+firnline-core = { workspace = true }
+
+[project.scripts]
+mcpd = "mcpd.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcpd"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "respx",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

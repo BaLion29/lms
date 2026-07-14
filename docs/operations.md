@@ -185,7 +185,7 @@ the branch.
 curl -s -u admin:$TDB_PASSWORD \
   -X POST "http://<tdb-host>:6363/api/graphql/admin/firnline" \
   -H "Content-Type: application/json" \
-  -d '{"query": "{ InboxNote { _id } }"}'
+  -d '{"query": "{ Captured { _id } }"}'
 # Should return documents unchanged.
 ```
 

@@ -513,7 +513,7 @@ RAW_SCHEMA = [
     {
         "@id": "Task",
         "@type": "Class",
-        "@inherits": ["Remindable", "Source", "TaskSpec"],
+        "@inherits": ["Entity", "Source", "TaskSpec"],
         "created_at": "xsd:dateTime",
         "provenance": {
             "@class": "Provenance",

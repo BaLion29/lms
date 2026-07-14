@@ -1,5 +1,13 @@
 """Tests for queryd plugin discovery, selection, capability awareness,
-and healthz extension."""
+and healthz extension — updated for PluginHost migration.
+
+Since ``app.py`` now uses ``firnline_core.plugins.PluginHost``, tests
+mock ``firnline_core.plugins.discover_plugins`` and
+``firnline_core.plugins.select_plugins`` (which PluginHost calls internally).
+Cross-plugin tool-name collisions are detected by PluginHost's
+``collision_key``; read-tool collisions are still caught by
+``_collect_plugin_tools``.
+"""
 
 from __future__ import annotations
 
@@ -72,11 +80,11 @@ def test_unmet_requirement_skipped_with_warning(respx_mock):
     )
     respx_mock.get(_tdb_exists_route()).respond(200)
 
-    with patch("queryd.app.discover_plugins") as mock_discover:
+    with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
             active=[("fake", _FakePluginMissingModule())],
         )
-        with patch("queryd.app.select_plugins") as mock_select:
+        with patch("firnline_core.plugins.select_plugins") as mock_select:
             mock_select.return_value = PluginSelection(
                 active=[],
                 skipped=[("fake", ["module 'nonexistent' not installed"])],
@@ -106,13 +114,13 @@ def test_strict_mode_fails_fast_on_skipped(respx_mock):
     due to unmet requirements."""
     respx_mock.get(_tdb_exists_route()).respond(200)
 
-    with patch("queryd.app.discover_plugins") as mock_discover:
+    with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
             active=[("fake", _FakePluginMissingModule())],
         )
-        with patch("queryd.app.select_plugins") as mock_select:
+        with patch("firnline_core.plugins.select_plugins") as mock_select:
 
-            async def _fake_select(tdb, discovered, *, strict=False, branch="main"):
+            async def _fake_select(tdb, discovered, *, strict=False, branch="main", protocol=None, registry=None):
                 if strict:
                     raise RuntimeError(
                         "Strict plugin mode: skipped=['fake'], failed=[]"
@@ -150,11 +158,12 @@ def test_enable_writes_false_suppresses_plugins(respx_mock):
     if discovered — but plugin names are still reported in healthz."""
     respx_mock.get(_tdb_exists_route()).respond(200)
 
-    with patch("queryd.app.discover_plugins") as mock_discover:
+    # PluginHost's collision_key calls p.tools(None); planning_plugin supports it.
+    with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
             active=[("planning", _planning_plugin)],
         )
-        with patch("queryd.app.select_plugins") as mock_select:
+        with patch("firnline_core.plugins.select_plugins") as mock_select:
             mock_select.return_value = PluginSelection(
                 active=[("planning", _planning_plugin)],
             )
@@ -191,14 +200,14 @@ class _CollidingPlugin:
 
 def test_tool_name_collision_with_core_fatal(respx_mock):
     """Registering a plugin tool with the same name as a core read tool
-    raises RuntimeError."""
+    raises RuntimeError (caught by _collect_plugin_tools)."""
     respx_mock.get(_tdb_exists_route()).respond(200)
 
-    with patch("queryd.app.discover_plugins") as mock_discover:
+    with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
             active=[("collider", _CollidingPlugin())],
         )
-        with patch("queryd.app.select_plugins") as mock_select:
+        with patch("firnline_core.plugins.select_plugins") as mock_select:
             mock_select.return_value = PluginSelection(
                 active=[("collider", _CollidingPlugin())],
             )
@@ -213,7 +222,8 @@ def test_tool_name_collision_with_core_fatal(respx_mock):
 
 
 def test_tool_name_collision_across_plugins_fatal(respx_mock):
-    """Two plugins registering the same tool name raises RuntimeError."""
+    """Two plugins registering the same tool name raises RuntimeError
+    (caught by PluginHost's collision_key)."""
     respx_mock.get(_tdb_exists_route()).respond(200)
 
     class _PluginA:
@@ -230,11 +240,11 @@ def test_tool_name_collision_across_plugins_fatal(respx_mock):
         def tools(self, deps):
             return [Tool(lambda: "ok", name="shared_tool")]
 
-    with patch("queryd.app.discover_plugins") as mock_discover:
+    with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
             active=[("a", _PluginA()), ("b", _PluginB())],
         )
-        with patch("queryd.app.select_plugins") as mock_select:
+        with patch("firnline_core.plugins.select_plugins") as mock_select:
             mock_select.return_value = PluginSelection(
                 active=[("a", _PluginA()), ("b", _PluginB())],
             )
@@ -243,7 +253,8 @@ def test_tool_name_collision_across_plugins_fatal(respx_mock):
 
             from fastapi.testclient import TestClient
 
-            with pytest.raises(RuntimeError, match="Tool name collision"):
+            # PluginHost raises "Plugin collision on key" for cross-plugin
+            with pytest.raises(RuntimeError, match="Plugin collision"):
                 with TestClient(create_app(settings)):
                     pass
 
@@ -315,8 +326,7 @@ def test_healthz_reports_modules_and_plugins(respx_mock):
     versions and active plugin names."""
     DOC_PATH = f"{TDB_URL}/api/document/admin/{TDB_DB}/local/branch/main"
 
-    # Mock get_documents (for module registry — will be called twice:
-    # once at startup, once by healthz live fetch)
+    # Mock get_documents (for module registry — will be called multiple times)
     respx_mock.get(DOC_PATH).respond(
         json=[_mock_schema_module("core", "1.1.0"), _mock_schema_module("planning", "1.0.0")]
     )
@@ -327,11 +337,11 @@ def test_healthz_reports_modules_and_plugins(respx_mock):
         function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
     )
 
-    with patch("queryd.app.discover_plugins") as mock_discover:
+    with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
             active=[("planning", _planning_plugin)],
         )
-        with patch("queryd.app.select_plugins") as mock_select:
+        with patch("firnline_core.plugins.select_plugins") as mock_select:
             mock_select.return_value = PluginSelection(
                 active=[("planning", _planning_plugin)],
             )
@@ -360,7 +370,9 @@ def test_healthz_reports_modules_and_plugins(respx_mock):
 
 def test_registry_unavailable_graceful_degradation(respx_mock):
     """When the module registry throws TdbError, the service starts
-    with modules omitted and healthz reports empty modules."""
+    with modules omitted and healthz reports empty modules.
+    PluginHost handles the unavailable registry gracefully via
+    tdb_unavailable_fatal=False."""
     DOC_PATH = f"{TDB_URL}/api/document/admin/{TDB_DB}/local/branch/main"
 
     # get_documents raises TdbError (simulating missing SchemaModule class)
@@ -425,23 +437,9 @@ def test_collect_plugin_tools_name_collision_with_core():
         _collect_plugin_tools([("c", _Collider())], _settings(), MagicMock())
 
 
-def test_collect_plugin_tools_cross_plugin_collision():
-    class _A:
-        name = "a"
-        requires: list[ModuleRequirement] = []
-
-        def tools(self, deps):
-            return [Tool(lambda: "ok", name="dupe")]
-
-    class _B:
-        name = "b"
-        requires: list[ModuleRequirement] = []
-
-        def tools(self, deps):
-            return [Tool(lambda: "ok", name="dupe")]
-
-    with pytest.raises(RuntimeError, match="Tool name collision"):
-        _collect_plugin_tools([("a", _A()), ("b", _B())], _settings(), MagicMock())
+# Cross-plugin collision is now handled by PluginHost's collision_key,
+# not by _collect_plugin_tools.  The corresponding test is
+# ``test_tool_name_collision_across_plugins_fatal`` above.
 
 
 # ---------------------------------------------------------------------------
@@ -454,13 +452,13 @@ def test_strict_fails_with_writes_disabled(respx_mock):
     enable_writes=False."""
     respx_mock.get(_tdb_exists_route()).respond(200)
 
-    with patch("queryd.app.discover_plugins") as mock_discover:
+    with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
             active=[("fake", _FakePluginMissingModule())],
         )
-        with patch("queryd.app.select_plugins") as mock_select:
+        with patch("firnline_core.plugins.select_plugins") as mock_select:
 
-            async def _fake_select(tdb, discovered, *, strict=False, branch="main"):
+            async def _fake_select(tdb, discovered, *, strict=False, branch="main", protocol=None, registry=None):
                 if strict:
                     raise RuntimeError(
                         "Strict plugin mode: skipped=['fake'], failed=[]"
@@ -488,14 +486,14 @@ def test_strict_fails_with_writes_disabled(respx_mock):
 
 def test_nonstrict_writes_disabled_allows_skipped(respx_mock):
     """enable_writes=False + non-strict: skipped plugins are tolerated,
-    app starts, active plugins reported in healthz."""
+    app starts, only active (post-selection) plugins reported in healthz."""
     respx_mock.get(_tdb_exists_route()).respond(200)
 
-    with patch("queryd.app.discover_plugins") as mock_discover:
+    with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
             active=[("planning", _planning_plugin), ("fake", _FakePluginMissingModule())],
         )
-        with patch("queryd.app.select_plugins") as mock_select:
+        with patch("firnline_core.plugins.select_plugins") as mock_select:
             mock_select.return_value = PluginSelection(
                 active=[("planning", _planning_plugin)],
                 skipped=[("fake", ["module 'nonexistent' not installed"])],
@@ -514,6 +512,5 @@ def test_nonstrict_writes_disabled_allows_skipped(respx_mock):
             with TestClient(app) as client:
                 resp = client.get("/healthz")
             assert resp.status_code == 200
-            # Active plugins are reported even though tools are suppressed
-            # (non-strict, writes-disabled: all discovered plugins reported)
-            assert set(resp.json()["plugins"]) == {"planning_tools", "fake_plugin"}
+            # Only active (post-selection) plugins reported; skipped are not listed
+            assert set(resp.json()["plugins"]) == {"planning_tools"}

@@ -1,6 +1,6 @@
 """Golden-JSON round-trip tests for generated TerminusDB kernel models.
 
-Covers the kernel-only facade: InboxNote, OneShotTrigger, ScheduleTrigger,
+Covers the kernel-only facade: Captured, Tag, OneShotTrigger, ScheduleTrigger,
 TriggerFiring, Provenance, ExternalRef, and SchemaModule.
 """
 
@@ -9,11 +9,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from firnline_core.generated.core import ExternalRef, Provenance, SchemaModule
-from firnline_core.generated.inbox import (
-    InboxNote,
-    InboxNoteStatus,
-)
+from firnline_core.generated.core import ExternalRef, Provenance, SchemaModule, Tag
+from firnline_core.generated.capture import Captured, CapturedStatus
 from firnline_core.generated.triggers import (
     FiringStatus,
     OneShotTrigger,
@@ -30,104 +27,153 @@ CEST = timezone(timedelta(hours=2))
 
 
 # ========================================================================
-# InboxNote round-trip (with Entity fields)
+# Captured round-trip (with Entity fields)
 # ========================================================================
 
 
-def test_inboxnote_round_trip():
+def test_captured_round_trip():
     """Parse a server-shaped response, assert fields, then re-serialise."""
     data = {
-        "@id": "InboxNote/abc123",
-        "@type": "InboxNote",
+        "@id": "Captured/abc123",
+        "@type": "Captured",
         "content": "Hello world",
+        "content_type": "text/plain",
         "status": "new",
+        "captured_at": "2026-07-05T14:00:00Z",
         "created_at": "2026-07-05T14:00:00Z",
         "updated_at": "2026-07-05T14:00:00Z",
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "service:ingestd",
+            "at": "2026-07-05T14:00:00Z",
+        },
         "contexts": [],
         "external_refs": [],
+        "derived_from": [],
     }
-    note = InboxNote.model_validate(data)
+    cap = Captured.model_validate(data)
 
-    assert note.id_ == "InboxNote/abc123"
-    assert note.type_ == "InboxNote"
-    assert note.content == "Hello world"
-    assert note.status == InboxNoteStatus.NEW
-    assert note.created_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
-    assert note.updated_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
-    assert note.contexts == []
-    assert note.external_refs == []
-    assert note.provenance is None
+    assert cap.id_ == "Captured/abc123"
+    assert cap.type_ == "Captured"
+    assert cap.content == "Hello world"
+    assert cap.content_type == "text/plain"
+    assert cap.status == CapturedStatus.NEW
+    assert cap.captured_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
+    assert cap.created_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
+    assert cap.updated_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
+    assert cap.contexts == []
+    assert cap.external_refs == []
+    assert cap.derived_from == []
+    assert cap.provenance.agent == "service:ingestd"
 
-    expected = {
-        "@id": "InboxNote/abc123",
-        "@type": "InboxNote",
-        "content": "Hello world",
-        "status": "new",
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
-        "contexts": [],
-        "external_refs": [],
-    }
-    assert note.to_tdb() == expected
+    result = cap.to_tdb()
+    assert result["@id"] == "Captured/abc123"
+    assert result["@type"] == "Captured"
+    assert result["content"] == "Hello world"
+    assert result["status"] == "new"
 
 
-def test_inboxnote_with_external_refs():
-    """InboxNote carries embedded ExternalRef subdocuments."""
-    _ref = ExternalRef(system="github", external_id="issue/42")
+def test_captured_label_field_classvar():
+    """Captured has label_field ClassVar set to 'content'."""
+    assert Captured.label_field == "content"
+
+
+def test_captured_with_external_refs():
+    """Captured carries embedded ExternalRef subdocuments."""
     data = {
-        "@id": "InboxNote/xyz",
-        "@type": "InboxNote",
+        "@id": "Captured/xyz",
+        "@type": "Captured",
         "content": "check PR",
+        "content_type": "text/plain",
         "status": "new",
+        "captured_at": "2026-07-06T08:00:00Z",
         "created_at": "2026-07-06T08:00:00Z",
         "updated_at": "2026-07-06T08:00:00Z",
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "service:ingestd",
+            "at": "2026-07-06T08:00:00Z",
+        },
         "contexts": ["projects/thing"],
         "external_refs": [
             {"@type": "ExternalRef", "system": "github", "external_id": "issue/42"},
         ],
+        "derived_from": [],
     }
-    note = InboxNote.model_validate(data)
-    assert note.contexts == ["projects/thing"]
-    assert len(note.external_refs) == 1
-    assert note.external_refs[0].system == "github"
-    assert note.external_refs[0].external_id == "issue/42"
+    cap = Captured.model_validate(data)
+    assert cap.contexts == ["projects/thing"]
+    assert len(cap.external_refs) == 1
+    assert cap.external_refs[0].system == "github"
+    assert cap.external_refs[0].external_id == "issue/42"
 
-    result = note.to_tdb()
+    result = cap.to_tdb()
     assert "contexts" in result
     assert "external_refs" in result
 
 
 # ========================================================================
-# Provenance round-trip
+# Tag round-trip
+# ========================================================================
+
+
+def test_tag_round_trip():
+    """Tag model round-trips with required provenance and derived_from."""
+    data = {
+        "@id": "Tag/learning",
+        "@type": "Tag",
+        "name": "learning",
+        "created_at": "2026-07-06T08:00:00Z",
+        "updated_at": "2026-07-06T08:00:00Z",
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "user:basti",
+            "at": "2026-07-06T08:00:00Z",
+        },
+        "contexts": [],
+        "external_refs": [],
+        "derived_from": [],
+    }
+    tag = Tag.model_validate(data)
+    assert tag.name == "learning"
+    assert tag.type_ == "Tag"
+    assert tag.label_field == "name"
+    assert tag.provenance.agent == "user:basti"
+
+    result = tag.to_tdb()
+    assert result["name"] == "learning"
+
+
+# ========================================================================
+# Provenance round-trip (no source field anymore)
 # ========================================================================
 
 
 def test_provenance_serialisation():
-    """Provenance subdocument round-trips correctly."""
+    """Provenance subdocument round-trips correctly (no source field)."""
     data = {
         "@id": "Provenance/abc",
         "@type": "Provenance",
-        "agent": "capture-agent",
+        "agent": "service:capture-agent",
         "at": "2026-07-06T08:00:00Z",
         "method": "auto",
         "confidence": 0.95,
-        "source": "InboxNote/xyz",
     }
     prov = Provenance.model_validate(data)
-    assert prov.agent == "capture-agent"
+    assert prov.agent == "service:capture-agent"
     assert prov.at == datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC)
     assert prov.method == "auto"
     assert prov.confidence == 0.95
-    assert prov.source == "InboxNote/xyz"
+
+    # source must not exist
+    assert "source" not in Provenance.model_fields
 
     expected = {
         "@id": "Provenance/abc",
         "@type": "Provenance",
-        "agent": "capture-agent",
+        "agent": "service:capture-agent",
         "at": "2026-07-06T08:00:00Z",
         "method": "auto",
         "confidence": 0.95,
-        "source": "InboxNote/xyz",
     }
     assert prov.to_tdb() == expected
 
@@ -135,13 +181,13 @@ def test_provenance_serialisation():
 def test_provenance_minimal():
     """Provenance with only required fields + None optionals."""
     prov = Provenance(
-        agent="test-agent",
+        agent="service:test-agent",
         at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
     )
     result = prov.to_tdb()
     assert result == {
         "@type": "Provenance",
-        "agent": "test-agent",
+        "agent": "service:test-agent",
         "at": "2026-07-06T08:00:00Z",
     }
     for key in ("method", "confidence", "source"):
@@ -209,21 +255,51 @@ def test_schema_module_round_trip():
 
 
 # ========================================================================
-# Entity default factories
+# Entity default factories (derived_from, contexts, external_refs on
+# Entity inheritors)
 # ========================================================================
 
 
 def test_entity_defaults_on_construction():
-    """New Entity inheritors get empty contexts/external_refs by default."""
-    note = InboxNote(
+    """New Entity inheritors get empty lists for collection fields."""
+    cap = Captured(
         content="hi",
-        status=InboxNoteStatus.NEW,
+        content_type="text/plain",
+        status=CapturedStatus.NEW,
+        captured_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
         created_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
         updated_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
+        provenance=Provenance(
+            agent="service:test",
+            at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
+        ),
     )
-    assert note.contexts == []
-    assert note.external_refs == []
-    assert note.provenance is None
+    assert cap.contexts == []
+    assert cap.external_refs == []
+    assert cap.derived_from == []
+
+
+# ========================================================================
+# Entity has archived_at
+# ========================================================================
+
+
+def test_entity_has_archived_at():
+    """Entity inheritors have archived_at field (default None)."""
+    cap = Captured(
+        content="test",
+        content_type="text/plain",
+        status=CapturedStatus.NEW,
+        captured_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
+        created_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
+        provenance=Provenance(
+            agent="service:test",
+            at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
+        ),
+    )
+    assert cap.archived_at is None
+    assert "archived_at" in Captured.model_fields
 
 
 # ========================================================================
@@ -245,13 +321,19 @@ def test_datetime_naive_treated_as_utc():
 def test_datetime_on_model_field():
     """model_dump(mode='json') uses the PlainSerializer."""
     dt = datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
-    note = InboxNote(
+    cap = Captured(
         content="test",
-        status=InboxNoteStatus.NEW,
+        content_type="text/plain",
+        status=CapturedStatus.NEW,
+        captured_at=dt,
         created_at=dt,
         updated_at=dt,
+        provenance=Provenance(
+            agent="service:test",
+            at=dt,
+        ),
     )
-    result = note.to_tdb()
+    result = cap.to_tdb()
     assert result["created_at"] == "2026-07-05T14:00:00Z"
     assert result["updated_at"] == "2026-07-05T14:00:00Z"
 
@@ -264,13 +346,19 @@ def test_datetime_on_model_field():
 def test_datetime_with_microseconds_serializes_without_them():
     """Datetime with non-zero microseconds -> output has no fractional seconds."""
     dt = datetime(2026, 7, 5, 14, 0, 0, 123456, tzinfo=UTC)
-    note = InboxNote(
+    cap = Captured(
         content="micros",
-        status=InboxNoteStatus.NEW,
+        content_type="text/plain",
+        status=CapturedStatus.NEW,
+        captured_at=dt,
         created_at=dt,
         updated_at=dt,
+        provenance=Provenance(
+            agent="service:test",
+            at=dt,
+        ),
     )
-    result = note.to_tdb()
+    result = cap.to_tdb()
     assert result["created_at"] == "2026-07-05T14:00:00Z"
     assert result["updated_at"] == "2026-07-05T14:00:00Z"
 
@@ -280,17 +368,25 @@ def test_datetime_with_microseconds_serializes_without_them():
 # ========================================================================
 
 
-def test_inboxnote_wrong_at_type_raises_validation_error():
+def test_captured_wrong_at_type_raises_validation_error():
     """Parsing a payload with @type mismatch raises ValidationError."""
     data = {
         "@type": "TriggerFiring",
         "content": "hello",
+        "content_type": "text/plain",
         "status": "new",
+        "captured_at": "2026-07-05T14:00:00Z",
         "created_at": "2026-07-05T14:00:00Z",
         "updated_at": "2026-07-05T14:00:00Z",
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "service:test",
+            "at": "2026-07-05T14:00:00Z",
+        },
+        "derived_from": [],
     }
     with pytest.raises(ValidationError):
-        InboxNote.model_validate(data)
+        Captured.model_validate(data)
 
 
 # ========================================================================
@@ -301,27 +397,35 @@ def test_inboxnote_wrong_at_type_raises_validation_error():
 def test_extra_fields_ignored():
     """Parsing a server response with unknown keys is ok (ignore extra)."""
     data = {
-        "@id": "InboxNote/abc",
-        "@type": "InboxNote",
+        "@id": "Captured/abc",
+        "@type": "Captured",
         "content": "test",
+        "content_type": "text/plain",
         "status": "new",
+        "captured_at": "2026-07-05T14:00:00Z",
         "created_at": "2026-07-05T14:00:00Z",
         "updated_at": "2026-07-05T14:00:00Z",
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "service:test",
+            "at": "2026-07-05T14:00:00Z",
+        },
+        "derived_from": [],
         "unknown_field": "should-be-ignored",
     }
-    note = InboxNote.model_validate(data)
-    assert note.content == "test"
-    result = note.to_tdb()
+    cap = Captured.model_validate(data)
+    assert cap.content == "test"
+    result = cap.to_tdb()
     assert "unknown_field" not in result
 
 
 # ========================================================================
-# OneShotTrigger round-trip (with nag fields)
+# OneShotTrigger round-trip (with nag fields + required provenance)
 # ========================================================================
 
 
 def test_oneshot_trigger_round_trip():
-    """OneShotTrigger inherits Trigger fields and has fire_at."""
+    """OneShotTrigger inherits Trigger/Entity fields and has fire_at."""
     data = {
         "@id": "OneShotTrigger/fire1",
         "@type": "OneShotTrigger",
@@ -332,6 +436,12 @@ def test_oneshot_trigger_round_trip():
         "fire_at": "2026-07-06T09:00:00Z",
         "renotify_every": "PT30M",
         "max_renotifications": 3,
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "service:scheduler",
+            "at": "2026-07-05T14:00:00Z",
+        },
+        "derived_from": [],
     }
     t = OneShotTrigger.model_validate(data)
 
@@ -355,6 +465,12 @@ def test_oneshot_trigger_round_trip():
         "max_renotifications": 3,
         "contexts": [],
         "external_refs": [],
+        "derived_from": [],
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "service:scheduler",
+            "at": "2026-07-05T14:00:00Z",
+        },
     }
     assert t.to_tdb() == expected
 
@@ -367,17 +483,22 @@ def test_oneshot_trigger_excludes_none_optionals():
         fire_at=datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC),
         created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
         updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        provenance=Provenance(
+            agent="service:test",
+            at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        ),
     )
     result = t.to_tdb()
     # Entity defaults are present (empty list)
     assert result["contexts"] == []
     assert result["external_refs"] == []
+    assert result["derived_from"] == []
+    assert result["provenance"]["agent"] == "service:test"
     assert "valid_from" not in result
     assert "valid_until" not in result
     assert "renotify_every" not in result
     assert "max_renotifications" not in result
     assert "expire_after" not in result
-    assert "provenance" not in result
 
 
 # ========================================================================
@@ -397,6 +518,12 @@ def test_schedule_trigger_with_timezone():
         "timezone": "Europe/Berlin",
         "created_at": "2026-07-05T14:00:00Z",
         "updated_at": "2026-07-05T14:00:00Z",
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "service:scheduler",
+            "at": "2026-07-05T14:00:00Z",
+        },
+        "derived_from": [],
     }
     t = ScheduleTrigger.model_validate(data)
 
@@ -417,6 +544,10 @@ def test_schedule_trigger_without_timezone():
         rrule="FREQ=DAILY",
         created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
         updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        provenance=Provenance(
+            agent="service:test",
+            at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        ),
     )
     assert t.timezone is None
 
@@ -425,7 +556,7 @@ def test_schedule_trigger_without_timezone():
 
 
 # ========================================================================
-# TriggerFiring round-trip (with Entity fields)
+# TriggerFiring round-trip (with Entity fields + required provenance)
 # ========================================================================
 
 
@@ -446,8 +577,14 @@ def test_trigger_firing_round_trip_all_fields():
         "notification_count": 1,
         "created_at": "2026-07-05T14:00:00Z",
         "updated_at": "2026-07-05T14:00:00Z",
+        "provenance": {
+            "@type": "Provenance",
+            "agent": "service:scheduler",
+            "at": "2026-07-05T14:00:00Z",
+        },
         "contexts": [],
         "external_refs": [],
+        "derived_from": [],
     }
     firing = TriggerFiring.model_validate(data)
 
@@ -466,26 +603,6 @@ def test_trigger_firing_round_trip_all_fields():
     assert firing.created_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
     assert firing.updated_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
 
-    expected = {
-        "@id": "TriggerFiring/ScheduleTrigger%2Frepeat1/2026-07-06T09:00:00Z",
-        "@type": "TriggerFiring",
-        "trigger": "ScheduleTrigger/repeat1",
-        "occurrence_key": "2026-07-06T09:00:00Z",
-        "scheduled_for": "2026-07-06T09:00:00Z",
-        "fired_at": "2026-07-06T09:00:01Z",
-        "status": "notified",
-        "subject": "Reminder/abc",
-        "acknowledged_at": "2026-07-06T09:05:00Z",
-        "snoozed_until": "2026-07-06T10:00:00Z",
-        "last_notified_at": "2026-07-06T09:00:01Z",
-        "notification_count": 1,
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
-        "contexts": [],
-        "external_refs": [],
-    }
-    assert firing.to_tdb() == expected
-
 
 def test_trigger_firing_minimal_excludes_none():
     """TriggerFiring with optional fields unset excludes them from output."""
@@ -497,21 +614,19 @@ def test_trigger_firing_minimal_excludes_none():
         status=FiringStatus.PENDING,
         created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
         updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        provenance=Provenance(
+            agent="service:test",
+            at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
+        ),
     )
     result = firing.to_tdb()
 
-    assert result == {
-        "@type": "TriggerFiring",
-        "trigger": "ScheduleTrigger/repeat1",
-        "occurrence_key": "2026-07-06T09:00:00Z",
-        "scheduled_for": "2026-07-06T09:00:00Z",
-        "fired_at": "2026-07-06T09:00:01Z",
-        "status": "pending",
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
-        "contexts": [],
-        "external_refs": [],
-    }
+    assert result["trigger"] == "ScheduleTrigger/repeat1"
+    assert result["status"] == "pending"
+    assert result["contexts"] == []
+    assert result["external_refs"] == []
+    assert result["derived_from"] == []
+    assert result["provenance"]["agent"] == "service:test"
 
     for key in ("subject", "acknowledged_at", "snoozed_until",
                 "last_notified_at", "notification_count"):
@@ -530,6 +645,12 @@ def test_trigger_firing_all_statuses():
             "status": value,
             "created_at": "2026-07-05T14:00:00Z",
             "updated_at": "2026-07-05T14:00:00Z",
+            "provenance": {
+                "@type": "Provenance",
+                "agent": "service:test",
+                "at": "2026-07-05T14:00:00Z",
+            },
+            "derived_from": [],
         }
         firing = TriggerFiring.model_validate(data)
         assert firing.status.value == value

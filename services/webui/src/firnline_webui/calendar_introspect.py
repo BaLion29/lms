@@ -53,6 +53,9 @@ def calendarable_classes(schema: list[dict]) -> list[dict]:
     * ``end_field`` — inferred end field (``None`` if none).
     * ``instant_field`` — inferred instant field (``None`` if a start was found).
     * ``title_field`` — preferred display field name.
+
+    Prefers ``@metadata.anchor_field`` when present on the class definition:
+    that field becomes the *instant_field* (single‑datetime fallback).
     """
     result: list[dict] = []
     for entry in schema:
@@ -70,6 +73,14 @@ def calendarable_classes(schema: list[dict]) -> list[dict]:
             continue
 
         dt_lower = {f.lower(): f for f in dt_fields}
+
+        # ── Schema‑driven anchor_field (preferred) ──────────────────────
+        anchor_field: str | None = None
+        meta = entry.get("@metadata")
+        if isinstance(meta, dict):
+            af = meta.get("anchor_field")
+            if isinstance(af, str) and af and af in dt_fields:
+                anchor_field = af
 
         # -- Role inference ---------------------------------------------------
         start_field: str | None = None
@@ -99,10 +110,13 @@ def calendarable_classes(schema: list[dict]) -> list[dict]:
                     end_field = orig_name
                     break
 
-        # Instant: only if no start was found.
+        # Instant: schema anchor_field wins; otherwise first datetime field
         instant_field: str | None = None
         if start_field is None:
-            instant_field = dt_fields[0]
+            if anchor_field is not None:
+                instant_field = anchor_field
+            else:
+                instant_field = dt_fields[0]
 
         # -- Title field -------------------------------------------------------
         title_field: str = "@id"
@@ -110,6 +124,13 @@ def calendarable_classes(schema: list[dict]) -> list[dict]:
             title_field = "name"
         elif "title" in entry:
             title_field = "title"
+
+        # Also check @metadata.label_field for title
+        meta = entry.get("@metadata")
+        if isinstance(meta, dict):
+            lf = meta.get("label_field")
+            if isinstance(lf, str) and lf and lf in entry:
+                title_field = lf
 
         result.append(
             {

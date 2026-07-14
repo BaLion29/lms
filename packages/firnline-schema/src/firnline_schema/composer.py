@@ -52,7 +52,11 @@ class CycleError(ComposerError):
 
 
 class L1Error(ComposerError):
-    """L1 law violation — only @context is core-exclusive."""
+    """L1 law violation — a ``@context`` block was found in a module's ``schema.json``.
+    
+    ``@context`` must live only in core's ``context.json``, not embedded
+    in schema fragments.
+    """
 
 
 class L2Error(ComposerError):
@@ -69,6 +73,14 @@ class DepMismatchError(ComposerError):
 
 class DocumentationError(ComposerError):
     """L3 law violation — exported class/enum missing @documentation with @comment."""
+
+
+class LabelFieldError(ComposerError):
+    """L4 law violation — exported Entity subclass missing @metadata.label_field."""
+
+
+class AnchorFieldError(ComposerError):
+    """L5 law violation — non-abstract Anchored subclass missing @metadata.anchor_field (or field not xsd:dateTime)."""
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +112,7 @@ class ModuleInfo:
     name: str
     version: str
     checksum: str
+    exports: list[str] | None = None  # from manifest
     source: str | None = None  # "repo:<name>" or "pkg:<dist>==<version>"
     description: str | None = None  # from manifest
 
@@ -306,6 +319,215 @@ def _find_cycle(nodes: set[str], edges: dict[str, list[str]]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Transitive inheritance helper
+# ---------------------------------------------------------------------------
+
+
+def _build_class_map(
+    all_classes: dict[str, list[dict[str, Any]]],
+) -> dict[str, dict[str, Any]]:
+    """Index every class definition by @id across all modules."""
+    class_map: dict[str, dict[str, Any]] = {}
+    for classes in all_classes.values():
+        for cls in classes:
+            cid = cls.get("@id")
+            if isinstance(cid, str) and cls.get("@type") != "@context":
+                class_map[cid] = cls
+    return class_map
+
+
+def _inherits_transitively(
+    cls_id: str,
+    target_id: str,
+    class_map: dict[str, dict[str, Any]],
+) -> bool:
+    """Return True if *cls_id* transitively inherits from *target_id*.
+
+    Walks @inherits (string or list) recursively across *class_map*.
+    """
+    seen: set[str] = set()
+
+    def walk(cid: str) -> bool:
+        if cid in seen:
+            return False
+        seen.add(cid)
+        if cid == target_id:
+            return True
+        cls_def = class_map.get(cid)
+        if cls_def is None:
+            return False
+        inherits = cls_def.get("@inherits")
+        if inherits is None:
+            return False
+        parents = [inherits] if isinstance(inherits, str) else inherits
+        for p in parents:
+            if isinstance(p, str) and walk(p):
+                return True
+        return False
+
+    return walk(cls_id)
+
+
+def _resolve_field_type(
+    cls_def: dict[str, Any],
+    field_name: str,
+    class_map: dict[str, dict[str, Any]],
+) -> str | None:
+    """Return the raw type string for *field_name* on *cls_def*, walking inheritance.
+
+    Returns None if the field is not found.
+    """
+    seen: set[str] = set()
+
+    def walk(cid: str) -> str | None:
+        if cid in seen:
+            return None
+        seen.add(cid)
+        cd = class_map.get(cid)
+        if cd is None:
+            return None
+        if field_name in cd and not field_name.startswith("@"):
+            raw = cd[field_name]
+            if isinstance(raw, str):
+                return raw
+            if isinstance(raw, dict):
+                return raw.get("@class")
+            return None
+        inherits = cd.get("@inherits")
+        if inherits is None:
+            return None
+        parents = [inherits] if isinstance(inherits, str) else inherits
+        for p in parents:
+            if isinstance(p, str):
+                result = walk(p)
+                if result is not None:
+                    return result
+        return None
+
+    return walk(cls_def.get("@id", ""))
+
+
+def _resolve_metadata_transitively(
+    cls_id: str,
+    class_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Walk ``@inherits`` transitively to resolve effective ``@metadata``.
+
+    Nearest ancestor wins; own class metadata (already checked) overrides.
+    Returns an empty dict when no metadata is found anywhere in the chain.
+    """
+    seen: set[str] = set()
+
+    def walk(cid: str) -> dict[str, Any] | None:
+        if cid in seen:
+            return None
+        seen.add(cid)
+        cls_def = class_map.get(cid)
+        if cls_def is None:
+            return None
+        metadata = cls_def.get("@metadata")
+        if isinstance(metadata, dict):
+            return metadata
+        inherits = cls_def.get("@inherits")
+        if inherits is None:
+            return None
+        parents = [inherits] if isinstance(inherits, str) else inherits
+        for p in parents:
+            if isinstance(p, str):
+                result = walk(p)
+                if result is not None:
+                    return result
+        return None
+
+    own = class_map.get(cls_id, {}).get("@inherits")
+    if own:
+        parents = [own] if isinstance(own, str) else own
+        for p in parents:
+            if isinstance(p, str):
+                result = walk(p)
+                if isinstance(result, dict):
+                    return result
+    return {}
+
+
+def _validate_label_anchor(
+    modules: dict[str, Manifest],
+    all_classes: dict[str, list[dict[str, Any]]],
+) -> None:
+    """Validate @metadata.label_field / @metadata.anchor_field rules."""
+    class_map = _build_class_map(all_classes)
+
+    label_errors: list[str] = []
+    anchor_errors: list[str] = []
+
+    for name in sorted(modules):
+        m = modules[name]
+        classes = all_classes.get(name, [])
+        export_set = set(m.exports)
+
+        for cls_def in classes:
+            cid = cls_def.get("@id", "?")
+            if cls_def.get("@type") != "Class":
+                continue
+            if "@abstract" in cls_def or "@subdocument" in cls_def:
+                continue
+
+            metadata = cls_def.get("@metadata")
+            if not isinstance(metadata, dict):
+                metadata = _resolve_metadata_transitively(cid, class_map)
+
+            # --- label_field: exported non-abstract Entity subclass ---
+            if cid in export_set and _inherits_transitively(cid, "Entity", class_map):
+                lf = metadata.get("label_field")
+                if not isinstance(lf, str):
+                    label_errors.append(
+                        f"{name}:{cid}: exported Entity subclass "
+                        f"missing or invalid '@metadata.label_field'"
+                    )
+                else:
+                    # Verify the field exists on the class (own or inherited)
+                    field_type = _resolve_field_type(cls_def, lf, class_map)
+                    if field_type is None:
+                        label_errors.append(
+                            f"{name}:{cid}: '@metadata.label_field'='{lf}' "
+                            f"but '{lf}' is not a property of this class"
+                        )
+
+            # --- anchor_field: ALL non-abstract Anchored subclasses ---
+            if _inherits_transitively(cid, "Anchored", class_map):
+                af = metadata.get("anchor_field")
+                if not isinstance(af, str):
+                    anchor_errors.append(
+                        f"{name}:{cid}: non-abstract Anchored subclass "
+                        f"missing or invalid '@metadata.anchor_field'"
+                    )
+                else:
+                    field_type = _resolve_field_type(cls_def, af, class_map)
+                    if field_type is None:
+                        anchor_errors.append(
+                            f"{name}:{cid}: '@metadata.anchor_field'='{af}' "
+                            f"but '{af}' is not a property of this class"
+                        )
+                    elif field_type != "xsd:dateTime":
+                        anchor_errors.append(
+                            f"{name}:{cid}: '@metadata.anchor_field'='{af}' "
+                            f"type is '{field_type}', must be 'xsd:dateTime'"
+                        )
+
+    if label_errors:
+        raise LabelFieldError(
+            "L4: @metadata.label_field required for exported Entity subclasses:\n  "
+            + "\n  ".join(sorted(label_errors))
+        )
+
+    if anchor_errors:
+        raise AnchorFieldError(
+            "L5: @metadata.anchor_field required for non-abstract Anchored subclasses:\n  "
+            + "\n  ".join(sorted(anchor_errors))
+        )
+
+
 def _validate_all(
     modules: dict[str, Manifest], order: list[str],
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
@@ -365,6 +587,9 @@ def _validate_all(
     # L3: every exported class/enum must have @documentation with @comment
     _validate_documentation(modules, all_classes_per_module)
 
+    # L4/L5: @metadata label_field / anchor_field
+    _validate_label_anchor(modules, all_classes_per_module)
+
     return all_classes_per_module, class_to_module
 
 
@@ -398,6 +623,22 @@ def _is_builtin(name: str) -> bool:
     return False
 
 
+def _extract_wrapper_class(wrapper: dict[str, Any]) -> list[str]:
+    """Extract class refs from a TerminusDB wrapper dict, unwrapping @class chains.
+
+    Wrapper dicts have ``@class`` and ``@type`` keys.  Because ``_extract_refs``
+    skips all @-prefixed keys, nested wrappers cannot be handled by recursive
+    calls.  This helper unwraps ``@class`` directly.
+    """
+    refs: list[str] = []
+    inner = wrapper.get("@class")
+    if isinstance(inner, str):
+        refs.append(inner)
+    elif isinstance(inner, dict):
+        refs.extend(_extract_wrapper_class(inner))
+    return refs
+
+
 def _extract_refs(cls: dict[str, Any]) -> list[str]:
     """Return every class/enum name referenced by *cls*.
 
@@ -423,22 +664,17 @@ def _extract_refs(cls: dict[str, Any]) -> list[str]:
             if isinstance(v, str):
                 refs.append(v)
             elif isinstance(v, dict):
-                # wrapper-dict value: walk with same logic
-                refs.extend(_extract_refs(v))
+                refs.extend(_extract_wrapper_class(v))
     elif isinstance(oneof, list):
         for item in oneof:
             if isinstance(item, str):
                 refs.append(item)
             elif isinstance(item, dict):
-                refs.extend(_extract_refs(item))
+                refs.extend(_extract_wrapper_class(item))
 
-    # Regular properties (non-@ keys, skip known meta keys)
-    META_KEYS = {
-        "@id", "@type", "@inherits", "@abstract", "@subdocument",
-        "@key", "@oneOf", "@value",
-    }
+    # Regular properties (skip all @-prefixed meta keys)
     for key, val in cls.items():
-        if key in META_KEYS:
+        if key.startswith("@"):
             continue
         if isinstance(val, str):
             refs.append(val)
@@ -447,9 +683,7 @@ def _extract_refs(cls: dict[str, Any]) -> list[str]:
             if isinstance(class_val, str):
                 refs.append(class_val)
             elif isinstance(class_val, dict):
-                # Nested wrapper (e.g. Set → Optional → X):
-                # recurse into the inner dict to find its @class
-                refs.extend(_extract_refs(class_val))
+                refs.extend(_extract_wrapper_class(class_val))
 
     return refs
 
@@ -586,6 +820,7 @@ def _assemble(
             name=name,
             version=m.version,
             checksum=checksum,
+            exports=list(m.exports),
             source=sources.get(name),
             description=m.description,
         ))

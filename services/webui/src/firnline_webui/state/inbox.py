@@ -15,7 +15,7 @@ _settings = get_settings()
 
 
 async def _load_inbox_rows(tdb: TdbBrowser) -> tuple[list[dict], set[str]]:
-    """Fetch schema, find inbox classes, fetch all documents.
+    """Fetch schema, find Captured class, fetch all Captured documents.
 
     Returns ``(rows, statuses)``.  Raises ``WebuiClientError`` on schema
     failure; per-class fetch failures are silently skipped.
@@ -37,21 +37,24 @@ async def _load_inbox_rows(tdb: TdbBrowser) -> tuple[list[dict], set[str]]:
         for doc in docs:
             iri = doc.get("@id", "")
             status = str(doc.get("status", ""))
-            created_at = str(doc.get("created_at", ""))
+            captured_at = str(doc.get("captured_at", ""))
+            content_type = str(doc.get("content_type", ""))
+            # Preview: prefer content, fallback to transcription
             preview = doc_preview(doc)
             all_rows.append(
                 {
                     "class": cid,
                     "id": iri,
                     "status": status,
-                    "created_at": created_at,
+                    "captured_at": captured_at,
+                    "content_type": content_type,
                     "preview": preview,
                 }
             )
             if status:
                 statuses.add(status)
 
-    all_rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    all_rows.sort(key=lambda r: r.get("captured_at") or "", reverse=True)
     return all_rows, statuses
 
 

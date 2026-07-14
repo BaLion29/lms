@@ -1,9 +1,8 @@
 """Stable public facade — re-exports generated models and base utilities.
 
 This module is hand-maintained.  Kernel-only: core base types, generated
-kernel models (core, triggers, inbox), and trigger-related enums.
-Extension domain models (Task, Person, Location, Event, Reminder, etc.)
-live in their respective extension packages.
+kernel models (core, triggers, capture), and trigger/capture enums.
+Extension domain models live in their respective extension packages.
 """
 
 # flake8: noqa: F401
@@ -12,7 +11,7 @@ live in their respective extension packages.
 from firnline_core.base import TdbDateTime, TdbDocument, _format_datetime
 
 # Core generated models
-from firnline_core.generated.core import ExternalRef, Provenance, SchemaMigration, SchemaModule
+from firnline_core.generated.core import ExternalRef, Provenance, SchemaMigration, SchemaModule, Tag
 
 # Trigger generated models (concrete triggers + enums + TriggerFiring)
 from firnline_core.generated.triggers import (
@@ -27,12 +26,10 @@ from firnline_core.generated.triggers import (
     TriggerFiring,
 )
 
-# Inbox generated models
-from firnline_core.generated.inbox import (
-    InboxAudio,
-    InboxAudioStatus,
-    InboxNote,
-    InboxNoteStatus,
+# Capture generated models
+from firnline_core.generated.capture import (
+    Captured,
+    CapturedStatus,
 )
 
 __all__ = [
@@ -45,6 +42,7 @@ __all__ = [
     "Provenance",
     "SchemaMigration",
     "SchemaModule",
+    "Tag",
     # triggers
     "CompositeMode",
     "CompositeTrigger",
@@ -55,9 +53,7 @@ __all__ = [
     "RelativeTrigger",
     "ScheduleTrigger",
     "TriggerFiring",
-    # inbox
-    "InboxAudio",
-    "InboxAudioStatus",
-    "InboxNote",
-    "InboxNoteStatus",
+    # capture
+    "Captured",
+    "CapturedStatus",
 ]

@@ -72,7 +72,7 @@ class Pipeline:
             }
         )
 
-        # Idempotency fallback state (reset per cycle via run_cycle)
+        # Per-cycle idempotency state — reset at the top of each run_cycle call
         self._idempotency_graphql_ok: bool = True
         self._idempotency_fallback_cache: set[str] | None = None
         self._idempotency_path_logged: bool = False
@@ -187,7 +187,7 @@ class Pipeline:
         """Return ``True`` if *doc_iri* was already derived from.
 
         Primary path: per-item GraphQL point lookup using a filtered
-        ``Entity`` query on ``provenance.source``.
+        ``Entity`` query on ``derived_from``.
 
         Fallback: single class-scan per cycle, cached after first TdbError
         on the GraphQL path.  Logs which path was used once per cycle at
@@ -197,7 +197,7 @@ class Pipeline:
             try:
                 query = (
                     "query($src: String) {"
-                    "  Entity(filter: { provenance: { source: { eq: $src } } }) {"
+                    "  Entity(filter: { derived_from: { someHave: { eq: $src } } }) {"
                     "    _id"
                     "  }"
                     "}"
@@ -206,6 +206,27 @@ class Pipeline:
                     query, variables={"src": doc_iri}, branch=branch
                 )
                 entities = data.get("Entity", [])
+
+                # When TerminusDB returns ``"Entity": null`` (abstract-class
+                # query unsupported or empty), ``data.get`` yields None, which
+                # would bypass the isinstance-list check below and cause
+                # reprocessing every cycle.  Treat null as "unknown" →
+                # fall through to the class-scan fallback path.
+                if entities is None:
+                    if not self._idempotency_path_logged:
+                        logger.warning(
+                            "idempotency_graphql_null_entity",
+                            iri=doc_iri,
+                            fallback="class_scan",
+                        )
+                    self._idempotency_graphql_ok = False
+                    self._idempotency_fallback_cache = (
+                        await self._build_fallback_idempotency_set(branch)
+                    )
+                    logger.info("idempotency_path", method="class_scan_fallback")
+                    self._idempotency_path_logged = True
+                    # Re-check via fallback
+                    return doc_iri in (self._idempotency_fallback_cache or set())
 
                 if not self._idempotency_path_logged:
                     logger.info("idempotency_path", method="graphql_point_lookup")
@@ -230,7 +251,7 @@ class Pipeline:
         return doc_iri in (self._idempotency_fallback_cache or set())
 
     async def _build_fallback_idempotency_set(self, branch: str) -> set[str]:
-        """Fallback: scan all ``produces`` classes, read ``provenance.source``."""
+        """Fallback: scan all ``produces`` classes, read ``derived_from``."""
         result: set[str] = set()
         for cls_name in self._linkable_classes:
             try:
@@ -238,9 +259,10 @@ class Pipeline:
             except TdbError:
                 continue
             for d in docs:
-                source = (d.get("provenance") or {}).get("source")
-                if source:
-                    result.add(short_iri(source))
+                derived = d.get("derived_from") or []
+                for ref in derived:
+                    if ref:
+                        result.add(short_iri(ref))
         return result
 
     # ------------------------------------------------------------------
@@ -328,6 +350,11 @@ class Pipeline:
         # 2. Text + reference datetime from source plugin
         text = src.text(doc)
         reference_dt = src.reference_time(doc)
+
+        # Guard: skip items with empty text (e.g. audio captures not yet transcribed)
+        if not text or not text.strip():
+            logger.info("empty_text_skipped", iri=doc_iri)
+            return
 
         # 3. Extraction retry loop
         error_feedback: str | None = None
@@ -478,7 +505,7 @@ class Pipeline:
 
             ctx = BuildContext(
                 tdb=self.tdb,
-                inbox_iri=doc_iri,
+                captured_iri=doc_iri,
                 now=lambda: now,
                 ensure_entity=ensure_entity,
                 branch=self.settings.tdb_branch,

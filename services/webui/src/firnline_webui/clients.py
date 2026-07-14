@@ -44,14 +44,25 @@ def schema_classes(schema: list[dict]) -> list[dict]:
 def class_display_fields(class_def: dict) -> list[str]:
     """Return up-to-5 preferred display field names for a class definition.
 
-    Prefers, in order: name, title, text, status, kind, created_at, updated_at.
-    Fills remaining slots (up to 5) with other non-``@`` keys alphabetically.
+    Prefers ``@metadata.label_field`` if present, then in order: name, title,
+    text, status, kind, created_at, updated_at.  Fills remaining slots (up to
+    5) with other non-``@`` keys alphabetically.
     """
-    preferred = ["name", "title", "text", "status", "kind", "created_at", "updated_at"]
+    # Schema-driven label field takes priority
+    meta = class_def.get("@metadata")
+    if isinstance(meta, dict):
+        lf = meta.get("label_field")
+        if isinstance(lf, str) and lf and lf in class_def:
+            preferred = [lf, "name", "title", "text", "status", "kind", "created_at", "updated_at"]
+        else:
+            preferred = ["name", "title", "text", "status", "kind", "created_at", "updated_at"]
+    else:
+        preferred = ["name", "title", "text", "status", "kind", "created_at", "updated_at"]
+
     fields: list[str] = []
 
     for p in preferred:
-        if p in class_def:
+        if p in class_def and p not in fields:
             fields.append(p)
 
     remaining = sorted(k for k in class_def if not k.startswith("@") and k not in fields)

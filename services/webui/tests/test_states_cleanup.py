@@ -33,9 +33,12 @@ class _FakeTdb:
         tdb_error: tuple[int, str] = (500, "boof"),
     ) -> None:
         if schema is None:
-            schema = [{"@type": "Class", "@id": "InboxNote"}]
+            schema = [{"@type": "Class", "@id": "Captured", "content": "xsd:string",
+                        "status": "xsd:string", "captured_at": "xsd:dateTime",
+                        "content_type": "xsd:string"}]
         if docs is None:
-            docs = [{"@id": "InboxNote/1", "status": "open", "created_at": "2025-01-01T00:00:00Z"}]
+            docs = [{"@id": "Captured/1", "status": "new", "captured_at": "2025-01-01T00:00:00Z",
+                      "content_type": "text/plain", "content": "hello"}]
         self._schema = schema
         self._docs = docs
         self._raise_runtime_on = raise_runtime_on
@@ -82,13 +85,14 @@ async def test_helper_returns_rows_and_statuses():
     rows, statuses = await _load_inbox_rows(browser)
 
     assert len(rows) == 1
-    assert rows[0]["id"] == "InboxNote/1"
-    assert rows[0]["status"] == "open"
-    assert statuses == {"open"}
+    assert rows[0]["id"] == "Captured/1"
+    assert rows[0]["status"] == "new"
+    assert rows[0]["content_type"] == "text/plain"
+    assert statuses == {"new"}
 
 
 async def test_helper_empty_class_ids():
-    """When no inbox classes exist, returns empty results."""
+    """When no Captured class exists, returns empty results."""
     fake = _FakeTdb(schema=[])
     browser = _make_fake_browser(fake)
 
@@ -204,4 +208,4 @@ async def test_handler_closes_tdb_on_success():
 
     assert fake.aclose_called
     assert len(state.rows) == 1
-    assert state.available_statuses == ["open"]
+    assert state.available_statuses == ["new"]

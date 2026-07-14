@@ -8,13 +8,14 @@ plugin-provided ``Tool`` objects.
 Every tool records a ``ToolTraceEntry`` into ``ctx.deps.trace`` via the
 ``@_traced`` decorator so callers can inspect the complete tool-call
 history.
+
+Implementation: thin wrappers over ``queryd.operations`` functions.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -23,10 +24,11 @@ from zoneinfo import ZoneInfo
 import structlog
 from pydantic_ai import RunContext, Tool
 
+from firnline_core.indexed_client import IndexedClient, IndexedError
 from firnline_core.tdb import TdbClient, TdbError
 from firnline_core.tooling import ToolTraceEntry, traced as _kernel_traced
-from firnline_core.indexed_client import IndexedClient, IndexedError
 
+from queryd import operations
 from queryd.settings import Settings
 
 log = structlog.get_logger()
@@ -38,6 +40,13 @@ ZURICH = ZoneInfo("Europe/Zurich")
 # ---------------------------------------------------------------------------
 
 _traced = _kernel_traced  # alias for internal use; public contract is firnline_core.tooling
+
+# ---------------------------------------------------------------------------
+# Re-export shared guard (backward compat for test imports)
+# ---------------------------------------------------------------------------
+
+_STRIP_PATTERN = operations._STRIP_PATTERN
+_check_graphql = operations.check_graphql
 
 # ---------------------------------------------------------------------------
 # Dependency container for pydantic-ai RunContext
@@ -54,54 +63,6 @@ class QuerydDeps:
     trace: list[ToolTraceEntry] = field(default_factory=list)
     prompt_briefing: str = ""
     tool_calls_used: int = 0
-
-
-# ---------------------------------------------------------------------------
-# GraphQL mutation guard
-# ---------------------------------------------------------------------------
-
-# TerminusDB v12.0.6 DOES expose a TerminusMutation type with
-# _insertDocuments / _replaceDocuments / _deleteDocuments fields, so
-# the guard below is a *load-bearing* security control — otherwise the
-# agent could issue writes through GraphQL bypassing the enable_writes
-# gate.
-
-# Pattern that strips comments and string literals, leaving only
-# structural GraphQL keywords to scan.
-_STRIP_PATTERN = re.compile(
-    r'""".*?"""'  # triple-quoted strings (non-greedy, dotall)
-    r"|"
-    r'"(?:[^"\\]|\\.)*"'  # double-quoted strings
-    r"|"
-    r"'(?:[^'\\]|\\.)*'"  # single-quoted strings (safe belt-and-braces)
-    r"|"
-    r"#[^\n]*",  # #-style comments to end of line
-    re.DOTALL,
-)
-
-# Guards against operation definitions starting with mutation/subscription.
-# Matches at document start or after a closing brace of a previous operation.
-# Known residual false positive: inline fragments like `{ a { b } mutation }`
-# (mutation used as a bare field name, which is harmless but syntactically odd).
-_HARMFUL_KEYWORDS = re.compile(
-    r"(?:^|})\s*(mutation|subscription)\b", re.IGNORECASE | re.MULTILINE
-)
-_HARMFUL_FUNCTIONS = [
-    "_insertDocuments",
-    "_replaceDocuments",
-    "_deleteDocuments",
-]
-
-
-def _check_graphql(query: str) -> str | None:
-    """Return an error message if *query* is dangerous, ``None`` otherwise."""
-    stripped = _STRIP_PATTERN.sub(" ", query)
-    if m := _HARMFUL_KEYWORDS.search(stripped):
-        return f"Query contains prohibited keyword: {m.group()}"
-    for func in _HARMFUL_FUNCTIONS:
-        if func in stripped:
-            return f"Query contains prohibited function: {func}"
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +95,7 @@ async def graphql_query(
     supports them.
     """
     # ---- mutation guard ------------------------------------------------
-    error = _check_graphql(query)
+    error = operations.check_graphql(query)
     if error is not None:
         return f"ERROR: {error}"
 
@@ -213,31 +174,22 @@ async def find_entity(
         return "ERROR: index unavailable — fall back to graphql_query with get_schema_details"
 
     try:
-        async with IndexedClient(
-            base_url=settings.indexed_url,
-            token=settings.indexed_token,
-            timeout=settings.indexed_timeout_seconds,
-        ) as client:
-            candidates = await client.find_entity(
-                text, classes=classes, branch=settings.tdb_branch, k=k
-            )
+        candidates = await operations.find_entity(
+            indexed_url=settings.indexed_url,
+            indexed_token=settings.indexed_token,
+            indexed_timeout=settings.indexed_timeout_seconds,
+            text=text,
+            classes=classes,
+            branch=settings.tdb_branch,
+            k=k,
+        )
     except IndexedError as e:
         return f"ERROR: index unavailable ({e.status}): {e.message} — fall back to graphql_query"
 
     if not candidates:
         return "No matching entities found."
 
-    result = {"candidates": [
-        {
-            "iri": c.iri,
-            "class": c.class_name,
-            "name": c.name,
-            "aliases": c.aliases,
-            "score": round(c.score, 4),
-            "commit_id": c.commit_id,
-        }
-        for c in candidates
-    ]}
+    result = {"candidates": candidates}
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
@@ -255,26 +207,20 @@ async def find_class(ctx: RunContext[QuerydDeps], text: str, k: int = 5) -> str:
         return "ERROR: index unavailable — fall back to get_schema_details"
 
     try:
-        async with IndexedClient(
-            base_url=settings.indexed_url,
-            token=settings.indexed_token,
-            timeout=settings.indexed_timeout_seconds,
-        ) as client:
-            candidates = await client.find_class(text, k=k)
+        candidates = await operations.find_class(
+            indexed_url=settings.indexed_url,
+            indexed_token=settings.indexed_token,
+            indexed_timeout=settings.indexed_timeout_seconds,
+            text=text,
+            k=k,
+        )
     except IndexedError as e:
         return f"ERROR: index unavailable ({e.status}): {e.message} — fall back to get_schema_details"
 
     if not candidates:
         return "No matching classes found."
 
-    result = {"candidates": [
-        {
-            "class": c.class_name,
-            "description": c.description,
-            "score": round(c.score, 4),
-        }
-        for c in candidates
-    ]}
+    result = {"candidates": candidates}
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
@@ -298,28 +244,21 @@ async def find_field(
         return "ERROR: index unavailable — fall back to get_schema_details"
 
     try:
-        async with IndexedClient(
-            base_url=settings.indexed_url,
-            token=settings.indexed_token,
-            timeout=settings.indexed_timeout_seconds,
-        ) as client:
-            candidates = await client.find_field(text, class_name=class_name, k=k)
+        candidates = await operations.find_field(
+            indexed_url=settings.indexed_url,
+            indexed_token=settings.indexed_token,
+            indexed_timeout=settings.indexed_timeout_seconds,
+            text=text,
+            class_name=class_name,
+            k=k,
+        )
     except IndexedError as e:
         return f"ERROR: index unavailable ({e.status}): {e.message} — fall back to get_schema_details"
 
     if not candidates:
         return "No matching fields found."
 
-    result = {"candidates": [
-        {
-            "class": c.class_name,
-            "field": c.field,
-            "type": c.type,
-            "description": c.description,
-            "score": round(c.score, 4),
-        }
-        for c in candidates
-    ]}
+    result = {"candidates": candidates}
     return json.dumps(result, ensure_ascii=False, default=str)
 
 

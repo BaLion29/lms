@@ -70,7 +70,7 @@ class ReminderExtractPlugin(ExtractorPlugin):
             agent="ingestd",
             method="llm_extraction",
             at=now,
-            source=short_iri(ctx.inbox_iri),
+            source=short_iri(ctx.captured_iri),
         )
 
         if isinstance(proposal, ReminderProposal):

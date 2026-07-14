@@ -6,6 +6,7 @@ import pytest
 
 from firnline_webui.introspect import (
     browsable_classes,
+    class_label_field,
     doc_preview,
     format_iri,
     group_classes_by_module,
@@ -18,39 +19,23 @@ from firnline_webui.introspect import (
 
 
 @pytest.fixture
-def inbox_schema() -> list[dict]:
-    """Schema modelled on the real firnline-ext-inbox schema.json."""
+def captured_schema() -> list[dict]:
+    """Schema with the kernel Captured class."""
     return [
         {
-            "@id": "InboxAudio",
-            "@inherits": "Source",
+            "@id": "Captured",
             "@type": "Class",
-            "created_at": "xsd:dateTime",
-            "file_name": "xsd:string",
-            "file_path": "xsd:string",
-            "recorded_at": "xsd:dateTime",
-            "status": "InboxAudioStatus",
-            "transcription": "xsd:string",
-            "updated_at": "xsd:dateTime",
-        },
-        {
-            "@id": "InboxNote",
-            "@inherits": "Source",
-            "@type": "Class",
+            "captured_at": "xsd:dateTime",
+            "content_type": "xsd:string",
             "content": "xsd:string",
-            "created_at": "xsd:dateTime",
-            "status": "InboxNoteStatus",
-            "updated_at": "xsd:dateTime",
+            "status": "xsd:string",
+            "transcription": "xsd:string",
+            "file_name": "xsd:string",
+            "blob_sha256": "xsd:string",
         },
         {
-            "@id": "InboxAudioStatus",
+            "@id": "CapturedStatus",
             "@type": "Enum",
-            "@value": ["new", "transcribed", "processed", "failed", "archived"],
-        },
-        {
-            "@id": "InboxNoteStatus",
-            "@type": "Enum",
-            "@value": ["new", "processed", "failed", "archived"],
         },
     ]
 
@@ -59,7 +44,8 @@ def inbox_schema() -> list[dict]:
 def full_schema() -> list[dict]:
     """Schema with classes, enums, abstract, and subdocument entries."""
     return [
-        {"@id": "InboxNote", "@type": "Class", "text": "xsd:string", "status": "xsd:string"},
+        {"@id": "Captured", "@type": "Class", "content": "xsd:string", "status": "xsd:string",
+         "content_type": "xsd:string", "captured_at": "xsd:dateTime"},
         {"@id": "Person", "@type": "Class", "name": "xsd:string", "age": "xsd:integer"},
         {"@id": "AbstractThing", "@type": "Class", "@abstract": True, "name": "xsd:string"},
         {"@id": "SubDoc", "@type": "Class", "@subdocument": True, "value": "xsd:string"},
@@ -72,9 +58,9 @@ def full_schema() -> list[dict]:
 def sample_modules() -> list[dict]:
     return [
         {
-            "name": "inbox_ext",
+            "name": "capture_ext",
             "version": "1.0.0",
-            "exports": ["InboxNote", "InboxNoteStatus"],
+            "exports": ["Captured", "CapturedStatus"],
         },
         {
             "name": "core_ext",
@@ -87,9 +73,9 @@ def sample_modules() -> list[dict]:
 # ── inbox_classes ───────────────────────────────────────────────────────
 
 
-def test_inbox_classes_finds_inbox_prefix(inbox_schema):
-    result = inbox_classes(inbox_schema)
-    assert result == ["InboxAudio", "InboxNote"]
+def test_inbox_classes_finds_captured(captured_schema):
+    result = inbox_classes(captured_schema)
+    assert result == ["Captured"]
 
 
 def test_inbox_classes_excludes_abstract(full_schema):
@@ -102,7 +88,7 @@ def test_inbox_classes_excludes_subdocument(full_schema):
     assert "SubDoc" not in result
 
 
-def test_inbox_classes_excludes_non_inbox(full_schema):
+def test_inbox_classes_excludes_non_captured(full_schema):
     result = inbox_classes(full_schema)
     assert "Person" not in result
     assert "Event" not in result
@@ -111,6 +97,40 @@ def test_inbox_classes_excludes_non_inbox(full_schema):
 def test_inbox_classes_empty():
     assert inbox_classes([]) == []
     assert inbox_classes([{"@type": "Class", "@id": "Foo"}]) == []
+
+
+# ── class_label_field ───────────────────────────────────────────────────
+
+
+def test_class_label_field_from_metadata():
+    class_def = {
+        "@id": "Person",
+        "@type": "Class",
+        "@metadata": {"label_field": "name"},
+        "name": "xsd:string",
+        "age": "xsd:integer",
+    }
+    assert class_label_field(class_def) == "name"
+
+
+def test_class_label_field_missing_metadata():
+    class_def = {"@id": "Foo", "@type": "Class", "name": "xsd:string"}
+    assert class_label_field(class_def) is None
+
+
+def test_class_label_field_field_not_in_class():
+    class_def = {
+        "@id": "Foo",
+        "@type": "Class",
+        "@metadata": {"label_field": "title"},
+        "name": "xsd:string",
+    }
+    assert class_label_field(class_def) is None
+
+
+def test_class_label_field_non_dict_metadata():
+    class_def = {"@id": "Foo", "@type": "Class", "@metadata": "not a dict"}
+    assert class_label_field(class_def) is None
 
 
 # ── browsable_classes ───────────────────────────────────────────────────
@@ -128,7 +148,7 @@ def test_browsable_classes_excludes_subdocument(full_schema):
 
 def test_browsable_classes_includes_normal_classes(full_schema):
     result = browsable_classes(full_schema)
-    assert "InboxNote" in result
+    assert "Captured" in result
     assert "Person" in result
     assert "Event" in result
 
@@ -149,10 +169,10 @@ def test_browsable_classes_empty():
 
 
 def test_group_by_module(sample_modules):
-    class_ids = ["InboxNote", "Person", "Event", "OtherClass"]
+    class_ids = ["Captured", "Person", "Event", "OtherClass"]
     result = group_classes_by_module(class_ids, sample_modules)
-    assert set(result.keys()) == {"inbox_ext", "core_ext", "other"}
-    assert result["inbox_ext"] == ["InboxNote"]
+    assert set(result.keys()) == {"capture_ext", "core_ext", "other"}
+    assert result["capture_ext"] == ["Captured"]
     assert result["core_ext"] == ["Event", "Person"]
     assert result["other"] == ["OtherClass"]
 
@@ -238,13 +258,13 @@ def test_row_from_doc_none_value():
 
 
 def test_format_iri_strips_prefix():
-    result = format_iri("terminusdb:///data/InboxNote/abc123")
-    assert result == "InboxNote/abc123"
+    result = format_iri("terminusdb:///data/Captured/abc123")
+    assert result == "Captured/abc123"
 
 
 def test_format_iri_passthrough():
-    result = format_iri("InboxNote/abc123")
-    assert result == "InboxNote/abc123"
+    result = format_iri("Captured/abc123")
+    assert result == "Captured/abc123"
 
 
 def test_format_iri_empty():

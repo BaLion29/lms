@@ -26,12 +26,12 @@ async def test_once_dry_run_cycle_completes(monkeypatch):
     from firnline_core.plugins import DiscoveryResult
 
     monkeypatch.setattr(
-        "triggerd.main.discover_plugins",
+        "firnline_core.plugins.discover_plugins",
         lambda group: DiscoveryResult(active=[]),
     )
 
     # Patch check_requirements to always pass
-    async def _noop_check(tdb, reqs, branch="main"):
+    async def _noop_check(tdb, reqs, branch="main", registry=None, required_classes=None):
         return []
 
     monkeypatch.setattr("firnline_core.plugins.check_requirements", _noop_check)
@@ -68,11 +68,11 @@ async def test_once_failed_cycle_exits_nonzero(monkeypatch):
     from firnline_core.plugins import DiscoveryResult
 
     monkeypatch.setattr(
-        "triggerd.main.discover_plugins",
+        "firnline_core.plugins.discover_plugins",
         lambda group: DiscoveryResult(active=[]),
     )
 
-    async def _noop_check(tdb, reqs, branch="main"):
+    async def _noop_check(tdb, reqs, branch="main", registry=None, required_classes=None):
         return []
 
     monkeypatch.setattr("firnline_core.plugins.check_requirements", _noop_check)

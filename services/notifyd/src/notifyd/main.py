@@ -13,7 +13,11 @@ from typing import Any
 
 from notifyd.engine import NotifyEngine
 from notifyd.settings import NotifydSettings
-from firnline_core.plugins import discover_plugins, select_plugins, NotificationChannel
+from firnline_core.plugins import (
+    HostPolicy,
+    NotificationChannel,
+    PluginHost,
+)
 from firnline_core.tdb import TdbClient
 
 _CHANNEL_GROUP = "firnline.notifyd.channels"
@@ -54,41 +58,19 @@ async def _discover_channel_plugins_async(
     Zero active channels is NOT fatal: the service idles gracefully,
     logging a clear message once at startup.
     """
-    discovered = discover_plugins(_CHANNEL_GROUP)
-    logger.info(
-        "channel_plugins_discovered",
+    host = PluginHost(
         group=_CHANNEL_GROUP,
-        count=len(discovered.active),
-        failed=len(discovered.failed),
+        protocol=NotificationChannel,
+        tdb=tdb,
+        branch=branch,
+        policy=HostPolicy(
+            broken_entry_point_fatal=False,
+            zero_active_fatal=False,
+        ),
+        logger=logger,
     )
-
-    if discovered.failed:
-        for name, err in discovered.failed:
-            logger.warning("channel_plugin_load_failed", plugin=name, error=err.split("\n")[-1])
-
-    selection = await select_plugins(
-        tdb, discovered, strict=strict, branch=branch, protocol=NotificationChannel
-    )
-
-    for name, violations in selection.skipped:
-        logger.warning(
-            "channel_plugin_skipped",
-            plugin=name,
-            violations=violations,
-        )
-
-    if not selection.active:
-        logger.info(
-            "no_notification_channels_installed",
-            message="no notification channels installed — service will idle",
-        )
-        return []
-
-    channels: list[object] = []
-    for name, obj in selection.active:
-        channels.append(obj)
-
-    return channels
+    result = await host.start(collision_key=lambda c: [c.name])
+    return [obj for _, obj in result.active]
 
 
 async def async_main(

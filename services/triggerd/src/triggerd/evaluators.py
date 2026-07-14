@@ -76,31 +76,75 @@ def _parse_duration(raw: str) -> timedelta | None:
 
 
 # ---------------------------------------------------------------------------
-# Anchor resolver (exported for unit-testing; wired by the engine in Phase 5)
+# Anchor resolver (exported for unit-testing; wired by the engine)
 # ---------------------------------------------------------------------------
 
 
-async def resolve_anchor(ctx: EvalContext, anchor_ref: str | dict[str, Any]) -> datetime | None:
-    """Resolve an Anchored document/IRI via its ``anchor_at`` field.
+def _class_short_name(type_or_id: str) -> str:
+    """Return the final segment of a class IRI/type string.
 
-    Returns the anchor datetime (tz-aware UTC) or ``None`` when the
-    field is missing/malformed.  Class-agnostic — any doc with an
-    ``anchor_at`` field works.
+    ``"terminusdb:///schema#Reminder"`` → ``"Reminder"``
+    ``"Reminder"`` → ``"Reminder"``
+    """
+    s = type_or_id.rstrip("/")
+    idx = max(s.rfind("/"), s.rfind("#"))
+    if idx >= 0:
+        return s[idx + 1:]
+    return s
+
+
+async def resolve_anchor(
+    ctx: EvalContext,
+    anchor_ref: str | dict[str, Any],
+    class_anchor_fields: dict[str, str] | None = None,
+) -> datetime | None:
+    """Resolve an Anchored document/IRI via its class's ``@metadata.anchor_field``.
+
+    Looks up the document's ``@type`` in *class_anchor_fields* to find
+    the correct datetime field name.  Returns the anchor datetime
+    (tz-aware UTC) or ``None`` when:
+
+    * The class has no ``anchor_field`` metadata
+    * The field is missing from the document
+    * The value is ``None`` or malformed
+
+    *class_anchor_fields* maps short class names to field names.
+    When ``None`` (tests that don't supply it), every lookup is treated
+    as "no anchor_field" → ``None``.  The engine always supplies it.
     """
     if isinstance(anchor_ref, dict):
         doc = anchor_ref
     else:
         doc = await ctx.tdb.get_document(anchor_ref)
 
-    value = doc.get("anchor_at")
+    doc_type = doc.get("@type", "")
+    short_type = _class_short_name(doc_type) if isinstance(doc_type, str) and doc_type else ""
+
+    if class_anchor_fields is None or short_type not in class_anchor_fields:
+        logger.info(
+            "trigger_dormant",
+            iri=doc.get("@id"),
+            type=doc_type,
+            reason="no anchor_field",
+        )
+        return None
+
+    field = class_anchor_fields[short_type]
+    value = doc.get(field)
     if value is None:
-        logger.debug("anchor_field_missing", iri=doc.get("@id"), field="anchor_at")
+        logger.info(
+            "trigger_dormant",
+            iri=doc.get("@id"),
+            type=doc_type,
+            field=field,
+            reason="anchor unset",
+        )
         return None
 
     try:
         return _parse_iso_datetime(value)
     except (ValueError, TypeError):
-        logger.debug("anchor_parse_failed", iri=doc.get("@id"), value=value)
+        logger.debug("anchor_parse_failed", iri=doc.get("@id"), field=field, value=value)
         return None
 
 

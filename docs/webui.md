@@ -9,7 +9,7 @@ domain knowledge.
 |---|---|---|
 | Dashboard | `/` | Greeting, per-service health summary (captured/queryd/indexed), quick-capture link, schema module chips. |
 | Capture | `/capture` | Submit notes via `POST /v1/capture/note` and upload files via `POST /v1/capture/file`. Handler names from captured `/healthz` are shown. |
-| Inbox | `/inbox` | Lists any TerminusDB class whose `@id` starts with `"Inbox"` — documents rendered with status badges, filter chips, and a JSON detail drawer. |
+| Inbox | `/inbox` | Lists `Captured` documents — rendered with status badges, filter chips, and a JSON detail drawer. |
 | Browse | `/browse` | Classes grouped by `SchemaModule.exports`. Click a class → `/browse/[class_name]` paginated table with field-aware display and detail drawer. |
 | Health | `/health` | Full health detail per service: status, version, TerminusDB connectivity, active handler/plugin lists, blob-store availability. |
 | Modules | `/modules` | `SchemaModule` registry table (name, version, description, exports, deps) plus active plugins by service (from each service's `/healthz`). |
@@ -28,7 +28,7 @@ automatically appears with **zero UI code changes**.
 | Browsable document classes | `TdbClient.get_schema()` → non-abstract, non-subdocument `Class` entries |
 | Class grouping by module | `TdbClient.get_documents("SchemaModule")` → `exports` field |
 | Active plugins per service | `GET /healthz` on each service → `plugins` field |
-| Inbox classes | Schema classes whose `@id` starts with `"Inbox"` |
+| Inbox classes | `Captured` class from schema |
 
 This is a deliberate design choice — extensions define their schema,
 handlers, and plugins via the existing firnline-core entry-point protocols

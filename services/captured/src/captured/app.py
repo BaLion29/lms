@@ -20,8 +20,8 @@ from firnline_core.plugins import (
     CaptureContext,
     CaptureHandler,
     CapturePayload,
-    discover_plugins,
-    select_plugins,
+    HostPolicy,
+    PluginHost,
 )
 from firnline_core.tdb import TdbClient
 
@@ -34,6 +34,9 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 _PLUGIN_GROUP = "firnline.captured.handlers"
+
+# Kinds that require a blob/file upload — rejected from the text-only /note endpoint.
+_KINDS_REQUIRING_FILE_UPLOAD = frozenset({"file"})
 
 # ---------------------------------------------------------------------------
 # Request models
@@ -94,74 +97,40 @@ async def _lifespan(app: FastAPI, settings: Settings):
     app.state.tdb = tdb
 
     try:
-        # ── Plugin discovery and selection ─────────────────────────────────
-        discovered = discover_plugins(_PLUGIN_GROUP)
-        log.info(
-            "plugins discovered",
-            group=_PLUGIN_GROUP,
-            count=len(discovered.active),
-            failed=len(discovered.failed),
+        # ── Plugin startup via PluginHost ──────────────────────────────────
+        policy = HostPolicy(
+            broken_entry_point_fatal=True,
+            tdb_unavailable_fatal=False,
+            strict=settings.strict_plugins,
         )
-
-        # Broken entry points are fatal
-        if discovered.failed:
-            for name, err in discovered.failed:
-                log.error("plugin failed to load", plugin=name, error=err)
-            raise RuntimeError(
-                f"Plugin discovery failures in group '{_PLUGIN_GROUP}': "
-                + ", ".join(n for n, _ in discovered.failed)
-            )
-
-        # ── Plugin selection (graceful degradation on TerminusDB errors) ──
-        selection: object
-        try:
-            selection = await select_plugins(
-                tdb,
-                discovered,
-                strict=settings.strict_plugins,
-                branch=settings.tdb_branch,
-                protocol=CaptureHandler,
-            )
-        except RuntimeError:
-            raise
-        except Exception:
-            log.warning(
-                "plugin selection failed — TerminusDB unreachable; "
-                "starting with no capture handlers",
-                exc_info=True,
-            )
-            selection = None
+        host = PluginHost(
+            group=_PLUGIN_GROUP,
+            protocol=CaptureHandler,
+            tdb=tdb,
+            branch=settings.tdb_branch,
+            policy=policy,
+            logger=log,
+        )
+        result = await host.start(
+            collision_key=lambda h: list(h.kinds),
+        )
 
         # ── Build kind → handler map ───────────────────────────────────────
         handlers: list[CaptureHandler] = []
         handler_names: list[str] = []
         kind_map: dict[str, CaptureHandler] = {}
 
-        if selection is not None:
-            for name, violations in selection.skipped:
-                log.warning(
-                    "handler plugin skipped (unmet requirements)",
-                    plugin=name,
-                    violations=violations,
-                )
+        for _ep_name, obj in result.active:
+            if not isinstance(obj, CaptureHandler):
+                log.warning("plugin does not satisfy CaptureHandler protocol", name=getattr(obj, "name", _ep_name))
+                continue
 
-            for _ep_name, obj in selection.active:
-                if not isinstance(obj, CaptureHandler):
-                    log.warning("plugin does not satisfy CaptureHandler protocol", name=getattr(obj, "name", _ep_name))
-                    continue
+            handler = obj
+            handlers.append(handler)
+            handler_names.append(handler.name)
 
-                handler = obj
-                handlers.append(handler)
-                handler_names.append(handler.name)
-
-                for kind in handler.kinds:
-                    if kind in kind_map:
-                        existing = kind_map[kind]
-                        raise RuntimeError(
-                            f"Kind collision: '{kind}' claimed by both "
-                            f"'{handler.name}' and '{existing.name}'"
-                        )
-                    kind_map[kind] = handler
+            for kind in handler.kinds:
+                kind_map[kind] = handler  # collisions already caught by host
 
         app.state.handlers = handlers
         app.state.handler_names = handler_names
@@ -324,6 +293,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/v1/capture/note", dependencies=[Depends(_bearer_auth)])
     async def v1_capture_note(body: NoteRequest):
+        if body.kind in _KINDS_REQUIRING_FILE_UPLOAD:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": f"kind '{body.kind}' requires a file upload — use /v1/capture/file instead",
+                    "hint": "The /note endpoint only accepts text-based kinds (e.g. 'note').",
+                },
+            )
         payload = CapturePayload(
             kind=body.kind,
             text=body.text,

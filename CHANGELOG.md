@@ -5,6 +5,47 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Marker grammar refactored.** `Source`, `Context`, and `Anchored` are now all
+  pure role markers. `Anchored` no longer carries `anchor_at`; concrete classes
+  implementing it declare `@metadata.anchor_field` at the class level. Relative
+  triggers with an unset anchor field are dormant — evaluators skip them
+  explicitly (triggerd logs `trigger_dormant`).
+- **`Remindable` removed from core.** Reminders are an extension concern;
+  extensions use `Triggerable` (from triggers) or define their own markers.
+- **Provenance layering.** `Entity.provenance` is now REQUIRED (exactly one) —
+  the birth certificate (agent, at, method, confidence). `Provenance.source` is
+  gone; multi-source derivation lives in `Entity.derived_from: Set<Source>`
+  (n-ary). The commit graph is the biography — updates are attributed there.
+- **Agent naming grammar** reserved: `service:<name>`, `user:<name>`,
+  `ext:<name>` (helpers `agent_id`/`parse_agent` in `firnline_core`).
+- **Entity affordances**: `archived_at` soft-delete tombstone; `@metadata.label_field`
+  required on exported concrete Entity subclasses (composer L4); kernel
+  `Tag(name) implements Context` for frictionless cross-extension tagging.
+- **Capture module replaces inbox.** Single `Captured(Entity, Source)` class
+  (content_type, content, blob_sha256, file_name, captured_at, transcription,
+  status). Kernel modules are now core + capture + triggers.
+- **Plugin system upgraded.** `SchemaModule` registry carries `exports` (class
+  @ids, written at install). Plugins may declare `requires_classes` in addition
+  to `requires`; checked against registry exports at startup. All services
+  boot through shared `PluginHost` with declarative `HostPolicy`.
+- **queryd structured API**: new bearer-authed endpoints — `GET /v1/schema`,
+  `GET /v1/schema/introspection`, `GET /v1/modules`, `GET /v1/documents/{iri}`,
+  `POST /v1/graphql`, `POST /v1/find/{entity,class,field}`.
+- **WebUI inbox page** now backed by `Captured` class.
+
+### Added
+
+- **mcpd** — new service exposing firnline to external AI agents via Model
+  Context Protocol (streamable HTTP). Tools: graphql_query, get_document,
+  find_entity/class/field, get_schema, list_modules, capture. Resources:
+  firnline://schema, firnline://schema/introspection, firnline://modules.
+  Talks to queryd+captured over HTTP (no direct DB access).
+- `@metadata` composer validation L4 (label_field) and L5 (anchor_field).
+
 ## [0.1.0] - 2026-07-07
 
 ### Changed

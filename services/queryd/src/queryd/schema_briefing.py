@@ -309,13 +309,13 @@ Every document carries these fields (inherited from the abstract Entity base):
 
   created_at / updated_at: DateTime — timestamps in ISO "YYYY-MM-DDTHH:MM:SSZ" (UTC)
   provenance: {
-      source   — String | null;  link to the source this was derived from
-                  (follow provenance.source to answer "where did X come from")
       agent    — String;  who/what produced this version
       at       — DateTime;  timestamp of the provenance event
       method   — String | null;  how the data was obtained
       confidence — Float | null;  0.0–1.0
   }
+  derived_from: [String] — ancestry chain (this document was derived from these sources)
+  archived_at: DateTime | null — soft-delete tombstone
   contexts: [String | Context] — situational tags or linked Context objects
   external_refs: [{ external_id, system, url?, version?, last_synced_at? }]
 """
@@ -482,10 +482,9 @@ def render_prompt_briefing(
         "the document API uses short form Task/xyz."
     )
     lines.append(
-        "- References (Event.location: Location, "
-        "Reminder.refers_to: Remindable=Task|Event) are NESTED OBJECTS in "
-        "GraphQL — select subfields like { location { name } } instead of "
-        "expecting scalar IRIs."
+        "- References between documents (e.g. trigger → anchor entity) "
+        "are NESTED OBJECTS in GraphQL — select subfields like "
+        "{ trigger { name fired_at } } instead of expecting scalar IRIs."
     )
     lines.append(
         '- Datetimes are ISO "YYYY-MM-DDTHH:MM:SSZ" (UTC).'
@@ -493,8 +492,9 @@ def render_prompt_briefing(
         "  For timezone conversions interpret everything as Zurich/Europe."
     )
     lines.append(
-        "- Provenance: to answer \"where did X come from\", follow "
-        "provenance.source — it links to the originating entity."
+        "- Provenance carries the birth certificate (agent, at, method, "
+        "confidence).  To trace ancestry beyond provenance, follow "
+        "the derived_from chain."
     )
 
     return "\n".join(lines)

@@ -3,23 +3,27 @@
 Re-exports the most commonly used names for convenience.
 """
 
+# Pre-load generated package to avoid circular import when
+# firnline_core.generated.core is the entry-point module (e.g. during
+# codegen freshness checks that import the package after regeneration).
+import firnline_core.generated  # noqa: F401 (side-effect: loads all submodules)
+
 from firnline_core.models import (
+    Captured,
+    CapturedStatus,
     CompositeMode,
     CompositeTrigger,
     EventKind,
     EventTrigger,
     ExternalRef,
     FiringStatus,
-    InboxAudio,
-    InboxAudioStatus,
-    InboxNote,
-    InboxNoteStatus,
     OneShotTrigger,
     Provenance,
     RelativeTrigger,
     ScheduleTrigger,
     SchemaMigration,
     SchemaModule,
+    Tag,
     TdbDateTime,
     TdbDocument,
     TriggerFiring,
@@ -28,7 +32,9 @@ from firnline_core.models import (
 from firnline_core.conventions import (
     BlobRef,
     BlobStore,
+    agent_id,
     blob_root_from_env,
+    parse_agent,
     utc_now,
 )
 from firnline_core.indexed_client import (
@@ -46,14 +52,19 @@ from firnline_core.plugins import (
     DeliveryResult,
     DiscoveryResult,
     EntityIndex,
+    EvalContext,
     ExtractorPlugin,
+    HostPolicy,
+    HostResult,
     IndexerPlugin,
     IngestSourcePlugin,
     ModuleRequirement,
     NotificationChannel,
     NotifyContext,
+    PluginHost,
     PluginSelection,
     ToolPlugin,
+    TriggerEvaluator,
     check_requirements,
     discover_plugins,
     select_plugins,
@@ -77,22 +88,21 @@ from firnline_core.tooling import (
 
 __all__ = [
     # models
+    "Captured",
+    "CapturedStatus",
     "CompositeMode",
     "CompositeTrigger",
     "EventKind",
     "EventTrigger",
     "ExternalRef",
     "FiringStatus",
-    "InboxAudio",
-    "InboxAudioStatus",
-    "InboxNote",
-    "InboxNoteStatus",
     "OneShotTrigger",
     "Provenance",
     "RelativeTrigger",
     "ScheduleTrigger",
     "SchemaMigration",
     "SchemaModule",
+    "Tag",
     "TdbDateTime",
     "TdbDocument",
     "TriggerFiring",
@@ -114,7 +124,9 @@ __all__ = [
     # conventions
     "BlobRef",
     "BlobStore",
+    "agent_id",
     "blob_root_from_env",
+    "parse_agent",
     "utc_now",
     # plugins
     "BuildContext",
@@ -124,14 +136,19 @@ __all__ = [
     "DeliveryResult",
     "DiscoveryResult",
     "EntityIndex",
+    "EvalContext",
     "ExtractorPlugin",
+    "HostPolicy",
+    "HostResult",
     "IndexerPlugin",
     "IngestSourcePlugin",
     "ModuleRequirement",
     "NotificationChannel",
     "NotifyContext",
+    "PluginHost",
     "PluginSelection",
     "ToolPlugin",
+    "TriggerEvaluator",
     "check_requirements",
     "discover_plugins",
     "select_plugins",

@@ -9,8 +9,10 @@
    `firnline-core`: a thin typed async HTTP client and generated Pydantic
    models. No service talks to TerminusDB with raw ad-hoc code.
 3. **AI writes with provenance; branches gate trust.** AI-created documents
-   carry `Provenance`; AI commits carry `author=<service>` and one commit
-   per inbox item.  Trust ladder: dry-run → staging branch → main.
+   carry a required `Provenance` (birth certificate); AI commits carry
+   `author=<service>` and one commit per captured item.  Trust ladder:
+   dry-run → staging branch → main.  The commit graph is the biography:
+   updates are attributed there, deliberately not on the document.
 4. **Vertical slices, always usable.** Every layer is built thin-but-complete
    before being deepened. A working end-to-end pipeline beats a polished
    fragment.
@@ -28,12 +30,12 @@
   ────────────
   voice memo ─► watched dir (Syncthing) ─► STT pipeline
   quick text ─► POST /v1/capture/note ───► captured
-                                                   │
-                                           InboxNote / InboxAudio (status=new)
-                                                   │
+                                                    │
+                                            Captured (status=new)
+                                                    │
 ┌──────────────────────────────────────────────────┴──────────────────────┐
 │                            TERMINUSDB (SSOT)                            │
-│  instance graph: Inbox* · Task · Event · Reminder · Person · Location   │
+│  instance graph: Captured · Task · Event · Reminder · Person · Location │
 │  schema graph: composed from modules (build artifact)                   │
 │  commit graph: audit trail; branches = staging / review boundary        │
 └────────┬──────────────────────────┬────────────────────────────────────┘
@@ -64,10 +66,10 @@
 |---|---|---|
 | **TerminusDB** | SSOT graph database (v12.0.6). Stores all entities + schema module registry. | 6363 |
 | **captured** | Ingestion API — accepts notes and file uploads; dispatches to pluggable handler plugins. | 8088 |
-| **ingestd** | Polling worker — picks up inbox items, runs extractor plugins via LLM, writes typed documents. | — |
-| **queryd** | Conversational agent API — read tools, GraphQL, and flag-gated write-tool plugins. | 8087 |
+| **ingestd** | Polling worker — picks up Captured documents, runs extractor plugins via LLM, writes typed documents. | — |
+| **queryd** | Conversational agent API — read tools, GraphQL, structured API endpoints, and flag-gated write-tool plugins. | 8087 |
+| **mcpd** | MCP server — exposes firnline to external AI agents via Model Context Protocol (streamable HTTP). Tools: graphql_query, get_document, find_entity/class/field, get_schema, list_modules, capture. | 8090 |
 | **indexed** | Precision grounding service — mirrors TDB documents + schema into a hybrid vector+lexical index and serves precise-lookup endpoints to ingestd and queryd. | 8089 |
-| **triggerd** | Polling worker — evaluates Trigger documents, materializes TriggerFiring records. | — |
 | **triggerd** | Polling worker — evaluates Trigger documents, materializes TriggerFiring records. | — |
 | **notifyd** | Notification delivery daemon — polls pending TriggerFiring records, executes nag policy (renotify, expire, snooze wake-up), delivers via `NotificationChannel` plugins. | — |
 | **bootstrap** | One-shot container (profile `bootstrap`) — creates database, composes & applies schema, installs extensions into shared overlay volume. | — |
@@ -78,10 +80,9 @@ the compose stack.
 ## Data Flow
 
 1. **Capture** — voice memos arrive via Syncthing → n8n STT pipeline →
-   `InboxAudio(status=transcribed)`. Text notes arrive via
-   `POST /v1/capture/note` → `InboxNote(status=new)`.
-2. **Ingest** — `ingestd` polls for inbox items (source plugins define which
-   types/statuses), sends text to LLM with typed output schemas (extractor
+   `Captured(status=transcribed)`. Text notes arrive via
+   `POST /v1/capture/note` → `Captured(status=new)`.
+2. **Ingest** — `ingestd` polls for Captured documents, sends text to LLM with typed output schemas (extractor
    plugins), links known entities (Person, Location), materializes documents
    in one commit per item, flips status.
 3. **Query** — `queryd` serves `POST /v1/chat` with full conversation history
@@ -122,12 +123,17 @@ containing:
 
 The `core` module (kernel) stays in `schema/modules/core/` and owns:
 `@context`, the `Entity` universal base (`created_at`, `updated_at`,
-`provenance`, `contexts`, `external_refs`), the role markers (`Source`,
-`Context`, `Remindable`, `Anchored`), the `Provenance` subdocument,
-registry classes (`SchemaModule`, `SchemaMigration`), and `ExternalRef`.
-All domain modules (planning, people, places, reminders, routines) live
-in extensions; core, triggers, and inbox are kernel modules in
-`schema/modules/`.
+`provenance` — required, exactly one, the birth certificate — `derived_from`,
+`archived_at`, `contexts`, `external_refs`), the role markers (`Source`,
+`Context`, `Anchored` — all pure markers), the `Provenance` subdocument
+(agent, at, method, confidence — agent grammar: `service:<name>`,
+`user:<name>`, `ext:<name>`), the kernel `Tag(name)` class (a minimal
+blessed Context for frictionless cross-extension tagging), registry
+classes (`SchemaModule`, `SchemaMigration` — `SchemaModule.exports`
+stores the module's exported class @ids, written at install), and
+`ExternalRef`. All domain modules (planning, people, places, reminders,
+routines) live in extensions; core, triggers, and capture are kernel
+modules in `schema/modules/`.
 
 Modules are discovered from two sources: the `schema/modules/` directory
 tree, and installed packages via the `firnline.schema_modules` entry-point
@@ -148,10 +154,12 @@ group. Discovery runs during `firnline-schema compose`.
 `promote --branch b` (fast-forward main) → `codegen` (regenerate Pydantic models
 per owning package via `models_target`).
 
-**Composer L3 lint**: during compose, every class/enum listed in a module's
+**Composer lint layers**: during compose, every class/enum listed in a module's
 `exports` must carry an `@documentation` key with a non-empty `@comment`
-string — "the schema is a prompt" (queryd derives its agent briefing from
-these documentation comments).  A `ComposeL3Error` is raised on violations.
+string — "the schema is a prompt" (L3). Exported concrete `Entity` subclasses
+must declare `@metadata.label_field` (L4). Classes implementing `Anchored`
+must declare `@metadata.anchor_field` naming an `xsd:dateTime` field (L5).
+`queryd` derives its agent briefing from these `@documentation` comments.
 
 ## Plugin Mechanism
 
@@ -168,11 +176,22 @@ Seven entry-point groups, discovered via `importlib.metadata.entry_points`:
 | `firnline.indexed.indexers` | `IndexerPlugin` | indexed | Declare which TDB classes to mirror and how to extract entity text + aliases |
 | `firnline.notifyd.channels` | `NotificationChannel` | notifyd | Deliver `TriggerFiring` records via external notification services (e.g. Gotify) |
 
-All host services follow the same startup behaviour: discover plugins →
-`check_requirements` against the `SchemaModule` registry → skip plugins with
-unmet requirements (WARNING-level log) → log the active plugin set at INFO.
-`--strict-plugins` makes skips fatal. Name/kind collisions between plugins are
-fatal at startup.
+All host services boot through the shared `PluginHost` in `firnline-core`
+(discover → validate → check_requirements → collision check → select →
+log). Each service configures a `HostPolicy` with its own stance on failures.
+Plugins may declare `requires_classes: list[str]` in addition to
+`requires: list[ModuleRequirement]` — checked against registry `exports`
+at startup. Name/kind collisions between active plugins are fatal at
+startup. Per-service policies:
+
+| Service | broken_entry_point_fatal | zero_active_fatal | strict | tdb_unavailable_fatal |
+|---|---|---|---|---|
+| ingestd | true | true | configurable | default (true) |
+| queryd | configurable | false | configurable | false (graceful degradation) |
+| captured | true | false | configurable | false (graceful degradation) |
+| triggerd | true | false | configurable | default (true) |
+| indexed | configurable (strict) | false | configurable (strict) | default (true) |
+| notifyd | false | false | false | default (true) |
 
 ## Shared Core (`firnline-core`)
 
@@ -188,8 +207,9 @@ fatal at startup.
   `IngestSourcePlugin` protocols, `ModuleRequirement`, `check_requirements`,
   `discover_plugins`, `select_plugins`.
 - **`conventions.py`** — `utc_now()`, `BlobStore` (content-addressed file
-  storage), `ExternalRef` convention.
-- **`generated/`** — codegen output for kernel modules (core, triggers, inbox).
+  storage), `ExternalRef` convention, `agent_id()`/`parse_agent()` for the
+  reserved agent naming grammar (`service:<name>`, `user:<name>`, `ext:<name>`).
+- **`generated/`** — codegen output for kernel modules (core, capture, triggers).
   Extension models land in their own packages (e.g. `firnline_ext_planning/
   models.py`), routed by the `models_target` manifest field. **Never
   hand-edit any generated file.**
@@ -208,8 +228,8 @@ firnline/
 ├── compose.yaml                # deployment (external TDB)
 ├── compose.bundled-tdb.yaml    # overlay adding TerminusDB container
 ├── schema/modules/core/        # kernel schema module (Entity, markers, registry, provenance)
+├── schema/modules/capture/      # kernel capture schema module (Captured)
 ├── schema/modules/triggers/    # kernel trigger schema module
-├── schema/modules/inbox/       # kernel inbox schema module (InboxNote, InboxAudio)
 ├── packages/
 │   ├── firnline-core/          # shared library (tdb client, models, plugins, conventions)
 │   └── firnline-schema/        # schema CLI (compose, diff, apply, validate, promote, codegen)
@@ -217,6 +237,7 @@ firnline/
 │   ├── captured/               # capture ingress (FastAPI)
 │   ├── ingestd/                # AI ingestion polling worker
 │   ├── queryd/                 # conversational agent (FastAPI)
+│   ├── mcpd/                   # MCP server for external agents
 │   ├── triggerd/               # trigger evaluation polling worker
 │   ├── notifyd/                # notification delivery daemon (nag policy + channels)
 │   └── indexed/                # precision grounding service (hybrid vector+lexical index)

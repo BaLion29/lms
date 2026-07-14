@@ -37,11 +37,11 @@ class TestCheckRequirements:
 
     async def test_all_satisfied(self, tdb: AsyncMock) -> None:
         tdb.get_documents.return_value = [
-            {"name": "inbox", "version": "2.0.0"},
+            {"name": "capture", "version": "2.0.0"},
             {"name": "planning", "version": "1.5.0"},
         ]
         reqs = [
-            ModuleRequirement(name="inbox", range=">=1.0.0"),
+            ModuleRequirement(name="capture", range=">=1.0.0"),
             ModuleRequirement(name="planning", range=">=1.0.0 <2.0.0"),
         ]
         violations = await check_requirements(tdb, reqs)
@@ -73,7 +73,7 @@ class TestCheckRequirements:
 
     async def test_registry_unavailable(self, tdb: AsyncMock) -> None:
         tdb.get_documents.side_effect = TdbError(400, "no such class")
-        reqs = [ModuleRequirement(name="inbox", range=">=1.0.0")]
+        reqs = [ModuleRequirement(name="capture", range=">=1.0.0")]
         violations = await check_requirements(tdb, reqs)
         assert len(violations) == 1
         assert "schema module registry not available" in violations[0]
@@ -82,9 +82,9 @@ class TestCheckRequirements:
     async def test_unparseable_registry_version(self, tdb: AsyncMock) -> None:
         """Corrupted registry version emits a distinct violation."""
         tdb.get_documents.return_value = [
-            {"name": "inbox", "version": "not.a.version"},
+            {"name": "capture", "version": "not.a.version"},
         ]
-        reqs = [ModuleRequirement(name="inbox", range=">=1.0.0")]
+        reqs = [ModuleRequirement(name="capture", range=">=1.0.0")]
         violations = await check_requirements(tdb, reqs)
         assert any(
             "has unparseable version" in v for v in violations
@@ -92,7 +92,7 @@ class TestCheckRequirements:
 
     async def test_uses_provided_branch(self, tdb: AsyncMock) -> None:
         tdb.get_documents.return_value = []
-        reqs = [ModuleRequirement(name="inbox", range=">=1.0.0")]
+        reqs = [ModuleRequirement(name="capture", range=">=1.0.0")]
         await check_requirements(tdb, reqs, branch="staging")
         tdb.get_documents.assert_called_once_with(
             "SchemaModule", branch="staging"
@@ -133,9 +133,9 @@ class TestSelectPlugins:
 
     async def test_all_active(self, tdb: AsyncMock) -> None:
         tdb.get_documents.return_value = [
-            {"name": "inbox", "version": "1.0.0"}
+            {"name": "capture", "version": "1.0.0"}
         ]
-        p1 = self._plugin("p1", [ModuleRequirement(name="inbox", range=">=1.0.0")])
+        p1 = self._plugin("p1", [ModuleRequirement(name="capture", range=">=1.0.0")])
         p2 = self._plugin("p2", [])
         discovered = DiscoveryResult(
             active=[("p1", p1), ("p2", p2)], failed=[]
@@ -146,7 +146,7 @@ class TestSelectPlugins:
 
     async def test_skip_unmet(self, tdb: AsyncMock) -> None:
         tdb.get_documents.return_value = []
-        p1 = self._plugin("p1", [ModuleRequirement(name="inbox", range=">=1.0.0")])
+        p1 = self._plugin("p1", [ModuleRequirement(name="capture", range=">=1.0.0")])
         discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
         sel = await select_plugins(tdb, discovered)
         assert sel.active == []
@@ -156,7 +156,7 @@ class TestSelectPlugins:
 
     async def test_strict_raises_on_skip(self, tdb: AsyncMock) -> None:
         tdb.get_documents.return_value = []
-        p1 = self._plugin("p1", [ModuleRequirement(name="inbox", range=">=1.0.0")])
+        p1 = self._plugin("p1", [ModuleRequirement(name="capture", range=">=1.0.0")])
         discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
         with pytest.raises(RuntimeError, match="Strict plugin mode"):
             await select_plugins(tdb, discovered, strict=True)
@@ -221,7 +221,7 @@ class TestDiscoverPlugins:
 class TestBuildContext:
     def test_default_now_is_datetime_now(self) -> None:
         from datetime import datetime
-        ctx = BuildContext(tdb=None, inbox_iri="test/1")
+        ctx = BuildContext(tdb=None, captured_iri="test/1")
         now = ctx.now()
         assert isinstance(now, datetime)
         assert now.tzinfo is None  # default datetime.now is naive
@@ -230,7 +230,7 @@ class TestBuildContext:
         from datetime import datetime, timezone
 
         fixed = datetime(2025, 1, 1, tzinfo=timezone.utc)
-        ctx = BuildContext(tdb=None, inbox_iri="test/1", now=lambda: fixed)
+        ctx = BuildContext(tdb=None, captured_iri="test/1", now=lambda: fixed)
         assert ctx.now() == fixed
 
 
@@ -309,7 +309,7 @@ class TestIngestSourcePluginProtocol:
 
         class MySource:
             name = "my_source"
-            requires = [ModuleRequirement(name="inbox", range=">=1.0.0")]
+            requires = [ModuleRequirement(name="capture", range=">=1.0.0")]
             document_type = "MyDoc"
             ready_status = "new"
             done_status = "completed"
@@ -323,7 +323,7 @@ class TestIngestSourcePluginProtocol:
 
         source = MySource()
         assert len(source.requires) == 1
-        assert source.requires[0].name == "inbox"
+        assert source.requires[0].name == "capture"
 
 
 # ---------------------------------------------------------------------------
@@ -565,3 +565,506 @@ class TestNotificationChannelProtocol:
         assert result.ok is False
         assert result.detail == "rate limited"
         assert result.retryable is True
+
+
+# ---------------------------------------------------------------------------
+# check_requirements — required_classes
+# ---------------------------------------------------------------------------
+
+
+class TestCheckRequirementsClasses:
+    @pytest.fixture
+    def tdb(self) -> AsyncMock:
+        return AsyncMock()
+
+    async def test_required_classes_all_present(self, tdb: AsyncMock) -> None:
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0", "exports": ["Reminder", "Note"]},
+            {"name": "planning", "version": "1.0.0", "exports": ["Task", "Event"]},
+        ]
+        violations = await check_requirements(
+            tdb, [], required_classes=["Reminder", "Event"]
+        )
+        assert violations == []
+
+    async def test_required_class_missing(self, tdb: AsyncMock) -> None:
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0", "exports": ["Note"]},
+        ]
+        violations = await check_requirements(
+            tdb, [], required_classes=["Reminder"]
+        )
+        assert len(violations) == 1
+        assert "class 'Reminder' not exported by any installed module" in violations[0]
+
+    async def test_required_classes_no_exports_field_anywhere(self, tdb: AsyncMock) -> None:
+        """Legacy registry: no doc has an 'exports' field."""
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0"},
+            {"name": "planning", "version": "2.0.0"},
+        ]
+        violations = await check_requirements(
+            tdb, [], required_classes=["Reminder"]
+        )
+        assert len(violations) == 1
+        assert "registry has no exports information" in violations[0]
+
+    async def test_required_classes_none_skips_check(self, tdb: AsyncMock) -> None:
+        """required_classes=None means no export check at all."""
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0"},
+        ]
+        violations = await check_requirements(tdb, [], required_classes=None)
+        assert violations == []
+
+    async def test_required_classes_empty_list_noop(self, tdb: AsyncMock) -> None:
+        """required_classes=[] means check exports info but require no specific class."""
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0", "exports": ["Note"]},
+        ]
+        violations = await check_requirements(tdb, [], required_classes=[])
+        assert violations == []
+
+    async def test_required_classes_empty_list_legacy(self, tdb: AsyncMock) -> None:
+        """required_classes=[] with legacy registry — still emits violation."""
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0"},
+        ]
+        violations = await check_requirements(tdb, [], required_classes=[])
+        assert len(violations) == 1
+        assert "registry has no exports information" in violations[0]
+
+    async def test_required_classes_via_registry_injection(self, tdb: AsyncMock) -> None:
+        """Use the registry= kwarg to bypass TDB."""
+        registry = [
+            {"name": "m1", "version": "1.0.0", "exports": ["A", "B"]},
+            {"name": "m2", "version": "1.0.0", "exports": ["C"]},
+        ]
+        violations = await check_requirements(
+            tdb, [], registry=registry, required_classes=["A", "C"]
+        )
+        assert violations == []
+        tdb.get_documents.assert_not_called()
+
+    async def test_required_classes_mixed_with_module_reqs(self, tdb: AsyncMock) -> None:
+        """Module reqs + class reqs together."""
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0", "exports": ["Note"]},
+        ]
+        reqs = [ModuleRequirement(name="capture", range=">=1.0.0")]
+        violations = await check_requirements(
+            tdb, reqs, required_classes=["Note"]
+        )
+        assert violations == []
+
+    async def test_required_classes_missing_and_module_unmet(self, tdb: AsyncMock) -> None:
+        """Both a module violation and a class violation in one call."""
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0", "exports": ["Note"]},
+        ]
+        reqs = [ModuleRequirement(name="planning", range=">=1.0.0")]
+        violations = await check_requirements(
+            tdb, reqs, required_classes=["Reminder"]
+        )
+        assert len(violations) == 2
+        assert any("module 'planning' not installed" in v for v in violations)
+        assert any("class 'Reminder' not exported" in v for v in violations)
+
+
+# ---------------------------------------------------------------------------
+# select_plugins — requires_classes passthrough
+# ---------------------------------------------------------------------------
+
+
+class TestSelectPluginsRequiresClasses:
+    @pytest.fixture
+    def tdb(self) -> AsyncMock:
+        return AsyncMock()
+
+    def _plugin(self, name: str, requires=None, requires_classes=None) -> object:
+        plugin = type(f"Plugin_{name}", (), {})()
+        plugin.name = name  # type: ignore[attr-defined]
+        plugin.requires = requires or []  # type: ignore[attr-defined]
+        if requires_classes is not None:
+            plugin.requires_classes = requires_classes  # type: ignore[attr-defined]
+        return plugin
+
+    async def test_requires_classes_satisfied(self, tdb: AsyncMock) -> None:
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0", "exports": ["Reminder"]},
+        ]
+        p1 = self._plugin("p1", requires_classes=["Reminder"])
+        discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
+        sel = await select_plugins(tdb, discovered)
+        assert len(sel.active) == 1
+        assert sel.skipped == []
+
+    async def test_requires_classes_violation_skips(self, tdb: AsyncMock) -> None:
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0", "exports": ["Note"]},
+        ]
+        p1 = self._plugin("p1", requires_classes=["Reminder"])
+        discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
+        sel = await select_plugins(tdb, discovered)
+        assert sel.active == []
+        assert len(sel.skipped) == 1
+        assert any("class 'Reminder' not exported" in v for v in sel.skipped[0][1])
+
+    async def test_plugin_without_requires_classes_still_works(self, tdb: AsyncMock) -> None:
+        """Plugin without requires_classes attribute is fine."""
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0", "exports": ["Note"]},
+        ]
+        p1 = self._plugin("p1")  # no requires_classes at all
+        discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
+        sel = await select_plugins(tdb, discovered)
+        assert len(sel.active) == 1
+
+    async def test_requires_classes_legacy_registry_skips(self, tdb: AsyncMock) -> None:
+        tdb.get_documents.return_value = [
+            {"name": "capture", "version": "1.0.0"},  # no exports
+        ]
+        p1 = self._plugin("p1", requires_classes=["Reminder"])
+        discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
+        sel = await select_plugins(tdb, discovered)
+        assert sel.active == []
+        assert len(sel.skipped) == 1
+        assert any("registry has no exports information" in v for v in sel.skipped[0][1])
+
+
+# ---------------------------------------------------------------------------
+# PluginHost
+# ---------------------------------------------------------------------------
+
+
+from firnline_core.plugins import HostPolicy, HostResult, PluginHost
+
+
+class FakeEntryPoint:
+    """Minimal fake matching the importlib.metadata.EntryPoint protocol."""
+
+    def __init__(self, name: str, load_fn) -> None:
+        self.name = name
+        self._load_fn = load_fn
+
+    def load(self):
+        return self._load_fn()
+
+
+class TestPluginHostHappyPath:
+    @pytest.fixture
+    def tdb(self) -> AsyncMock:
+        tdb = AsyncMock()
+        tdb.get_documents.return_value = []
+        return tdb
+
+    def _plugin(self, name: str) -> object:
+        class P:
+            pass
+        p = P()
+        p.name = name  # type: ignore[attr-defined]
+        p.requires: list[ModuleRequirement] = []  # type: ignore[attr-defined]
+        return p
+
+    async def test_happy_path(self, tdb: AsyncMock) -> None:
+        p1 = self._plugin("p1")
+        p2 = self._plugin("p2")
+        discovered = DiscoveryResult(active=[("p1", p1), ("p2", p2)], failed=[])
+        host = PluginHost(group="test.group", protocol=None, tdb=tdb)
+        result = await host.start(discovered=discovered)
+        assert len(result.active) == 2
+        assert result.skipped == []
+        assert result.failed == []
+
+    async def test_broken_entry_point_fatal(self, tdb: AsyncMock) -> None:
+        discovered = DiscoveryResult(
+            active=[], failed=[("bad_ep", "ImportError: boom")]
+        )
+        host = PluginHost(
+            group="test.group", protocol=None, tdb=tdb,
+            policy=HostPolicy(broken_entry_point_fatal=True),
+        )
+        with pytest.raises(RuntimeError, match="failed to load"):
+            await host.start(discovered=discovered)
+
+    async def test_broken_entry_point_non_fatal(self, tdb: AsyncMock) -> None:
+        discovered = DiscoveryResult(
+            active=[], failed=[("bad_ep", "ImportError: boom")]
+        )
+        host = PluginHost(
+            group="test.group", protocol=None, tdb=tdb,
+            policy=HostPolicy(broken_entry_point_fatal=False),
+        )
+        result = await host.start(discovered=discovered)
+        assert result.active == []
+        assert result.failed == [("bad_ep", "ImportError: boom")]
+
+    async def test_zero_active_fatal(self, tdb: AsyncMock) -> None:
+        discovered = DiscoveryResult(active=[], failed=[])
+        host = PluginHost(
+            group="test.group", protocol=None, tdb=tdb,
+            policy=HostPolicy(zero_active_fatal=True),
+        )
+        with pytest.raises(RuntimeError, match="No active plugins"):
+            await host.start(discovered=discovered)
+
+    async def test_zero_active_non_fatal(self, tdb: AsyncMock) -> None:
+        discovered = DiscoveryResult(active=[], failed=[])
+        host = PluginHost(
+            group="test.group", protocol=None, tdb=tdb,
+            policy=HostPolicy(zero_active_fatal=False),
+        )
+        result = await host.start(discovered=discovered)
+        assert result.active == []
+
+
+class TestPluginHostCollisions:
+    @pytest.fixture
+    def tdb(self) -> AsyncMock:
+        tdb = AsyncMock()
+        tdb.get_documents.return_value = []
+        return tdb
+
+    def _plugin(self, name: str, keys: list[str]) -> object:
+        class P:
+            pass
+        p = P()
+        p.name = name  # type: ignore[attr-defined]
+        p.requires: list[ModuleRequirement] = []  # type: ignore[attr-defined]
+        p.keys = keys  # type: ignore[attr-defined]
+        return p
+
+    async def test_collision_raises(self, tdb: AsyncMock) -> None:
+        p1 = self._plugin("p1", ["key_a", "key_b"])
+        p2 = self._plugin("p2", ["key_b", "key_c"])
+        discovered = DiscoveryResult(active=[("p1", p1), ("p2", p2)], failed=[])
+        host = PluginHost(group="test.group", protocol=None, tdb=tdb)
+        with pytest.raises(RuntimeError, match="collision"):
+            await host.start(
+                discovered=discovered,
+                collision_key=lambda p: p.keys,  # type: ignore[attr-defined]
+            )
+
+    async def test_no_collision(self, tdb: AsyncMock) -> None:
+        p1 = self._plugin("p1", ["key_a"])
+        p2 = self._plugin("p2", ["key_b"])
+        discovered = DiscoveryResult(active=[("p1", p1), ("p2", p2)], failed=[])
+        host = PluginHost(group="test.group", protocol=None, tdb=tdb)
+        result = await host.start(
+            discovered=discovered,
+            collision_key=lambda p: p.keys,  # type: ignore[attr-defined]
+        )
+        assert len(result.active) == 2
+
+
+class TestPluginHostGracefulDegradation:
+    @pytest.fixture
+    def tdb(self) -> AsyncMock:
+        return AsyncMock()
+
+    def _plugin(self, name: str) -> object:
+        class P:
+            pass
+        p = P()
+        p.name = name  # type: ignore[attr-defined]
+        p.requires: list[ModuleRequirement] = []  # type: ignore[attr-defined]
+        return p
+
+    async def test_tdb_unavailable_fatal(self, tdb: AsyncMock) -> None:
+        tdb.get_documents.side_effect = TdbError(500, "connection refused")
+        p1 = self._plugin("p1")
+        discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
+        host = PluginHost(
+            group="test.group", protocol=None, tdb=tdb,
+            policy=HostPolicy(tdb_unavailable_fatal=True),
+        )
+        with pytest.raises(TdbError, match="connection refused"):
+            await host.start(discovered=discovered)
+
+    async def test_tdb_unavailable_graceful(self, tdb: AsyncMock) -> None:
+        tdb.get_documents.side_effect = TdbError(500, "connection refused")
+        p1 = self._plugin("p1")
+        p2 = self._plugin("p2")
+        discovered = DiscoveryResult(active=[("p1", p1), ("p2", p2)], failed=[])
+        host = PluginHost(
+            group="test.group", protocol=None, tdb=tdb,
+            policy=HostPolicy(tdb_unavailable_fatal=False),
+        )
+        result = await host.start(discovered=discovered)
+        assert result.active == []
+        assert len(result.skipped) == 2
+        assert all("registry unavailable" in v for _, violations in result.skipped for v in violations)
+
+    async def test_tdb_unavailable_graceful_non_tdb_error(self, tdb: AsyncMock) -> None:
+        """Graceful degradation also catches non-TdbError exceptions (e.g. network)."""
+        tdb.get_documents.side_effect = ConnectionError("no route to host")
+        p1 = self._plugin("p1")
+        discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
+        host = PluginHost(
+            group="test.group", protocol=None, tdb=tdb,
+            policy=HostPolicy(tdb_unavailable_fatal=False),
+        )
+        result = await host.start(discovered=discovered)
+        assert result.active == []
+        assert len(result.skipped) == 1
+        assert "registry unavailable" in result.skipped[0][1][0]
+
+
+class TestPluginHostPolicyMatrix:
+    """Combinations of policy flags."""
+
+    @pytest.fixture
+    def tdb(self) -> AsyncMock:
+        tdb = AsyncMock()
+        tdb.get_documents.return_value = []
+        return tdb
+
+    def _plugin(self, name: str) -> object:
+        class P:
+            pass
+        p = P()
+        p.name = name  # type: ignore[attr-defined]
+        p.requires: list[ModuleRequirement] = []  # type: ignore[attr-defined]
+        return p
+
+    async def test_strict_skipped_raises(self, tdb: AsyncMock) -> None:
+        """When strict=True and a plugin has unmet requirements, RuntimeError."""
+        class PWithReq:
+            name = "p1"
+            requires = [ModuleRequirement(name="missing", range=">=1.0.0")]
+
+        discovered = DiscoveryResult(active=[("p1", PWithReq())], failed=[])
+        host = PluginHost(
+            group="test.group", protocol=None, tdb=tdb,
+            policy=HostPolicy(strict=True),
+        )
+        with pytest.raises(RuntimeError, match="Strict plugin mode"):
+            await host.start(discovered=discovered)
+
+    async def test_broken_ep_non_fatal_zero_active_fatal(self, tdb: AsyncMock) -> None:
+        """Broken EP tolerated, but then zero active is fatal."""
+        discovered = DiscoveryResult(
+            active=[], failed=[("bad", "error")]
+        )
+        host = PluginHost(
+            group="test.group", protocol=None, tdb=tdb,
+            policy=HostPolicy(
+                broken_entry_point_fatal=False,
+                zero_active_fatal=True,
+            ),
+        )
+        with pytest.raises(RuntimeError, match="No active plugins"):
+            await host.start(discovered=discovered)
+
+    async def test_registry_prefetch(self, tdb: AsyncMock) -> None:
+        """Pre-fetched registry is passed through, TDB not called."""
+        p1 = self._plugin("p1")
+        discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
+        host = PluginHost(group="test.group", protocol=None, tdb=tdb)
+        registry = [{"name": "m1", "version": "1.0.0"}]
+        result = await host.start(discovered=discovered, registry=registry)
+        assert len(result.active) == 1
+        tdb.get_documents.assert_not_called()
+
+
+class TestPluginHostLogEvents:
+    """Verify that PluginHost emits the expected log event names."""
+
+    @pytest.fixture
+    def tdb(self) -> AsyncMock:
+        tdb = AsyncMock()
+        tdb.get_documents.return_value = []
+        return tdb
+
+    def _plugin(self, name: str) -> object:
+        class P:
+            pass
+        p = P()
+        p.name = name  # type: ignore[attr-defined]
+        p.requires: list[ModuleRequirement] = []  # type: ignore[attr-defined]
+        return p
+
+    async def test_log_events_on_happy_path(self, tdb: AsyncMock) -> None:
+        """Verify startup_complete event is emitted."""
+        p1 = self._plugin("p1")
+        discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
+        import logging
+
+        class CollectHandler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.records: list[logging.LogRecord] = []
+            def emit(self, record: logging.LogRecord) -> None:
+                self.records.append(record)
+
+        handler = CollectHandler()
+        log_stream = logging.getLogger("firnline_core.plugins")
+        log_stream.setLevel(logging.DEBUG)
+        log_stream.addHandler(handler)
+        try:
+            host = PluginHost(group="test.group", protocol=None, tdb=tdb)
+            await host.start(discovered=discovered)
+        finally:
+            log_stream.removeHandler(handler)
+
+        msgs = [r.getMessage() for r in handler.records]
+        assert any("plugin_startup_complete" in m for m in msgs)
+
+    async def test_log_skipped_plugin(self, tdb: AsyncMock) -> None:
+        """Plugin with unmet requirement gets a 'plugin_skipped' log event."""
+        class PWithReq:
+            name = "p1"
+            requires = [ModuleRequirement(name="missing", range=">=1.0.0")]
+
+        discovered = DiscoveryResult(active=[("p1", PWithReq())], failed=[])
+        import logging
+
+        class CollectHandler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.records: list[logging.LogRecord] = []
+            def emit(self, record: logging.LogRecord) -> None:
+                self.records.append(record)
+
+        handler = CollectHandler()
+        log_stream = logging.getLogger("firnline_core.plugins")
+        log_stream.setLevel(logging.WARNING)
+        log_stream.addHandler(handler)
+        try:
+            host = PluginHost(group="test.group", protocol=None, tdb=tdb)
+            await host.start(discovered=discovered)
+        finally:
+            log_stream.removeHandler(handler)
+
+        msgs = [r.getMessage() for r in handler.records]
+        assert any("plugin_skipped" in m for m in msgs)
+
+    async def test_log_broken_entry_point_non_fatal(self, tdb: AsyncMock) -> None:
+        """Non-fatal broken EP logs a warning."""
+        discovered = DiscoveryResult(
+            active=[], failed=[("bad", "ImportError: nope")]
+        )
+        import logging
+
+        class CollectHandler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.records: list[logging.LogRecord] = []
+            def emit(self, record: logging.LogRecord) -> None:
+                self.records.append(record)
+
+        handler = CollectHandler()
+        log_stream = logging.getLogger("firnline_core.plugins")
+        log_stream.setLevel(logging.WARNING)
+        log_stream.addHandler(handler)
+        try:
+            host = PluginHost(
+                group="test.group", protocol=None, tdb=tdb,
+                policy=HostPolicy(broken_entry_point_fatal=False),
+            )
+            await host.start(discovered=discovered)
+        finally:
+            log_stream.removeHandler(handler)
+
+        msgs = [r.getMessage() for r in handler.records]
+        assert any("plugin_load_failed" in m for m in msgs)

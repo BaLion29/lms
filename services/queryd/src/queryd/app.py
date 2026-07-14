@@ -6,7 +6,7 @@ import asyncio
 import secrets
 import tempfile
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import Any, Literal
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -15,8 +15,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from firnline_core.conventions import blob_root_from_env
-from firnline_core.tdb import TdbClient
-from firnline_core.plugins import discover_plugins, select_plugins
+from firnline_core.plugins import HostPolicy, PluginHost, ToolPlugin
+from firnline_core.tdb import TdbClient, TdbError
 from pydantic_ai import Tool
 from pydantic_ai.exceptions import (
     ModelAPIError,
@@ -33,6 +33,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import Model
 
+from queryd import operations
 from queryd.agent import build_agent, usage_limits
 from queryd.schema_briefing import (
     fetch_introspection,
@@ -52,6 +53,7 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 _PLACEHOLDER_BRIEFING = "schema unavailable at startup"
+_PLUGIN_GROUP = "firnline.queryd.tools"
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -70,6 +72,32 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     message: str
     tool_trace: list[ToolTraceEntry] = []
+
+
+class GraphQLRequest(BaseModel):
+    query: str
+    variables: dict[str, Any] | None = None
+
+
+class FindEntityRequest(BaseModel):
+    text: str
+    classes: list[str] | None = None
+    k: int = 5
+
+
+class FindClassRequest(BaseModel):
+    text: str
+    k: int = 5
+
+
+class FindFieldRequest(BaseModel):
+    text: str
+    class_name: str | None = None
+    k: int = 5
+
+
+class SchemaSummaryResponse(BaseModel):
+    summary: str
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +127,38 @@ def _bearer_auth(request: Request) -> None:
         raise HTTPException(
             status_code=401,
             detail="unauthorized",
+        )
+
+
+# ---------------------------------------------------------------------------
+# IRI validation
+# ---------------------------------------------------------------------------
+
+
+def _validate_doc_iri(iri: str) -> None:
+    """Raise ``HTTPException(422)`` if *iri* is not a valid document IRI.
+
+    Rejects path-traversal attacks (``..``), backslashes, leading ``/``,
+    and unexpected URL schemes.  Only bare ``Class/id`` and
+    ``terminusdb:///data/...`` forms are permitted.
+    """
+    if not iri:
+        raise HTTPException(status_code=422, detail="IRI must not be empty")
+    if iri.startswith("/"):
+        raise HTTPException(
+            status_code=422, detail=f"IRI must not start with '/': {iri}"
+        )
+    if ".." in iri:
+        raise HTTPException(
+            status_code=422, detail=f"IRI contains '..' path traversal: {iri}"
+        )
+    if "\\" in iri:
+        raise HTTPException(
+            status_code=422, detail=f"IRI contains backslashes: {iri}"
+        )
+    if "://" in iri and not iri.startswith("terminusdb:///data/"):
+        raise HTTPException(
+            status_code=422, detail=f"IRI has unexpected scheme: {iri}"
         )
 
 
@@ -149,27 +209,25 @@ def _rebuild_briefings(app: FastAPI, intro: dict) -> None:
 # Plugin helper
 # ---------------------------------------------------------------------------
 
-_PLUGIN_GROUP = "firnline.queryd.tools"
-
 
 def _collect_plugin_tools(
     plugins: list[tuple[str, object]],
     settings: Settings,
     tdb: TdbClient,
 ) -> tuple[list[Tool], list[str]]:
-    """Call ``tools(deps)`` on each plugin, check for name collisions.
+    """Call ``tools(deps)`` on each plugin, check for name collisions
+    against read tools and across plugins.
 
     Returns ``(all_tools, active_names)``.  Raises ``RuntimeError`` on
-    name collision (against read tools or across plugins).
+    any name collision.
     """
     plugin_tools: list[Tool] = []
     active_names: list[str] = []
+    seen_tool_names: set[str] = set()
 
-    # Read-tool names (baseline for collision check)
     read_tool_names = {t.name for t in build_tools(settings, plugin_tools=[])}
 
     for ep_name, obj in plugins:
-        # Duck-typing: ToolPlugin is not @runtime_checkable
         if hasattr(obj, "tools") and hasattr(obj, "name"):
             plugin = obj
         else:
@@ -185,16 +243,12 @@ def _collect_plugin_tools(
                     f"Tool name collision: plugin '{plugin.name}' tool "
                     f"'{t.name}' conflicts with a core read tool"
                 )
-
-        # Cross-plugin collision
-        existing = {t.name for t in plugin_tools}
-        for t in tools:
-            if t.name in existing:
+            if t.name in seen_tool_names:
                 raise RuntimeError(
-                    f"Tool name collision: plugin '{plugin.name}' tool "
-                    f"'{t.name}' already registered by another plugin"
+                    f"Plugin collision on tool name {t.name!r}: "
+                    f"already registered by another plugin"
                 )
-        existing |= {t.name for t in tools}
+            seen_tool_names.add(t.name)
 
         plugin_tools.extend(tools)
 
@@ -224,91 +278,6 @@ async def _lifespan(
     )
     app.state.tdb = tdb
 
-    # ── Plugin discovery and selection ─────────────────────────────────
-    plugin_tools: list[Tool] = []
-    active_plugins: list[str] = []
-
-    if plugin_tools_override is not None:
-        # Test seam: use explicitly provided write tools
-        if settings.enable_writes:
-            plugin_tools = list(plugin_tools_override)
-            active_plugins = ["test_override"]
-        else:
-            log.info(
-                "write-tool plugins suppressed (ENABLE_WRITES=false)",
-                count=len(plugin_tools_override),
-            )
-    else:
-        discovered = discover_plugins(_PLUGIN_GROUP)
-        log.info(
-            "plugins discovered",
-            group=_PLUGIN_GROUP,
-            count=len(discovered.active),
-            failed=len(discovered.failed),
-        )
-
-        # Broken entry points are always fatal in strict mode
-        if discovered.failed and settings.strict_plugins:
-            failed_names = [n for n, _ in discovered.failed]
-            raise RuntimeError(
-                f"Strict plugin mode: failed={failed_names}"
-            )
-
-        # Run selection (requirement checking + strict enforcement)
-        # whenever plugins are relevant: strict enforcement always,
-        # or when writes are enabled and we need to register tools.
-        if settings.strict_plugins or settings.enable_writes:
-            selection = await select_plugins(
-                tdb,
-                discovered,
-                strict=settings.strict_plugins,
-                branch=settings.tdb_branch,
-            )
-
-            for name, violations in selection.skipped:
-                log.warning(
-                    "plugin skipped (unmet requirements)",
-                    plugin=name,
-                    violations=violations,
-                )
-
-            if selection.active:
-                if settings.enable_writes:
-                    p_tools, active_plugins = _collect_plugin_tools(
-                        selection.active, settings, tdb
-                    )
-                    plugin_tools = p_tools
-                    log.info("active write-tool plugins", plugins=active_plugins)
-                else:
-                    active_plugins = [
-                        getattr(obj, "name", ep_name)
-                        for ep_name, obj in selection.active
-                    ]
-                    log.info(
-                        "write-tool plugins suppressed (ENABLE_WRITES=false)",
-                        count=len(active_plugins),
-                    )
-            else:
-                log.info("no active write-tool plugins")
-        else:
-            # Neither strict nor writes enabled — report discovered
-            # plugins as the active set but skip TDB requirement check.
-            if discovered.active:
-                active_plugins = [
-                    getattr(obj, "name", ep_name)
-                    for ep_name, obj in discovered.active
-                ]
-            log.info(
-                "write-tool plugins suppressed (ENABLE_WRITES=false)",
-                count=len(discovered.active),
-            )
-
-    app.state.active_plugins = active_plugins
-
-    # ── Build agent once ───────────────────────────────────────────────
-    tools = build_tools(settings, plugin_tools=plugin_tools)
-    app.state.agent = build_agent(settings, model=model, tools=tools)
-
     # ── Introspection ──────────────────────────────────────────────────
     try:
         intro = await fetch_introspection(tdb)
@@ -333,6 +302,69 @@ async def _lifespan(
     except Exception:
         log.warning("module registry unavailable — skipping capability section")
     app.state.modules = modules
+
+    # ── Plugin discovery and selection (PluginHost) ────────────────────
+    plugin_tools: list[Tool] = []
+    active_plugins: list[str] = []
+
+    if plugin_tools_override is not None:
+        # Test seam: use explicitly provided write tools
+        if settings.enable_writes:
+            plugin_tools = list(plugin_tools_override)
+            active_plugins = ["test_override"]
+        else:
+            log.info(
+                "write-tool plugins suppressed (ENABLE_WRITES=false)",
+                count=len(plugin_tools_override),
+            )
+    else:
+        host = PluginHost(
+            group=_PLUGIN_GROUP,
+            protocol=ToolPlugin,
+            tdb=tdb,
+            branch=settings.tdb_branch,
+            policy=HostPolicy(
+                broken_entry_point_fatal=settings.strict_plugins,
+                zero_active_fatal=False,
+                strict=settings.strict_plugins,
+                tdb_unavailable_fatal=False,  # graceful degradation
+            ),
+            logger=log,
+        )
+
+        try:
+            result = await host.start(
+                registry=modules,
+            )
+        except RuntimeError:
+            raise
+
+        if settings.enable_writes and result.active:
+            p_tools, active_plugins = _collect_plugin_tools(
+                result.active, settings, tdb
+            )
+            log.info("active write-tool plugins", plugins=active_plugins)
+        elif settings.enable_writes:
+            log.info("no active write-tool plugins")
+        else:
+            # Writes disabled: report active plugin names but don't
+            # materialize tools.  Only post-selection (active) plugins
+            # are reported — plugins skipped by requirement checks are
+            # not listed.
+            active_plugins = [
+                getattr(obj, "name", ep_name)
+                for ep_name, obj in result.active
+            ]
+            log.info(
+                "write-tool plugins suppressed (ENABLE_WRITES=false)",
+                count=len(result.active),
+            )
+
+    app.state.active_plugins = active_plugins
+
+    # ── Build agent once ───────────────────────────────────────────────
+    tools = build_tools(settings, plugin_tools=plugin_tools)
+    app.state.agent = build_agent(settings, model=model, tools=tools)
 
     # ── Build briefings ────────────────────────────────────────────────
     if intro is not None:
@@ -386,7 +418,7 @@ def create_app(
     *plugin_tools* is a **test seam**: when provided, these ``Tool``
     objects are used as write-tool plugins instead of discovering them
     via entry points.  When ``None`` (default, production),
-    ``discover_plugins("firnline.queryd.tools")`` is used.
+    ``PluginHost`` discovers ``"firnline.queryd.tools"``.
     """
     _configure_logging()
 
@@ -468,6 +500,177 @@ def create_app(
         )
 
     # ------------------------------------------------------------------
+    # /v1/schema (auth)
+    # ------------------------------------------------------------------
+
+    @app.get(
+        "/v1/schema",
+        response_model=SchemaSummaryResponse,
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_schema():
+        """Return the rendered schema summary."""
+        schema_summary, _ = app.state.briefings
+        if schema_summary == _PLACEHOLDER_BRIEFING:
+            summary = await operations.get_schema_summary(app.state.tdb)
+        else:
+            summary = schema_summary
+        return SchemaSummaryResponse(summary=summary)
+
+    @app.get(
+        "/v1/schema/introspection",
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_schema_introspection():
+        """Return raw GraphQL introspection JSON."""
+        data = await operations.get_introspection(app.state.tdb)
+        return JSONResponse(content=data)
+
+    # ------------------------------------------------------------------
+    # /v1/modules (auth)
+    # ------------------------------------------------------------------
+
+    @app.get(
+        "/v1/modules",
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_modules():
+        """Return the SchemaModule registry docs."""
+        modules = await operations.list_modules(
+            app.state.tdb,
+            branch=app.state.settings.tdb_branch,
+        )
+        return JSONResponse(content=modules)
+
+    # ------------------------------------------------------------------
+    # /v1/documents/{iri:path} (auth)
+    # ------------------------------------------------------------------
+
+    @app.get(
+        "/v1/documents/{iri:path}",
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_document_get(iri: str):
+        """Fetch a single document by IRI."""
+        _validate_doc_iri(iri)
+        try:
+            doc = await operations.get_document(app.state.tdb, iri)
+        except TdbError as exc:
+            if exc.status == 404:
+                raise HTTPException(status_code=404, detail=f"Document not found: {iri}")
+            raise HTTPException(status_code=502, detail=str(exc))
+        return JSONResponse(content=doc)
+
+    # ------------------------------------------------------------------
+    # /v1/graphql (auth)
+    # ------------------------------------------------------------------
+
+    @app.post(
+        "/v1/graphql",
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_graphql(body: GraphQLRequest):
+        """Execute a read-only GraphQL query."""
+        try:
+            result = await operations.run_graphql(
+                app.state.tdb,
+                body.query,
+                body.variables,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except TdbError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        return JSONResponse(content=result)
+
+    # ------------------------------------------------------------------
+    # /v1/find/entity (auth)
+    # ------------------------------------------------------------------
+
+    @app.post(
+        "/v1/find/entity",
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_find_entity(body: FindEntityRequest):
+        """Search for known entities."""
+        s: Settings = app.state.settings
+        if not s.indexed_enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="indexed search is disabled (QUERYD_INDEXED_ENABLED=false)",
+            )
+        try:
+            candidates = await operations.find_entity(
+                indexed_url=s.indexed_url,
+                indexed_token=s.indexed_token,
+                indexed_timeout=s.indexed_timeout_seconds,
+                text=body.text,
+                classes=body.classes,
+                branch=s.tdb_branch,
+                k=body.k,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        return JSONResponse(content={"candidates": candidates})
+
+    # ------------------------------------------------------------------
+    # /v1/find/class (auth)
+    # ------------------------------------------------------------------
+
+    @app.post(
+        "/v1/find/class",
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_find_class(body: FindClassRequest):
+        """Search for schema classes."""
+        s: Settings = app.state.settings
+        if not s.indexed_enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="indexed search is disabled (QUERYD_INDEXED_ENABLED=false)",
+            )
+        try:
+            candidates = await operations.find_class(
+                indexed_url=s.indexed_url,
+                indexed_token=s.indexed_token,
+                indexed_timeout=s.indexed_timeout_seconds,
+                text=body.text,
+                k=body.k,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        return JSONResponse(content={"candidates": candidates})
+
+    # ------------------------------------------------------------------
+    # /v1/find/field (auth)
+    # ------------------------------------------------------------------
+
+    @app.post(
+        "/v1/find/field",
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_find_field(body: FindFieldRequest):
+        """Search for class fields."""
+        s: Settings = app.state.settings
+        if not s.indexed_enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="indexed search is disabled (QUERYD_INDEXED_ENABLED=false)",
+            )
+        try:
+            candidates = await operations.find_field(
+                indexed_url=s.indexed_url,
+                indexed_token=s.indexed_token,
+                indexed_timeout=s.indexed_timeout_seconds,
+                text=body.text,
+                class_name=body.class_name,
+                k=body.k,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        return JSONResponse(content={"candidates": candidates})
+
+    # ------------------------------------------------------------------
     # /v1/chat (auth + validation)
     # ------------------------------------------------------------------
 
@@ -544,7 +747,6 @@ def create_app(
             ModelHTTPError,
             ModelAPIError,
             UnexpectedModelBehavior,
-            Exception,
         ):
             log.error("llm provider error", exc_info=True)
             return JSONResponse(

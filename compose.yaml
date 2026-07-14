@@ -328,6 +328,38 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── mcpd — MCP server for external AI agents ─────────────────────────────
+  mcpd:
+    build:
+      context: .
+      dockerfile: services/mcpd/Dockerfile
+    image: firnline/mcpd:local
+    depends_on:
+      queryd:
+        condition: service_started
+      captured:
+        condition: service_started
+    ports:
+      - "${MCPD_HOST_PORT:-8090}:8090"
+    environment:
+      MCPD_HOST: 0.0.0.0
+      MCPD_PORT: "8090"
+      MCPD_QUERYD_URL: ${MCPD_QUERYD_URL:-http://queryd:8087}
+      MCPD_QUERYD_TOKEN: ${QUERYD_API_TOKEN:?}
+      MCPD_CAPTURED_URL: ${MCPD_CAPTURED_URL:-http://captured:8088}
+      MCPD_CAPTURED_TOKEN: ${CAPTURED_API_TOKEN:?}
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8090/healthz',timeout=5)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # ── webui — Reflex-based web UI ───────────────────────────────────────────
   webui:
     build:

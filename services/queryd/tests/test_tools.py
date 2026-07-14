@@ -344,7 +344,7 @@ def test_check_graphql_query_keyword_ignored():
 
 
 def test_check_graphql_mutation_word_in_string_ok():
-    assert _check_graphql('{ InboxNote(filter: { content: { eq: "mutation observed" } }) { _id } }') is None
+    assert _check_graphql('{ Captured(filter: { content: { eq: "mutation observed" } }) { _id } }') is None
 
 
 def test_check_graphql_mutation_in_comment_ok():
@@ -381,14 +381,57 @@ def test_check_graphql_mutation_after_other_operation_rejected():
     assert "prohibited keyword" in _check_graphql("query A { x } mutation B { y }")
 
 
-def test_check_graphql_mutation_as_alias_allowed():
-    """mutation used as a field alias is allowed."""
-    assert _check_graphql("{ mutation: Task { _id } }") is None
+def test_check_graphql_mutation_as_alias_rejected():
+    """mutation used as a field alias is now rejected (word-boundary guard)."""
+    assert "prohibited keyword" in _check_graphql("{ mutation: Task { _id } }")
 
 
-def test_check_graphql_mutation_as_operation_name_allowed():
-    """mutation used as operation name (query mutation { ... }) is allowed."""
-    assert _check_graphql("query mutation { Task { _id } }") is None
+def test_check_graphql_mutation_as_operation_name_rejected():
+    """mutation used as operation name (query mutation { ... }) is rejected."""
+    assert "prohibited keyword" in _check_graphql("query mutation { Task { _id } }")
+
+
+def test_check_graphql_mutation_after_comma_bypass_rejected():
+    """Batched/comma-separated mutation after a query is rejected."""
+    assert "prohibited keyword" in _check_graphql(
+        "query Q{a},mutation M{x}"
+    )
+
+
+def test_check_graphql_mutation_after_paren_bypass_rejected():
+    """Mutation after closing paren is rejected."""
+    assert "prohibited keyword" in _check_graphql(
+        "query{a}\n)mutation Bar{_id}"
+    )
+
+
+def test_check_graphql_mutation_after_comment_bypass_rejected():
+    """Mutation placed right after a comment is still rejected."""
+    assert "prohibited keyword" in _check_graphql(
+        "# harmless comment\nmutation Bad{_id}"
+    )
+
+
+def test_check_graphql_mutation_inside_string_literal_passes():
+    """The word 'mutation' inside a string literal is stripped → allowed."""
+    assert _check_graphql(
+        '{ Task(filter: { name: { eq: "this is a mutation" } }) { _id } }'
+    ) is None
+
+
+def test_check_graphql_field_named_mutations_passes():
+    """Field name 'mutations' (no standalone word boundary) is allowed."""
+    assert _check_graphql("{ Task { mutations { _id } } }") is None
+
+
+def test_check_graphql_field_named_mutationRate_passes():
+    """Field name 'mutationRate' (no standalone word boundary) is allowed."""
+    assert _check_graphql("{ Task { mutationRate } }") is None
+
+
+def test_check_graphql_subscription_rejected():
+    """Standalone subscription keyword is rejected."""
+    assert "prohibited keyword" in _check_graphql("subscription { newTasks { _id } }")
 
 
 # ---------------------------------------------------------------------------

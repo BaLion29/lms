@@ -1,4 +1,4 @@
-"""Tests for ingestd source plugins (absorbed from firnline-ext-inbox)."""
+"""Tests for ingestd source plugins — Captured (text and audio)."""
 
 from __future__ import annotations
 
@@ -6,34 +6,38 @@ from datetime import datetime, timezone
 
 import structlog
 
-from ingestd.sources import InboxAudioSource, InboxNoteSource
+from ingestd.sources import CapturedAudioSource, CapturedTextSource
 
 
-class TestInboxNoteSource:
+class TestCapturedTextSource:
     def test_name(self) -> None:
-        src = InboxNoteSource()
-        assert src.name == "inbox_note"
+        src = CapturedTextSource()
+        assert src.name == "captured_text"
 
     def test_document_type_and_statuses(self) -> None:
-        src = InboxNoteSource()
-        assert src.document_type == "InboxNote"
+        src = CapturedTextSource()
+        assert src.document_type == "Captured"
         assert src.ready_status == "new"
         assert src.done_status == "processed"
         assert src.failed_status == "failed"
 
     def test_text_returns_content(self) -> None:
-        src = InboxNoteSource()
+        src = CapturedTextSource()
         assert src.text({"content": "hello world"}) == "hello world"
 
+    def test_text_missing_content_returns_empty(self) -> None:
+        src = CapturedTextSource()
+        assert src.text({}) == ""
+
     def test_reference_time_valid(self) -> None:
-        src = InboxNoteSource()
-        doc = {"created_at": "2026-07-05T14:00:00Z"}
+        src = CapturedTextSource()
+        doc = {"captured_at": "2026-07-05T14:00:00Z"}
         dt = src.reference_time(doc)
         assert dt == datetime(2026, 7, 5, 14, 0, 0, tzinfo=timezone.utc)
 
     def test_reference_time_missing_warns(self) -> None:
-        src = InboxNoteSource()
-        doc = {"@id": "InboxNote/xyz"}
+        src = CapturedTextSource()
+        doc = {"@id": "Captured/xyz"}
         with structlog.testing.capture_logs() as captured:
             dt = src.reference_time(doc)
         assert isinstance(dt, datetime)
@@ -41,12 +45,12 @@ class TestInboxNoteSource:
             e for e in captured if e.get("event") == "reference_datetime_missing"
         ]
         assert len(warning_events) == 1
-        assert warning_events[0]["iri"] == "InboxNote/xyz"
-        assert warning_events[0]["field"] == "created_at"
+        assert warning_events[0]["iri"] == "Captured/xyz"
+        assert warning_events[0]["field"] == "captured_at"
 
     def test_reference_time_unparseable_warns(self) -> None:
-        src = InboxNoteSource()
-        doc = {"created_at": "not-a-date", "@id": "InboxNote/bad"}
+        src = CapturedTextSource()
+        doc = {"captured_at": "not-a-date", "@id": "Captured/bad"}
         with structlog.testing.capture_logs() as captured:
             dt = src.reference_time(doc)
         assert isinstance(dt, datetime)
@@ -55,38 +59,42 @@ class TestInboxNoteSource:
         ]
         assert len(warning_events) == 1
 
-    def test_requires_inbox_module(self) -> None:
-        src = InboxNoteSource()
+    def test_requires_capture_module(self) -> None:
+        src = CapturedTextSource()
         assert len(src.requires) == 1
-        assert src.requires[0].name == "inbox"
+        assert src.requires[0].name == "capture"
         assert src.requires[0].range == ">=0.1.0 <0.2.0"
 
 
-class TestInboxAudioSource:
+class TestCapturedAudioSource:
     def test_name(self) -> None:
-        src = InboxAudioSource()
-        assert src.name == "inbox_audio"
+        src = CapturedAudioSource()
+        assert src.name == "captured_audio"
 
     def test_document_type_and_statuses(self) -> None:
-        src = InboxAudioSource()
-        assert src.document_type == "InboxAudio"
+        src = CapturedAudioSource()
+        assert src.document_type == "Captured"
         assert src.ready_status == "transcribed"
         assert src.done_status == "processed"
         assert src.failed_status == "failed"
 
     def test_text_returns_transcription(self) -> None:
-        src = InboxAudioSource()
+        src = CapturedAudioSource()
         assert src.text({"transcription": "call bob"}) == "call bob"
 
+    def test_text_missing_transcription_returns_empty(self) -> None:
+        src = CapturedAudioSource()
+        assert src.text({}) == ""
+
     def test_reference_time_valid(self) -> None:
-        src = InboxAudioSource()
-        doc = {"recorded_at": "2026-07-05T14:00:00Z"}
+        src = CapturedAudioSource()
+        doc = {"captured_at": "2026-07-05T14:00:00Z"}
         dt = src.reference_time(doc)
         assert dt == datetime(2026, 7, 5, 14, 0, 0, tzinfo=timezone.utc)
 
     def test_reference_time_missing_warns(self) -> None:
-        src = InboxAudioSource()
-        doc = {"@id": "InboxAudio/abc"}
+        src = CapturedAudioSource()
+        doc = {"@id": "Captured/abc"}
         with structlog.testing.capture_logs() as captured:
             dt = src.reference_time(doc)
         assert isinstance(dt, datetime)
@@ -94,12 +102,12 @@ class TestInboxAudioSource:
             e for e in captured if e.get("event") == "reference_datetime_missing"
         ]
         assert len(warning_events) == 1
-        assert warning_events[0]["iri"] == "InboxAudio/abc"
-        assert warning_events[0]["field"] == "recorded_at"
+        assert warning_events[0]["iri"] == "Captured/abc"
+        assert warning_events[0]["field"] == "captured_at"
 
     def test_reference_time_unparseable_warns(self) -> None:
-        src = InboxAudioSource()
-        doc = {"recorded_at": "not-a-date", "@id": "InboxAudio/bad"}
+        src = CapturedAudioSource()
+        doc = {"captured_at": "not-a-date", "@id": "Captured/bad"}
         with structlog.testing.capture_logs() as captured:
             dt = src.reference_time(doc)
         assert isinstance(dt, datetime)
@@ -108,8 +116,8 @@ class TestInboxAudioSource:
         ]
         assert len(warning_events) == 1
 
-    def test_requires_inbox_module(self) -> None:
-        src = InboxAudioSource()
+    def test_requires_capture_module(self) -> None:
+        src = CapturedAudioSource()
         assert len(src.requires) == 1
-        assert src.requires[0].name == "inbox"
+        assert src.requires[0].name == "capture"
         assert src.requires[0].range == ">=0.1.0 <0.2.0"

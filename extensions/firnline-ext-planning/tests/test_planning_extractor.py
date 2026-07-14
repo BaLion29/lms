@@ -135,8 +135,8 @@ class TestPluginMetadata:
 class _FakeBuildContext:
     """Minimal BuildContext double for testing build_documents."""
 
-    def __init__(self, inbox_iri: str = "InboxNote/test123", ensure_entity_returns: str | None = None):
-        self.inbox_iri = inbox_iri
+    def __init__(self, captured_iri: str = "InboxNote/test123", ensure_entity_returns: str | None = None):
+        self.captured_iri = captured_iri
         self.tdb = None
         self.branch = "main"
         self._ensure_entity_returns = ensure_entity_returns

@@ -100,7 +100,7 @@ class TestPluginMetadata:
 
 def _make_ctx(
     tdb_mock=None,
-    inbox_iri="InboxNote/test1",
+    captured_iri="InboxNote/test1",
     *,
     now_dt=None,
     branch="main",
@@ -110,7 +110,7 @@ def _make_ctx(
     ensure_entity = AsyncMock()
     return BuildContext(
         tdb=tdb,
-        inbox_iri=inbox_iri,
+        captured_iri=captured_iri,
         now=lambda: dt,
         ensure_entity=ensure_entity,
         branch=branch,

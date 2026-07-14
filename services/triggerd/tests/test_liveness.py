@@ -14,8 +14,8 @@ from firnline_core.plugins import DiscoveryResult
 
 def _patch_for_liveness_test(monkeypatch, tdb_mock):
     """Common patching for liveness tests."""
-    monkeypatch.setattr("triggerd.main.discover_plugins", lambda group: DiscoveryResult(active=[]))
-    monkeypatch.setattr("firnline_core.plugins.check_requirements", lambda tdb, reqs, branch="main": [])
+    monkeypatch.setattr("firnline_core.plugins.discover_plugins", lambda group: DiscoveryResult(active=[]))
+    monkeypatch.setattr("firnline_core.plugins.check_requirements", lambda tdb, reqs, branch="main", registry=None, required_classes=None: [])
     monkeypatch.setattr("triggerd.main.TdbClient", lambda **kw: tdb_mock)
     monkeypatch.setenv("TRIGGERD_TDB_DB", "test")
     monkeypatch.setenv("TRIGGERD_TDB_PASSWORD", "test")

@@ -462,3 +462,32 @@ def test_downgrade_even_without_changes():
     )
     assert len(violations) == 1
     assert "DOWNGRADE" in violations[0]
+
+
+# ===================================================================
+# @metadata change detection
+# ===================================================================
+
+
+def test_metadata_ignored_as_property():
+    """@metadata keys are class meta, not properties — adding @metadata is additive."""
+    old = [{"@id": "A", "@type": "Class", "name": "xsd:string"}]
+    new = [{"@id": "A", "@type": "Class", "name": "xsd:string",
+            "@metadata": {"label_field": "name"}}]
+    changes = classify_module_changes("m", old, new)
+    # Should NOT produce a "new property" change for @metadata
+    assert not any("@metadata" in c.description and "property" in c.description for c in changes)
+    # Should NOT produce a required-property change
+    assert not any("REQUIRED" in c.description for c in changes)
+
+
+def test_metadata_change_is_additive():
+    """Changing @metadata is detected as additive (non-breaking)."""
+    old = [{"@id": "A", "@type": "Class", "name": "xsd:string",
+            "@metadata": {"label_field": "name"}}]
+    new = [{"@id": "A", "@type": "Class", "name": "xsd:string",
+            "@metadata": {"label_field": "description"}}]
+    changes = classify_module_changes("m", old, new)
+    meta_changes = [c for c in changes if "@metadata" in c.description]
+    assert len(meta_changes) >= 1
+    assert all(c.kind == "additive" for c in meta_changes)

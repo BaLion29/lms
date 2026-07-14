@@ -437,10 +437,10 @@ def test_render_prompt_briefing_entity_preamble_present_once():
 
 
 def test_render_prompt_briefing_provenance_traversal_note():
-    """The provenance.source traversal note is in Query Conventions."""
+    """The derived_from ancestry chain note is in Query Conventions."""
     briefing = render_prompt_briefing(_INTROSPECTION)
-    assert "follow provenance.source" in briefing
-    assert "where did X come from" in briefing
+    assert "derived_from chain" in briefing
+    assert "birth certificate" in briefing
 
 
 def test_render_prompt_briefing_contains_status_enum():
@@ -461,7 +461,7 @@ def test_render_prompt_briefing_contains_iri_note():
 def test_render_prompt_briefing_contains_nested_reference_note():
     briefing = render_prompt_briefing(_INTROSPECTION)
     assert "NESTED OBJECTS" in briefing
-    assert "{ location { name } }" in briefing
+    assert "{ trigger { name fired_at } }" in briefing
 
 
 def test_render_prompt_briefing_schema_docs_injection():

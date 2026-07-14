@@ -8,7 +8,7 @@ from typing import Any
 import reflex as rx
 
 from firnline_webui.clients import TdbBrowser, WebuiClientError
-from firnline_webui.introspect import browsable_classes, extract_edges
+from firnline_webui.introspect import browsable_classes, doc_label, extract_edges
 from firnline_webui.settings import get_settings
 from firnline_webui.state.base import BaseState
 
@@ -29,16 +29,7 @@ def _make_tdb() -> TdbBrowser:
 
 def _node_label(doc: dict) -> str:
     """Return a human-readable label for a document node."""
-    for key in ("name", "title"):
-        val = doc.get(key)
-        if isinstance(val, str) and val:
-            return val
-    # Fall back to the last path segment of @id
-    doc_id = doc.get("@id", "")
-    if isinstance(doc_id, str):
-        parts = doc_id.rstrip("/").rsplit("/", 1)
-        return parts[-1]
-    return str(doc_id)
+    return doc_label(doc)
 
 
 class GraphState(BaseState):

@@ -51,9 +51,9 @@ def _inbox_table() -> rx.Component:
     return rx.table.root(
         rx.table.header(
             rx.table.row(
-                rx.table.column_header_cell("Class"),
+                rx.table.column_header_cell("Type"),
                 rx.table.column_header_cell("Status"),
-                rx.table.column_header_cell("Created"),
+                rx.table.column_header_cell("Captured"),
                 rx.table.column_header_cell("Preview"),
             ),
         ),
@@ -61,9 +61,9 @@ def _inbox_table() -> rx.Component:
             rx.foreach(
                 InboxState.filtered_rows,
                 lambda row: rx.table.row(
-                    rx.table.cell(rx.text(row["class"], size="2", weight="medium")),
+                    rx.table.cell(rx.text(row["content_type"], size="2", color_scheme="gray")),
                     rx.table.cell(_status_badge(row["status"])),
-                    rx.table.cell(rx.text(row["created_at"], size="2")),
+                    rx.table.cell(rx.text(row["captured_at"], size="2")),
                     rx.table.cell(
                         rx.text(
                             row["preview"],
@@ -92,9 +92,9 @@ def _empty_state() -> rx.Component:
     return rx.card(
         rx.vstack(
             rx.icon(tag="inbox", size=32, color=rx.color("gray", 7)),
-            rx.text("No inbox classes found.", size="3", weight="medium"),
+            rx.text("No captured items found.", size="3", weight="medium"),
             rx.text(
-                "Install an inbox-capable extension to see captured items here.",
+                "Captured items from the capture pipeline appear here.",
                 size="2",
                 color_scheme="gray",
             ),

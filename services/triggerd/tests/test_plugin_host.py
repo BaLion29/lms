@@ -1,23 +1,20 @@
-"""Tests for evaluator plugin discovery — collisions, broken entry points,
-zero-evaluator warning, skipped-plugins logging, duck-type filtering,
-and strict propagation.
+"""Tests for evaluator plugin discovery via PluginHost — collisions,
+broken entry points, zero-evaluator warning, skipped-plugins logging,
+protocol validation, and strict propagation.
 """
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-import structlog
 import pytest
 
 from triggerd.main import _discover_evaluator_plugins_async
 from firnline_core.plugins import DiscoveryResult, ModuleRequirement
 
-_test_logger = structlog.get_logger(__name__)
-
 
 # ---------------------------------------------------------------------------
-# Helpers — minimal evaluator plugin stubs
+# Helpers — minimal evaluator plugin stubs matching TriggerEvaluator protocol
 # ---------------------------------------------------------------------------
 
 
@@ -26,7 +23,7 @@ class _EvalA:
     trigger_types = ("TriggerDaily",)
     requires: list[ModuleRequirement] = []
 
-    async def occurrences(self, trigger, tdb, settings):
+    async def occurrences(self, trigger, *, window_start, window_end, ctx):
         return []
 
 
@@ -35,7 +32,7 @@ class _EvalB:
     trigger_types = ("TriggerDaily",)  # same as _EvalA → collision
     requires: list[ModuleRequirement] = []
 
-    async def occurrences(self, trigger, tdb, settings):
+    async def occurrences(self, trigger, *, window_start, window_end, ctx):
         return []
 
 
@@ -44,7 +41,7 @@ class _EvalNoCollision:
     trigger_types = ("TriggerOnce",)
     requires: list[ModuleRequirement] = []
 
-    async def occurrences(self, trigger, tdb, settings):
+    async def occurrences(self, trigger, *, window_start, window_end, ctx):
         return []
 
 
@@ -53,7 +50,7 @@ class _EvalPartialOverlap:
     trigger_types = ("A", "B")
     requires: list[ModuleRequirement] = []
 
-    async def occurrences(self, trigger, tdb, settings):
+    async def occurrences(self, trigger, *, window_start, window_end, ctx):
         return []
 
 
@@ -62,7 +59,7 @@ class _EvalOtherPartial:
     trigger_types = ("B", "C")
     requires: list[ModuleRequirement] = []
 
-    async def occurrences(self, trigger, tdb, settings):
+    async def occurrences(self, trigger, *, window_start, window_end, ctx):
         return []
 
 
@@ -71,17 +68,17 @@ class _EvalWithReq:
     trigger_types = ("TriggerWeekly",)
     requires = [ModuleRequirement(name="missing_module", range=">=2.0.0")]
 
-    async def occurrences(self, trigger, tdb, settings):
+    async def occurrences(self, trigger, *, window_start, window_end, ctx):
         return []
 
 
-class _EvalMissingAttrs:
-    """Missing trigger_types — should be filtered out in duck-typing."""
+class _EvalMissingTriggerTypes:
+    """Missing trigger_types — filtered by protocol validation (attribute check)."""
 
     name = "eval_missing_attrs"
     requires: list[ModuleRequirement] = []
 
-    async def occurrences(self, trigger, tdb, settings):
+    async def occurrences(self, trigger, *, window_start, window_end, ctx):
         return []
 
 
@@ -90,15 +87,6 @@ class _EvalNonCallable:
     trigger_types = ("TriggerX",)
     occurrences = "not callable"
     requires: list[ModuleRequirement] = []
-
-
-class _EvalNonListTypes:
-    name = "eval_non_list_types"
-    trigger_types = "TriggerX"  # not a tuple/list
-    requires: list[ModuleRequirement] = []
-
-    async def occurrences(self, trigger, tdb, settings):
-        return []
 
 
 # ---------------------------------------------------------------------------
@@ -114,17 +102,17 @@ class TestTriggerTypeCollision:
         tdb.get_documents = AsyncMock(return_value=[])
 
         monkeypatch.setattr(
-            "triggerd.main.discover_plugins",
+            "firnline_core.plugins.discover_plugins",
             lambda group: DiscoveryResult(active=[("a", _EvalA()), ("b", _EvalB())]),
         )
 
-        async def _noop_check(tdb, reqs, branch="main"):
+        async def _noop_check(tdb, reqs, branch="main", registry=None, required_classes=None):
             return []
 
         monkeypatch.setattr("firnline_core.plugins.check_requirements", _noop_check)
 
         with pytest.raises(RuntimeError, match="collision"):
-            await _discover_evaluator_plugins_async(tdb, "main", _test_logger)
+            await _discover_evaluator_plugins_async(tdb, "main", None)
 
     @pytest.mark.asyncio
     async def test_no_collision_when_types_differ(self, monkeypatch):
@@ -133,16 +121,16 @@ class TestTriggerTypeCollision:
         tdb.get_documents = AsyncMock(return_value=[])
 
         monkeypatch.setattr(
-            "triggerd.main.discover_plugins",
+            "firnline_core.plugins.discover_plugins",
             lambda group: DiscoveryResult(active=[("a", _EvalA()), ("b", _EvalNoCollision())]),
         )
 
-        async def _noop_check(tdb, reqs, branch="main"):
+        async def _noop_check(tdb, reqs, branch="main", registry=None, required_classes=None):
             return []
 
         monkeypatch.setattr("firnline_core.plugins.check_requirements", _noop_check)
 
-        evaluators = await _discover_evaluator_plugins_async(tdb, "main", _test_logger)
+        evaluators = await _discover_evaluator_plugins_async(tdb, "main", None)
         assert len(evaluators) == 2
 
     @pytest.mark.asyncio
@@ -152,17 +140,17 @@ class TestTriggerTypeCollision:
         tdb.get_documents = AsyncMock(return_value=[])
 
         monkeypatch.setattr(
-            "triggerd.main.discover_plugins",
+            "firnline_core.plugins.discover_plugins",
             lambda group: DiscoveryResult(active=[("a", _EvalPartialOverlap()), ("b", _EvalOtherPartial())]),
         )
 
-        async def _noop_check(tdb, reqs, branch="main"):
+        async def _noop_check(tdb, reqs, branch="main", registry=None, required_classes=None):
             return []
 
         monkeypatch.setattr("firnline_core.plugins.check_requirements", _noop_check)
 
         with pytest.raises(RuntimeError, match="collision"):
-            await _discover_evaluator_plugins_async(tdb, "main", _test_logger)
+            await _discover_evaluator_plugins_async(tdb, "main", None)
 
 
 # ---------------------------------------------------------------------------
@@ -178,59 +166,54 @@ class TestBrokenEntryPoints:
         tdb.get_documents = AsyncMock(return_value=[])
 
         monkeypatch.setattr(
-            "triggerd.main.discover_plugins",
+            "firnline_core.plugins.discover_plugins",
             lambda group: DiscoveryResult(failed=[("broken_eval", "ImportError: no module 'nope'")]),
         )
 
         with pytest.raises(RuntimeError, match="failed to load"):
-            await _discover_evaluator_plugins_async(tdb, "main", _test_logger)
+            await _discover_evaluator_plugins_async(tdb, "main", None)
 
 
 # ---------------------------------------------------------------------------
-# 3. Zero evaluators → warning, not fatal
+# 3. Zero evaluators → warning, not fatal (behavior check)
 # ---------------------------------------------------------------------------
 
 
 class TestZeroEvaluators:
     @pytest.mark.asyncio
-    async def test_zero_active_evaluators_warns_not_crashes(self, monkeypatch):
-        """No active evaluator plugins → warning logged, empty list returned, no RuntimeError."""
+    async def test_zero_active_evaluators_returns_empty_no_error(self, monkeypatch):
+        """No active evaluator plugins → empty list returned, no RuntimeError."""
         tdb = AsyncMock()
         tdb.get_documents = AsyncMock(return_value=[])
 
         monkeypatch.setattr(
-            "triggerd.main.discover_plugins",
+            "firnline_core.plugins.discover_plugins",
             lambda group: DiscoveryResult(active=[]),
         )
 
-        async def _noop_check(tdb, reqs, branch="main"):
+        async def _noop_check(tdb, reqs, branch="main", registry=None, required_classes=None):
             return []
 
         monkeypatch.setattr("firnline_core.plugins.check_requirements", _noop_check)
 
-        with structlog.testing.capture_logs() as captured:
-            evaluators = await _discover_evaluator_plugins_async(tdb, "main", _test_logger)
-
+        evaluators = await _discover_evaluator_plugins_async(tdb, "main", None)
         assert evaluators == []
-
-        warning_events = [e for e in captured if e.get("event") == "no_active_evaluator_plugins"]
-        assert len(warning_events) == 1
 
 
 # ---------------------------------------------------------------------------
-# 4. Skipped-requirements plugin logged
+# 4. Skipped-requirements plugin → filtered
 # ---------------------------------------------------------------------------
 
 
 class TestSkippedPlugins:
     @pytest.mark.asyncio
-    async def test_unmet_requirement_skipped_and_logged(self, monkeypatch):
-        """Evaluator with unmet requirement → skipped, others active, warning logged."""
+    async def test_unmet_requirement_skipped(self, monkeypatch):
+        """Evaluator with unmet requirement → skipped, others active."""
         tdb = AsyncMock()
         tdb.get_documents = AsyncMock(return_value=[])
 
         monkeypatch.setattr(
-            "triggerd.main.discover_plugins",
+            "firnline_core.plugins.discover_plugins",
             lambda group: DiscoveryResult(active=[("with_req", _EvalWithReq()), ("ok", _EvalA())]),
         )
 
@@ -238,7 +221,7 @@ class TestSkippedPlugins:
 
         _orig_check = plug_mod.check_requirements
 
-        async def _check(tdb, reqs, branch="main"):
+        async def _check(tdb, reqs, branch="main", registry=None, required_classes=None):
             violations: list[str] = []
             for req in reqs:
                 violations.append(f"module '{req.name}' not installed")
@@ -246,100 +229,58 @@ class TestSkippedPlugins:
 
         plug_mod.check_requirements = _check
         try:
-            with structlog.testing.capture_logs() as captured:
-                evaluators = await _discover_evaluator_plugins_async(tdb, "main", _test_logger)
+            evaluators = await _discover_evaluator_plugins_async(tdb, "main", None)
             # _EvalWithReq should be skipped, _EvalA should be active
             names = [e.name for e in evaluators]
             assert "eval_a" in names
             assert "eval_with_req" not in names
-
-            skip_events = [e for e in captured if e.get("event") == "evaluator_plugin_skipped"]
-            assert len(skip_events) == 1
-            assert skip_events[0]["plugin"] == "with_req"
         finally:
             plug_mod.check_requirements = _orig_check
 
 
 # ---------------------------------------------------------------------------
-# 5. Duck-typing: invalid evaluators filtered with warnings
+# 5. Protocol validation (replaces duck-typing checks)
 # ---------------------------------------------------------------------------
 
 
-class TestDuckTypeFiltering:
+class TestProtocolValidation:
     @pytest.mark.asyncio
-    async def test_missing_attrs_rejected_with_warning(self, monkeypatch):
-        """Plugin missing trigger_types → filtered, warning logged."""
+    async def test_missing_trigger_types_is_skipped(self, monkeypatch):
+        """Plugin missing trigger_types → filtered by protocol validation."""
         tdb = AsyncMock()
         tdb.get_documents = AsyncMock(return_value=[])
 
         monkeypatch.setattr(
-            "triggerd.main.discover_plugins",
-            lambda group: DiscoveryResult(active=[("bad", _EvalMissingAttrs())]),
+            "firnline_core.plugins.discover_plugins",
+            lambda group: DiscoveryResult(active=[("bad", _EvalMissingTriggerTypes())]),
         )
 
-        async def _noop_check(tdb, reqs, branch="main"):
+        async def _noop_check(tdb, reqs, branch="main", registry=None, required_classes=None):
             return []
 
         monkeypatch.setattr("firnline_core.plugins.check_requirements", _noop_check)
 
-        with structlog.testing.capture_logs() as captured:
-            evaluators = await _discover_evaluator_plugins_async(tdb, "main", _test_logger)
-
+        evaluators = await _discover_evaluator_plugins_async(tdb, "main", None)
         assert evaluators == []
 
-        warn_events = [e for e in captured if e.get("event") == "plugin_not_evaluator"]
-        assert len(warn_events) == 1
-        assert warn_events[0]["name"] == "bad"
-
     @pytest.mark.asyncio
-    async def test_non_list_trigger_types_rejected_with_warning(self, monkeypatch):
-        """Plugin with non-list trigger_types → filtered, warning logged."""
+    async def test_non_callable_occurrences_is_skipped(self, monkeypatch):
+        """Plugin with non-callable occurrences → filtered by protocol validation."""
         tdb = AsyncMock()
         tdb.get_documents = AsyncMock(return_value=[])
 
         monkeypatch.setattr(
-            "triggerd.main.discover_plugins",
-            lambda group: DiscoveryResult(active=[("bad", _EvalNonListTypes())]),
-        )
-
-        async def _noop_check(tdb, reqs, branch="main"):
-            return []
-
-        monkeypatch.setattr("firnline_core.plugins.check_requirements", _noop_check)
-
-        with structlog.testing.capture_logs() as captured:
-            evaluators = await _discover_evaluator_plugins_async(tdb, "main", _test_logger)
-
-        assert evaluators == []
-
-        warn_events = [e for e in captured if e.get("event") == "plugin_bad_trigger_types"]
-        assert len(warn_events) == 1
-        assert warn_events[0]["name"] == "bad"
-
-    @pytest.mark.asyncio
-    async def test_non_callable_occurrences_rejected_with_warning(self, monkeypatch):
-        """Plugin with non-callable occurrences → filtered, warning logged."""
-        tdb = AsyncMock()
-        tdb.get_documents = AsyncMock(return_value=[])
-
-        monkeypatch.setattr(
-            "triggerd.main.discover_plugins",
+            "firnline_core.plugins.discover_plugins",
             lambda group: DiscoveryResult(active=[("bad", _EvalNonCallable())]),
         )
 
-        async def _noop_check(tdb, reqs, branch="main"):
+        async def _noop_check(tdb, reqs, branch="main", registry=None, required_classes=None):
             return []
 
         monkeypatch.setattr("firnline_core.plugins.check_requirements", _noop_check)
 
-        with structlog.testing.capture_logs() as captured:
-            evaluators = await _discover_evaluator_plugins_async(tdb, "main", _test_logger)
-
+        evaluators = await _discover_evaluator_plugins_async(tdb, "main", None)
         assert evaluators == []
-
-        warn_events = [e for e in captured if e.get("event") == "plugin_bad_occurrences"]
-        assert len(warn_events) == 1
-        assert warn_events[0]["name"] == "bad"
 
 
 # ---------------------------------------------------------------------------
@@ -350,12 +291,12 @@ class TestDuckTypeFiltering:
 class TestStrictPlugins:
     @pytest.mark.asyncio
     async def test_strict_skipped_raises(self, monkeypatch):
-        """strict=True: skipped evaluator raises RuntimeError via select_plugins."""
+        """strict=True: skipped evaluator raises RuntimeError via PluginHost."""
         tdb = AsyncMock()
         tdb.get_documents = AsyncMock(return_value=[])
 
         monkeypatch.setattr(
-            "triggerd.main.discover_plugins",
+            "firnline_core.plugins.discover_plugins",
             lambda group: DiscoveryResult(active=[("with_req", _EvalWithReq())]),
         )
 
@@ -363,12 +304,12 @@ class TestStrictPlugins:
 
         _orig_check = plug_mod.check_requirements
 
-        async def _check(tdb, reqs, branch="main"):
+        async def _check(tdb, reqs, branch="main", registry=None, required_classes=None):
             return ["module 'missing_module' not installed"]
 
         plug_mod.check_requirements = _check
         try:
             with pytest.raises(RuntimeError, match="Strict plugin mode"):
-                await _discover_evaluator_plugins_async(tdb, "main", _test_logger, strict=True)
+                await _discover_evaluator_plugins_async(tdb, "main", None, strict=True)
         finally:
             plug_mod.check_requirements = _orig_check

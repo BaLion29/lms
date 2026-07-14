@@ -50,7 +50,7 @@ POST /v1/find_entity
 
 POST /v1/find_class
   { "text": "reminder about a person", "k": 5 }
-→ { "candidates": [{"class":"Reminder","description":"A reminder attached to a Remindable","score":0.86}] }
+→ { "candidates": [{"class":"Reminder","description":"A reminder about a task or event","score":0.86}] }
 
 POST /v1/find_field
   { "text": "when is it due", "class": "Task", "k": 5 }

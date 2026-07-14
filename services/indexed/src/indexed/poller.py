@@ -169,6 +169,11 @@ class Poller:
 
             doc = await self.tdb.get_document(iri, branch=self._branch)
 
+            # Soft-delete: if archived_at is set, remove from index
+            if doc.get("archived_at"):
+                self.store.delete_entity(iri)
+                continue
+
             name = plugin.entity_name(doc)
             aliases = plugin.entity_aliases(doc)
             text = plugin.entity_text(doc)
@@ -344,6 +349,9 @@ class Poller:
             for doc in docs:
                 iri = doc.get("@id", "")
                 if not iri:
+                    continue
+                # Soft-delete: skip documents with archived_at set
+                if doc.get("archived_at"):
                     continue
                 name = plugin.entity_name(doc)
                 aliases = plugin.entity_aliases(doc)

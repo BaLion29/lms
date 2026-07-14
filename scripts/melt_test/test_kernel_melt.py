@@ -18,6 +18,21 @@ import pytest
 
 UTC = timezone.utc
 
+
+def _make_async_select(result):
+    """Return an async function matching select_plugins' signature."""
+
+    async def _inner(tdb, discovered, *, strict=False, branch="main", protocol=None, registry=None):
+        if strict and result.skipped:
+            skipped_names = [n for n, _ in result.skipped]
+            raise RuntimeError(
+                f"Strict plugin mode: skipped={skipped_names}, failed=[]"
+            )
+        return result
+
+    return _inner
+
+
 # ---------------------------------------------------------------------------
 # 1. ingestd — Pipeline with zero source + zero extractor plugins
 # ---------------------------------------------------------------------------
@@ -58,9 +73,7 @@ class TestIngestdMelt:
 
         await pipeline.run_cycle()
 
-        # No exceptions = pass. Cycle completed with inbox_count=0.
-        # tdb.graphql may be called for idempotency set (primary path),
-        # but should not fail.
+        # No exceptions = pass. Cycle completed with zero items.
         assert True
 
 
@@ -109,7 +122,7 @@ class TestQuerydMelt:
         from queryd.schema_briefing import render_prompt_briefing
 
         # Synthetic introspection with only kernel classes:
-        # InboxNote, InboxAudio, TriggerFiring + their enums.
+        # Captured, TriggerFiring + their enums + Entity fields.
         introspection: dict[str, Any] = {
             "__schema": {
                 "queryType": {"name": "Query"},
@@ -121,14 +134,14 @@ class TestQuerydMelt:
                         "kind": "OBJECT",
                         "fields": [],
                     },
-                    # --- Domain classes ---
+                    # --- Captured ---
                     {
-                        "name": "InboxNote",
+                        "name": "Captured",
                         "kind": "OBJECT",
                         "fields": [
                             {"name": "_id", "type": {"name": "ID", "kind": "SCALAR"}},
                             {"name": "content", "type": {"name": "String", "kind": "SCALAR"}},
-                            {"name": "status", "type": {"name": "InboxNoteStatus", "kind": "ENUM"}},
+                            {"name": "status", "type": {"name": "CapturedStatus", "kind": "ENUM"}},
                             {
                                 "name": "provenance",
                                 "type": {"name": "Provenance", "kind": "OBJECT"},
@@ -143,42 +156,7 @@ class TestQuerydMelt:
                             },
                         ],
                     },
-                    {
-                        "name": "InboxAudio",
-                        "kind": "OBJECT",
-                        "fields": [
-                            {"name": "_id", "type": {"name": "ID", "kind": "SCALAR"}},
-                            {"name": "file_name", "type": {"name": "String", "kind": "SCALAR"}},
-                            {
-                                "name": "file_path",
-                                "type": {"name": "String", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "recorded_at",
-                                "type": {"name": "DateTime", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "status",
-                                "type": {"name": "InboxAudioStatus", "kind": "ENUM"},
-                            },
-                            {
-                                "name": "transcription",
-                                "type": {"name": "String", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "provenance",
-                                "type": {"name": "Provenance", "kind": "OBJECT"},
-                            },
-                            {
-                                "name": "created_at",
-                                "type": {"name": "DateTime", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "updated_at",
-                                "type": {"name": "DateTime", "kind": "SCALAR"},
-                            },
-                        ],
-                    },
+                    # --- TriggerFiring ---
                     {
                         "name": "TriggerFiring",
                         "kind": "OBJECT",
@@ -229,18 +207,7 @@ class TestQuerydMelt:
                     },
                     # --- Enums ---
                     {
-                        "name": "InboxNoteStatus",
-                        "kind": "ENUM",
-                        "fields": None,
-                        "enumValues": [
-                            {"name": "new"},
-                            {"name": "processed"},
-                            {"name": "failed"},
-                            {"name": "archived"},
-                        ],
-                    },
-                    {
-                        "name": "InboxAudioStatus",
+                        "name": "CapturedStatus",
                         "kind": "ENUM",
                         "fields": None,
                         "enumValues": [
@@ -268,7 +235,6 @@ class TestQuerydMelt:
                         "name": "Provenance",
                         "kind": "OBJECT",
                         "fields": [
-                            {"name": "source", "type": {"name": "String", "kind": "SCALAR"}},
                             {"name": "agent", "type": {"name": "String", "kind": "SCALAR"}},
                             {"name": "at", "type": {"name": "DateTime", "kind": "SCALAR"}},
                             {
@@ -289,8 +255,7 @@ class TestQuerydMelt:
 
         # Must be non-empty and contain key elements.
         assert "Universal Entity Fields" in briefing
-        assert "InboxNote" in briefing
-        assert "InboxAudio" in briefing
+        assert "Captured" in briefing
         assert "TriggerFiring" in briefing
         assert "FiringStatus" in briefing
         assert "Query Conventions" in briefing
@@ -311,10 +276,8 @@ class TestCapturedMelt:
         from fastapi.testclient import TestClient
 
         from captured.app import create_app
-        from captured.handlers import inbox_note_handler
+        from captured.handlers import captured_note_handler
         from captured.settings import Settings
-
-        import captured.app as app_mod
         from firnline_core.plugins import (
             DiscoveryResult,
             PluginSelection,
@@ -323,28 +286,32 @@ class TestCapturedMelt:
         # Fake TdbClient — returns a valid IRI on insert
         fake_tdb = AsyncMock()
         fake_tdb.insert_documents = AsyncMock(
-            return_value=["terminusdb:///data/InboxNote/test1"]
+            return_value=["terminusdb:///data/Captured/test1"]
         )
         fake_tdb.db_exists = AsyncMock(return_value=True)
         fake_tdb.get_documents = AsyncMock(return_value=[])
 
+        import captured.app as app_mod
         monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: fake_tdb)
 
-        # Kernel-only: discover only built-in inbox_note handler
+        # captured.app now uses PluginHost internally, which calls
+        # discover_plugins / select_plugins from firnline_core.plugins.
+        import firnline_core.plugins as core_plugins
+
         monkeypatch.setattr(
-            app_mod,
+            core_plugins,
             "discover_plugins",
             lambda group: DiscoveryResult(
-                active=[("inbox_note", inbox_note_handler)],
+                active=[("captured_note", captured_note_handler)],
                 failed=[],
             ),
         )
         monkeypatch.setattr(
-            app_mod,
+            core_plugins,
             "select_plugins",
             _make_async_select(
                 PluginSelection(
-                    active=[("inbox_note", inbox_note_handler)],
+                    active=[("captured_note", captured_note_handler)],
                     skipped=[],
                 )
             ),
@@ -371,10 +338,8 @@ class TestCapturedMelt:
         from fastapi.testclient import TestClient
 
         from captured.app import create_app
-        from captured.handlers import inbox_note_handler
+        from captured.handlers import captured_note_handler
         from captured.settings import Settings
-
-        import captured.app as app_mod
         from firnline_core.plugins import (
             DiscoveryResult,
             PluginSelection,
@@ -385,21 +350,25 @@ class TestCapturedMelt:
         fake_tdb.db_exists = AsyncMock(return_value=True)
         fake_tdb.get_documents = AsyncMock(return_value=[])
 
+        import captured.app as app_mod
         monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: fake_tdb)
+
+        import firnline_core.plugins as core_plugins
+
         monkeypatch.setattr(
-            app_mod,
+            core_plugins,
             "discover_plugins",
             lambda group: DiscoveryResult(
-                active=[("inbox_note", inbox_note_handler)],
+                active=[("captured_note", captured_note_handler)],
                 failed=[],
             ),
         )
         monkeypatch.setattr(
-            app_mod,
+            core_plugins,
             "select_plugins",
             _make_async_select(
                 PluginSelection(
-                    active=[("inbox_note", inbox_note_handler)],
+                    active=[("captured_note", captured_note_handler)],
                     skipped=[],
                 )
             ),
@@ -500,19 +469,241 @@ class TestDiscoveryMelt:
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# 7. Zero-plugin PluginHost boot tests for all 7 host services
 # ---------------------------------------------------------------------------
 
 
-def _make_async_select(result):
-    """Return an async function matching select_plugins' signature."""
+class TestPluginHostZeroPlugins:
+    """Every plugin-hosting service boots through PluginHost with zero plugins."""
 
-    async def _inner(tdb, discovered, *, strict=False, branch="main", protocol=None):
-        if strict and result.skipped:
-            skipped_names = [n for n, _ in result.skipped]
-            raise RuntimeError(
-                f"Strict plugin mode: skipped={skipped_names}, failed=[]"
+    @pytest.mark.asyncio
+    async def test_captured_zero_plugin_boot(self) -> None:
+        """captured PluginHost start with empty DiscoveryResult (no handlers)."""
+        from firnline_core.plugins import (
+            CaptureHandler,
+            DiscoveryResult,
+            HostPolicy,
+            PluginHost,
+        )
+
+        tdb = AsyncMock()
+        tdb.get_documents = AsyncMock(return_value=[])
+
+        policy = HostPolicy(
+            broken_entry_point_fatal=True,
+            tdb_unavailable_fatal=False,
+            strict=False,
+        )
+        host = PluginHost(
+            group="firnline.captured.handlers",
+            protocol=CaptureHandler,
+            tdb=tdb,
+            branch="main",
+            policy=policy,
+        )
+        result = await host.start(
+            collision_key=lambda h: list(h.kinds),
+            registry=[],
+            discovered=DiscoveryResult(active=[], failed=[]),
+        )
+        # Zero plugins is NOT fatal for captured (zero_active_fatal=False default)
+        assert len(result.active) == 0
+        assert len(result.failed) == 0
+        assert len(result.skipped) == 0
+
+    @pytest.mark.asyncio
+    async def test_ingestd_extractor_zero_plugin_boot(self) -> None:
+        """ingestd extractor PluginHost with zero_active_fatal=True raises RuntimeError."""
+        from firnline_core.plugins import (
+            DiscoveryResult,
+            ExtractorPlugin,
+            HostPolicy,
+            PluginHost,
+        )
+
+        tdb = AsyncMock()
+        tdb.get_documents = AsyncMock(return_value=[])
+
+        # ingestd extractors use zero_active_fatal=True
+        policy = HostPolicy(
+            broken_entry_point_fatal=True,
+            zero_active_fatal=True,
+            strict=False,
+        )
+        host = PluginHost(
+            group="firnline.ingestd.extractors",
+            protocol=ExtractorPlugin,
+            tdb=tdb,
+            branch="main",
+            policy=policy,
+        )
+        with pytest.raises(RuntimeError, match="No active plugins"):
+            await host.start(
+                collision_key=lambda p: [],
+                registry=[],
+                discovered=DiscoveryResult(active=[], failed=[]),
             )
-        return result
 
-    return _inner
+    @pytest.mark.asyncio
+    async def test_ingestd_source_zero_plugin_boot(self) -> None:
+        """ingestd source PluginHost with zero_active_fatal=True raises RuntimeError."""
+        from firnline_core.plugins import (
+            DiscoveryResult,
+            HostPolicy,
+            IngestSourcePlugin,
+            PluginHost,
+        )
+
+        tdb = AsyncMock()
+        tdb.get_documents = AsyncMock(return_value=[])
+
+        policy = HostPolicy(
+            broken_entry_point_fatal=True,
+            zero_active_fatal=True,
+            strict=False,
+        )
+        host = PluginHost(
+            group="firnline.ingestd.sources",
+            protocol=IngestSourcePlugin,
+            tdb=tdb,
+            branch="main",
+            policy=policy,
+        )
+        with pytest.raises(RuntimeError, match="No active plugins"):
+            await host.start(
+                collision_key=lambda p: [],
+                registry=[],
+                discovered=DiscoveryResult(active=[], failed=[]),
+            )
+
+    @pytest.mark.asyncio
+    async def test_indexed_zero_plugin_boot(self) -> None:
+        """indexed PluginHost boots with zero indexer plugins (not fatal)."""
+        from firnline_core.plugins import (
+            DiscoveryResult,
+            HostPolicy,
+            IndexerPlugin,
+            PluginHost,
+        )
+
+        tdb = AsyncMock()
+        tdb.get_documents = AsyncMock(return_value=[])
+
+        policy = HostPolicy(
+            broken_entry_point_fatal=False,
+            zero_active_fatal=False,
+            strict=False,
+        )
+        host = PluginHost(
+            group="firnline.indexed.indexers",
+            protocol=IndexerPlugin,
+            tdb=tdb,
+            branch="main",
+            policy=policy,
+        )
+        result = await host.start(
+            collision_key=lambda p: p.indexed_classes(),
+            registry=[],
+            discovered=DiscoveryResult(active=[], failed=[]),
+        )
+        assert len(result.active) == 0
+        assert len(result.failed) == 0
+
+    @pytest.mark.asyncio
+    async def test_notifyd_zero_plugin_boot(self) -> None:
+        """notifyd PluginHost boots with zero channel plugins (not fatal)."""
+        from firnline_core.plugins import (
+            DiscoveryResult,
+            HostPolicy,
+            NotificationChannel,
+            PluginHost,
+        )
+
+        tdb = AsyncMock()
+        tdb.get_documents = AsyncMock(return_value=[])
+
+        policy = HostPolicy(
+            broken_entry_point_fatal=False,
+            zero_active_fatal=False,
+        )
+        host = PluginHost(
+            group="firnline.notifyd.channels",
+            protocol=NotificationChannel,
+            tdb=tdb,
+            branch="main",
+            policy=policy,
+        )
+        result = await host.start(
+            collision_key=lambda c: [c.name],
+            registry=[],
+            discovered=DiscoveryResult(active=[], failed=[]),
+        )
+        assert len(result.active) == 0
+        assert len(result.failed) == 0
+
+    @pytest.mark.asyncio
+    async def test_queryd_zero_plugin_boot(self) -> None:
+        """queryd PluginHost boots with zero tool plugins (not fatal, tdb_unavailable_fatal=False)."""
+        from firnline_core.plugins import (
+            DiscoveryResult,
+            HostPolicy,
+            PluginHost,
+            ToolPlugin,
+        )
+
+        tdb = AsyncMock()
+        tdb.get_documents = AsyncMock(return_value=[])
+
+        policy = HostPolicy(
+            broken_entry_point_fatal=False,
+            zero_active_fatal=False,
+            strict=False,
+            tdb_unavailable_fatal=False,
+        )
+        host = PluginHost(
+            group="firnline.queryd.tools",
+            protocol=ToolPlugin,
+            tdb=tdb,
+            branch="main",
+            policy=policy,
+        )
+        result = await host.start(
+            collision_key=lambda p: [t.name for t in p.tools(None)],
+            registry=[],
+            discovered=DiscoveryResult(active=[], failed=[]),
+        )
+        assert len(result.active) == 0
+        assert len(result.failed) == 0
+
+    @pytest.mark.asyncio
+    async def test_triggerd_zero_plugin_boot(self) -> None:
+        """triggerd PluginHost boots with zero evaluator plugins (not fatal)."""
+        from firnline_core.plugins import (
+            DiscoveryResult,
+            HostPolicy,
+            PluginHost,
+            TriggerEvaluator,
+        )
+
+        tdb = AsyncMock()
+        tdb.get_documents = AsyncMock(return_value=[])
+
+        policy = HostPolicy(
+            broken_entry_point_fatal=True,
+            zero_active_fatal=False,
+            strict=False,
+        )
+        host = PluginHost(
+            group="firnline.triggerd.evaluators",
+            protocol=TriggerEvaluator,
+            tdb=tdb,
+            branch="main",
+            policy=policy,
+        )
+        result = await host.start(
+            collision_key=lambda ev: ev.trigger_types,
+            registry=[],
+            discovered=DiscoveryResult(active=[], failed=[]),
+        )
+        assert len(result.active) == 0
+        assert len(result.failed) == 0

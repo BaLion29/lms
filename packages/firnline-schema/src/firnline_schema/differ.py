@@ -65,18 +65,9 @@ def _has_nonequivocal_wrapper(prop_val: Any) -> bool:
     return isinstance(prop_val, dict) and prop_val.get("@type") in _WRAPPERS
 
 
-def _class_meta_keys() -> set[str]:
-    """@-keys that are class-level metadata (not properties)."""
-    return {
-        "@id", "@type", "@inherits", "@abstract", "@subdocument",
-        "@key", "@oneOf", "@value",
-    }
-
-
 def _prop_keys(cls: dict[str, Any]) -> set[str]:
-    """Return the set of property keys (non-@-meta keys)."""
-    meta = _class_meta_keys()
-    return {k for k in cls if k not in meta}
+    """Return the set of property keys (non-@-prefixed keys)."""
+    return {k for k in cls if not k.startswith("@")}
 
 
 def _enum_values(cls: dict[str, Any]) -> list[str]:
@@ -177,6 +168,16 @@ def _classify_class_changes(
                 kind="breaking",
                 description=f"Class '{cid}': {meta} changed",
             ))
+
+    # --- @metadata changes (compatible / non-breaking) ---
+    old_meta = old_cls.get("@metadata")
+    new_meta = new_cls.get("@metadata")
+    if _canonical(old_meta) != _canonical(new_meta):
+        changes.append(Change(
+            module="",
+            kind="additive",
+            description=f"Class '{cid}': @metadata changed",
+        ))
 
     # --- Enum @value changes ---
     if old_cls.get("@type") == "Enum" or old_cls.get("@type") == "enum":
