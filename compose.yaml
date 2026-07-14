@@ -380,6 +380,8 @@ services:
       WEBUI_QUERYD_URL: http://queryd:8087
       WEBUI_QUERYD_API_TOKEN: ${QUERYD_API_TOKEN:?}
       WEBUI_INDEXED_URL: http://indexed:8089
+      WEBUI_INDEXED_API_TOKEN: ${WEBUI_INDEXED_API_TOKEN:-${INDEXED_API_TOKEN:-}}
+      WEBUI_MCPD_URL: http://mcpd:8090
       WEBUI_TDB_URL: ${TDB_URL:?err TDB_URL must be set}
       WEBUI_TDB_ORG: ${TDB_ORG:-admin}
       WEBUI_TDB_DB: ${TDB_DB:-firnline}

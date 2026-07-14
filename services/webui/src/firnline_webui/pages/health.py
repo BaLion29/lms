@@ -29,6 +29,8 @@ def _service_detail(
     handlers: rx.Var[list],
     blob_available: rx.Var[bool] | None = None,
     blob_writable: rx.Var[bool] | None = None,
+    store: rx.Var[str] | None = None,
+    poller: rx.Var[str] | None = None,
 ) -> rx.Component:
     return status_card(
         name,
@@ -63,6 +65,36 @@ def _service_detail(
             info_row("Blob Store", _blob_indicator(blob_available, blob_writable)),  # type: ignore[arg-type]
             rx.text(""),
         ),
+        rx.cond(
+            store is not None,
+            info_row("Store", rx.text(store, size="2")),  # type: ignore[arg-type]
+            rx.text(""),
+        ),
+        rx.cond(
+            poller is not None,
+            info_row("Poller", rx.text(poller, size="2")),  # type: ignore[arg-type]
+            rx.text(""),
+        ),
+    )
+
+
+def _mcpd_detail(
+    name: str,
+    status: rx.Var[str],
+) -> rx.Component:
+    """Minimal status card for mcpd (status only)."""
+    return status_card(
+        name,
+        rx.cond(
+            status == "ok",
+            stat_badge("healthy", True),
+            rx.cond(
+                status == "unreachable",
+                stat_badge("unreachable", False),
+                stat_badge(status, False),
+            ),
+        ),
+        info_row("Status", rx.text(status, size="2")),
     )
 
 
@@ -130,8 +162,12 @@ def health_page() -> rx.Component:
                     HealthState.indexed_version,
                     HealthState.indexed_terminusdb,
                     HealthState.indexed_plugins,
-                    blob_available=HealthState.indexed_blob_root_writable_available,
-                    blob_writable=HealthState.indexed_blob_root_writable,
+                    store=HealthState.indexed_store,
+                    poller=HealthState.indexed_poller,
+                ),
+                _mcpd_detail(
+                    "MCPD",
+                    HealthState.mcpd_status,
                 ),
                 columns={"initial": "1", "md": "2"},
                 spacing="4",

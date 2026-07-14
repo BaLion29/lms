@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     queryd_api_token: str = ""
     indexed_url: str = "http://indexed:8089"
     indexed_api_token: str = ""
+    mcpd_url: str = "http://mcpd:8090"
 
     # TerminusDB
     tdb_url: str = "http://terminusdb:6363"

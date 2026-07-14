@@ -7,24 +7,9 @@ from typing import Any
 
 import reflex as rx
 
-from firnline_webui.clients import TdbBrowser, WebuiClientError
+from firnline_webui.clients import WebuiClientError, make_tdb_browser
 from firnline_webui.introspect import browsable_classes, doc_label, extract_edges
-from firnline_webui.settings import get_settings
 from firnline_webui.state.base import BaseState
-
-_settings = get_settings()
-
-
-def _make_tdb() -> TdbBrowser:
-    return TdbBrowser(
-        _settings.tdb_url,
-        _settings.tdb_org,
-        _settings.tdb_db,
-        _settings.tdb_user,
-        _settings.tdb_password,
-        branch=_settings.tdb_branch,
-        timeout=_settings.request_timeout_seconds,
-    )
 
 
 def _node_label(doc: dict) -> str:
@@ -70,18 +55,14 @@ class GraphState(BaseState):
         self.error = ""
         yield
 
-        tdb = _make_tdb()
+        tdb = make_tdb_browser()
         try:
             schema = await tdb.get_schema()
             all_class_ids = browsable_classes(schema)
             self.class_options = all_class_ids
 
             # Determine which classes to fetch
-            fetch_ids = (
-                all_class_ids
-                if not self.filter_class
-                else [self.filter_class]
-            )
+            fetch_ids = all_class_ids if not self.filter_class else [self.filter_class]
 
             all_docs: list[dict] = []
             for cls_id in fetch_ids:
@@ -103,18 +84,17 @@ class GraphState(BaseState):
                 doc_id = doc.get("@id")
                 if not isinstance(doc_id, str) or not doc_id:
                     continue
-                nodes.append({
-                    "id": doc_id,
-                    "label": _node_label(doc),
-                    "group": doc.get("@type", ""),
-                })
+                nodes.append(
+                    {
+                        "id": doc_id,
+                        "label": _node_label(doc),
+                        "group": doc.get("@type", ""),
+                    }
+                )
 
             known_ids: set[str] = {n["id"] for n in nodes}
             raw_edges = extract_edges(all_docs, known_ids)
-            links: list[dict] = [
-                {"source": e["source"], "target": e["target"], "prop": e["prop"]}
-                for e in raw_edges
-            ]
+            links: list[dict] = [{"source": e["source"], "target": e["target"], "prop": e["prop"]} for e in raw_edges]
 
             self.nodes = nodes
             self.links = links
@@ -147,7 +127,7 @@ class GraphState(BaseState):
         """Fetch a document when a node is clicked."""
         if not node_id:
             return
-        tdb = _make_tdb()
+        tdb = make_tdb_browser()
         try:
             doc = await tdb.get_document(node_id)
             self.selected_doc = doc

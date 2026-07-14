@@ -6,6 +6,7 @@ import json
 
 import httpx
 import pytest
+import structlog
 from firnline_core.tdb import (
     ChangeEvent,
     StaleCommitError,
@@ -983,6 +984,197 @@ async def test_changes_since_truncated_log_raises_tdberror(client, respx_mock):
     assert "C0" in exc_info.value.body
     assert not isinstance(exc_info.value, StaleCommitError)
     assert not diff_route.called
+
+
+async def test_changes_since_notvalidref_falls_back_to_aggregate_diff(client, respx_mock):
+    """Per-commit NotValidRefError → aggregate diff succeeds → single event."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"identifier": "C3", "author": "a", "message": "third"},
+            {"identifier": "C2", "author": "b", "message": "second"},
+            {"identifier": "C1", "author": "c", "message": "first"},
+        ],
+    )
+
+    # Side-effect handler: per-commit diffs fail, aggregate C1→C3 succeeds
+    def _diff_side_effect(request, **kwargs):
+        import json as _json
+
+        body = _json.loads(request.content)
+        before = body["before_data_version"]
+        after = body["after_data_version"]
+        if "C3" in after and "C1" in before:
+            # Aggregate: C1 → C3
+            return httpx.Response(
+                200,
+                json={
+                    "patch": [
+                        {"op": "Insert", "@id": "Task/1"},
+                        {"op": "Replace", "@id": "Task/2"},
+                    ]
+                },
+            )
+        # Per-commit (C1→C2 or C2→C3): NotValidRefError
+        return httpx.Response(
+            400,
+            text='{"api:error":"api:NotValidRefError","api:message":"Not a valid ref"}',
+        )
+
+    diff_route = respx_mock.post(
+        f"{BASE}/api/diff/{ORG}/{DB}",
+        name="diff",
+    )
+    diff_route.side_effect = _diff_side_effect
+
+    with structlog.testing.capture_logs() as captured:
+        events, head = await client.changes_since("C1", branch="main")
+
+    assert head == "C3"
+    assert len(events) == 1
+    assert events[0].commit_id == "C3"
+    assert events[0].author == "a"
+    assert events[0].message == "third"
+    assert "Task/1" in events[0].inserted
+    assert "Task/2" in events[0].updated
+    assert events[0].deleted == []
+
+    # Warning was logged
+    warnings = [e for e in captured if e.get("event") == "diff_window_aggregated"]
+    assert len(warnings) == 1
+    assert warnings[0]["branch"] == "main"
+    assert warnings[0]["cursor"] == "C1"
+    assert warnings[0]["head"] == "C3"
+    assert warnings[0]["commits"] == 2
+
+
+async def test_changes_since_aggregate_diff_also_stale_raises(client, respx_mock):
+    """Both per-commit AND aggregate diffs fail with NotValidRefError → Stale."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"identifier": "C3", "author": "a", "message": "third"},
+            {"identifier": "C2", "author": "b", "message": "second"},
+            {"identifier": "C1", "author": "c", "message": "first"},
+        ],
+    )
+
+    # Both per-commit and aggregate return NotValidRefError
+    notvalid_body = '{"api:error":"api:NotValidRefError","api:message":"Not a valid ref"}'
+    respx_mock.post(
+        f"{BASE}/api/diff/{ORG}/{DB}",
+    ).respond(status_code=400, text=notvalid_body)
+
+    with pytest.raises(StaleCommitError) as exc_info:
+        await client.changes_since("C1")
+
+    assert exc_info.value.commit_id == "C1"
+    assert exc_info.value.branch == "main"
+    # Should be chained from the aggregate TdbError
+    assert exc_info.value.__cause__ is not None
+    assert isinstance(exc_info.value.__cause__, TdbError)
+
+
+async def test_changes_since_aggregate_diff_other_error_propagates(client, respx_mock):
+    """Per-commit NotValidRefError, aggregate 500 → plain TdbError."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"identifier": "C3", "author": "a", "message": "third"},
+            {"identifier": "C2", "author": "b", "message": "second"},
+            {"identifier": "C1", "author": "c", "message": "first"},
+        ],
+    )
+
+    def _diff_side_effect(request, **kwargs):
+        import json as _json
+
+        body = _json.loads(request.content)
+        after = body["after_data_version"]
+        if "C3" in after:
+            # Aggregate: 500
+            return httpx.Response(500, text="Internal Server Error")
+        # Per-commit: NotValidRefError
+        return httpx.Response(
+            400,
+            text='{"api:error":"api:NotValidRefError","api:message":"Not a valid ref"}',
+        )
+
+    diff_route = respx_mock.post(
+        f"{BASE}/api/diff/{ORG}/{DB}",
+        name="diff",
+    )
+    diff_route.side_effect = _diff_side_effect
+
+    with pytest.raises(TdbError) as exc_info:
+        await client.changes_since("C1")
+
+    assert exc_info.value.status == 500
+    assert not isinstance(exc_info.value, StaleCommitError)
+
+
+async def test_changes_since_aggregate_empty_diff_returns_no_events(client, respx_mock):
+    """Aggregate diff with empty patch returns ([], head)."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"identifier": "C3", "author": "a", "message": "third"},
+            {"identifier": "C2", "author": "b", "message": "second"},
+            {"identifier": "C1", "author": "c", "message": "first"},
+        ],
+    )
+
+    def _diff_side_effect(request, **kwargs):
+        import json as _json
+
+        body = _json.loads(request.content)
+        after = body["after_data_version"]
+        if "C3" in after:
+            # Aggregate: empty patch
+            return httpx.Response(200, json={"patch": []})
+        # Per-commit: NotValidRefError
+        return httpx.Response(
+            400,
+            text='{"api:error":"api:NotValidRefError","api:message":"Not a valid ref"}',
+        )
+
+    diff_route = respx_mock.post(
+        f"{BASE}/api/diff/{ORG}/{DB}",
+        name="diff",
+    )
+    diff_route.side_effect = _diff_side_effect
+
+    events, head = await client.changes_since("C1")
+    assert events == []
+    assert head == "C3"
+
+
+async def test_changes_since_diff_other_error_propagates(client, respx_mock):
+    """A non-NotValidRefError from diff propagates as plain TdbError (no aggregate)."""
+    respx_mock.get(
+        f"{BASE}/api/log/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"identifier": "C2", "author": "a", "message": "new"},
+            {"identifier": "C1", "author": "b", "message": "old"},
+        ],
+    )
+
+    diff_route = respx_mock.post(
+        f"{BASE}/api/diff/{ORG}/{DB}",
+    ).respond(status_code=500, text="Internal Server Error")
+
+    with pytest.raises(TdbError) as exc_info:
+        await client.changes_since("C1")
+
+    assert exc_info.value.status == 500
+    assert not isinstance(exc_info.value, StaleCommitError)
+    # Only one call: per-commit fails immediately, aggregate never attempted
+    assert diff_route.call_count == 1
 
 
 # ---------------------------------------------------------------------------

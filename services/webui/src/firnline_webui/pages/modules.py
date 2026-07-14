@@ -6,6 +6,7 @@ import reflex as rx
 
 from firnline_webui.state.modules import ModulesState
 from firnline_webui.ui.cards import chip
+from firnline_webui.ui.feedback import empty_state as _empty_state, error_callout
 from firnline_webui.ui.nav import shell
 
 
@@ -72,7 +73,7 @@ def modules_page() -> rx.Component:
             # Error message
             rx.cond(
                 ModulesState.error != "",
-                rx.callout(ModulesState.error, color_scheme="red", size="1", margin_bottom="16px"),
+                error_callout(ModulesState.error),
                 rx.text(""),
             ),
             # Modules table
@@ -111,7 +112,7 @@ def modules_page() -> rx.Component:
                         size="2",
                         width="100%",
                     ),
-                    rx.text("No modules found.", size="2", color_scheme="gray"),
+                    _empty_state("blocks", "No modules found."),
                 ),
                 rx.text(""),
             ),

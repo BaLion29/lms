@@ -6,39 +6,12 @@ import asyncio
 
 import reflex as rx
 
-from firnline_webui.settings import get_settings
 from firnline_webui.clients import (
-    TdbBrowser,
     WebuiClientError,
-    CapturedClient,
-    IndexedHealthClient,
-    QuerydClient,
+    make_health_clients,
+    make_tdb_browser,
 )
 from firnline_webui.state.base import BaseState
-
-
-_settings = get_settings()
-
-
-def _make_tdb() -> TdbBrowser:
-    return TdbBrowser(
-        _settings.tdb_url,
-        _settings.tdb_org,
-        _settings.tdb_db,
-        _settings.tdb_user,
-        _settings.tdb_password,
-        branch=_settings.tdb_branch,
-        timeout=_settings.request_timeout_seconds,
-    )
-
-
-def _make_health_clients() -> tuple[CapturedClient, QuerydClient, IndexedHealthClient]:
-    timeout = _settings.request_timeout_seconds
-    return (
-        CapturedClient(_settings.captured_url, _settings.captured_api_token, timeout=timeout),
-        QuerydClient(_settings.queryd_url, _settings.queryd_api_token, timeout=timeout),
-        IndexedHealthClient(_settings.indexed_url, timeout=timeout),
-    )
 
 
 class ModulesState(BaseState):
@@ -79,7 +52,7 @@ class ModulesState(BaseState):
         yield
 
     async def _fetch_modules(self) -> list[dict]:
-        tdb = _make_tdb()
+        tdb = make_tdb_browser()
         try:
             raw = await tdb.get_modules()
         finally:
@@ -108,7 +81,7 @@ class ModulesState(BaseState):
         return result
 
     async def _fetch_plugins(self) -> dict[str, list[str]]:
-        c_cap, c_qry, c_idx = _make_health_clients()
+        c_cap, c_qry, c_idx = make_health_clients()
         cap_r, qry_r, idx_r = await asyncio.gather(
             self._safe_healthz(c_cap),
             self._safe_healthz(c_qry),

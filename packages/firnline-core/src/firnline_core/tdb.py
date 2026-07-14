@@ -7,6 +7,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -513,25 +516,40 @@ class TdbClient:
     ) -> tuple[list[ChangeEvent], str]:
         """Return change events after *commit_id*, plus the new head.
 
-        Reads the commit log via ``get_branch_log`` (newest-first) and for
-        each new commit (oldest→newest) calls the TerminusDB diff API
-        (``POST /api/diff``) to classify changed documents into inserted,
-        updated, or deleted.
+        Uses a three-tier strategy to handle TerminusDB auto-optimizer races:
+
+        **Tier 1** — Per-commit diffs (happy path):
+        Each commit between *commit_id* and the current head is diffed against
+        its parent via ``_diff_commit``, producing one ``ChangeEvent`` per
+        commit (oldest first).  *limit* caps the number of returned events
+        but does **not** affect the staleness check.
+
+        **Tier 2** — Aggregate diff (fallback):
+        If any per-commit diff raises ``TdbError`` with ``api:NotValidRefError``
+        (the commit was invalidated by a background layer squash between the
+        log fetch and the diff request), a single aggregate diff is performed:
+        ``{cursor} → {head}``.  The result is one ``ChangeEvent`` with the
+        head commit's metadata and the combined inserted/updated/deleted IRIs.
+        A ``diff_window_aggregated`` warning is logged.
+
+        **Tier 3** — Stale cursor (bail out):
+        If the aggregate diff ALSO fails with ``api:NotValidRefError``, the
+        cursor itself has been rolled up and ``StaleCommitError`` is raised.
+        Callers should re-baseline with ``commit_id=None``.
 
         If *commit_id* is ``None``, returns ``([], current_head)`` —
         callers should use this to baseline before polling.
 
-        *limit* caps the number of returned change events; it does **not**
-        affect the staleness check — the full fetched log is always
-        searched for *commit_id*.
-
         Raises
         ------
         TdbError
-            If any diff endpoint call fails, or if *commit_id* is not found
-            in the fetched log window and the window may be truncated.
+            If any diff endpoint call fails with a non-NotValidRefError,
+            or if *commit_id* is not found in the fetched log window and
+            the window may be truncated.
         StaleCommitError
-            If *commit_id* is not found in the full (untruncated) branch log.
+            If *commit_id* is not found in the full (untruncated) branch log,
+            or if both per-commit and aggregate diffs fail with
+            ``api:NotValidRefError``.
         """
         current_head = await self.get_branch_head(branch)
 
@@ -572,6 +590,7 @@ class TdbClient:
         if limit is not None:
             newer = newer[:limit]
 
+        # ── Tier 1: per-commit diffs ──────────────────────────────────
         events: list[ChangeEvent] = []
         for i, entry in enumerate(newer):
             ident = str(entry.get("identifier", ""))
@@ -592,9 +611,68 @@ class TdbClient:
                 except (ValueError, TypeError):
                     timestamp = None
 
-            inserted, updated, deleted = await self._diff_commit(
-                branch, entry, newer, i, log_entries
-            )
+            try:
+                inserted, updated, deleted = await self._diff_commit(
+                    branch, entry, newer, i, log_entries
+                )
+            except TdbError as exc:
+                if "NotValidRefError" not in exc.body:
+                    raise  # non-NotValidRef → propagate immediately
+                # ── Tier 2: aggregate diff ────────────────────────────
+                before_desc = f"{self.org}/{self.db}/local/commit/{commit_id}"
+                after_desc = f"{self.org}/{self.db}/local/commit/{current_head}"
+                logger.warning(
+                    "diff_window_aggregated",
+                    branch=branch,
+                    cursor=commit_id,
+                    head=current_head,
+                    commits=len(newer),
+                )
+                try:
+                    agg_inserted, agg_updated, agg_deleted = (
+                        await self._diff_between(before_desc, after_desc)
+                    )
+                except TdbError as agg_exc:
+                    if "NotValidRefError" in agg_exc.body:
+                        # ── Tier 3: cursor itself stale ──────────
+                        raise StaleCommitError(commit_id, branch) from agg_exc
+                    raise  # other aggregate error propagates
+
+                # Build a single ChangeEvent from head entry + merged ops.
+                head_entry = log_entries[0]
+                head_author = str(head_entry.get("author", ""))
+                head_message = str(head_entry.get("message", ""))
+                head_ts: float | None = None
+                head_ts_str = head_entry.get("timestamp")
+                if head_ts_str is not None:
+                    try:
+                        ts = head_ts_str
+                        if isinstance(ts, str):
+                            if ts.endswith("Z"):
+                                ts = ts[:-1] + "+00:00"
+                            from datetime import datetime as _dt
+                            head_ts = _dt.fromisoformat(ts).timestamp()
+                        elif isinstance(ts, (int, float)):
+                            head_ts = float(ts)
+                    except (ValueError, TypeError):
+                        head_ts = None
+
+                if agg_inserted or agg_updated or agg_deleted:
+                    return (
+                        [
+                            ChangeEvent(
+                                commit_id=current_head,
+                                author=head_author,
+                                message=head_message,
+                                timestamp=head_ts,
+                                inserted=agg_inserted,
+                                updated=agg_updated,
+                                deleted=agg_deleted,
+                            )
+                        ],
+                        current_head,
+                    )
+                return ([], current_head)
 
             events.append(
                 ChangeEvent(
@@ -642,17 +720,22 @@ class TdbClient:
             if index + 1 < len(newer_entries):
                 parent_ident = str(newer_entries[index + 1].get("identifier", ""))
 
-        inserted: list[str] = []
-        updated: list[str] = []
-        deleted: list[str] = []
-
         if parent_ident is None:
             # First commit in the range — no parent to diff against.
-            return (inserted, updated, deleted)
+            return ([], [], [])
 
         before_descriptor = f"{self.org}/{self.db}/local/commit/{parent_ident}"
         after_descriptor = f"{self.org}/{self.db}/local/commit/{ident}"
 
+        return await self._diff_between(before_descriptor, after_descriptor)
+
+    async def _diff_between(
+        self, before_descriptor: str, after_descriptor: str
+    ) -> tuple[list[str], list[str], list[str]]:
+        """Diff two commit descriptors via POST /api/diff.
+
+        Returns (inserted, updated, deleted) lists of document @ids.
+        """
         try:
             response = await self._client.post(
                 f"/api/diff/{self.org}/{self.db}",
@@ -667,6 +750,10 @@ class TdbClient:
             patches = response.json()
         except TdbError:
             raise
+
+        inserted: list[str] = []
+        updated: list[str] = []
+        deleted: list[str] = []
 
         # The diff API may return a dict with patches or a list of patches.
         patch_list: list[dict[str, Any]] = []

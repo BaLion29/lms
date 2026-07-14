@@ -7,6 +7,7 @@ import reflex as rx
 from firnline_webui.state.calendar import CalendarState
 from firnline_webui.ui.calendar import day_column, month_grid, week_grid
 from firnline_webui.ui.detail import json_detail_drawer
+from firnline_webui.ui.feedback import error_callout, loading_spinner
 from firnline_webui.ui.nav import shell
 
 
@@ -27,12 +28,12 @@ def calendar_page() -> rx.Component:
             # ── Error ────────────────────────────────────────────────────
             rx.cond(
                 CalendarState.error != "",
-                rx.callout(CalendarState.error, color_scheme="red", size="1", width="100%"),
+                error_callout(CalendarState.error),
             ),
             # ── Body ────────────────────────────────────────────────────
             rx.cond(
                 CalendarState.loading,
-                rx.center(rx.spinner(size="3"), padding="64px", width="100%"),
+                loading_spinner(),
                 rx.match(
                     CalendarState.view_mode,
                     ("month", month_grid()),
@@ -66,18 +67,21 @@ def _toolbar() -> rx.Component:
             variant="ghost",
             size="1",
             on_click=CalendarState.prev,
+            custom_attrs={"aria-label": "Previous period"},
         ),
         rx.icon_button(
             rx.icon(tag="calendar_days", size=16),
             variant="ghost",
             size="1",
             on_click=CalendarState.today,
+            custom_attrs={"aria-label": "Go to today"},
         ),
         rx.icon_button(
             rx.icon(tag="chevron_right", size=16),
             variant="ghost",
             size="1",
             on_click=CalendarState.next,
+            custom_attrs={"aria-label": "Next period"},
         ),
         # Period heading
         rx.heading(CalendarState.period_label, size="6"),
@@ -95,6 +99,7 @@ def _toolbar() -> rx.Component:
                 variant="ghost",
                 size="1",
                 on_click=CalendarState.load,
+                custom_attrs={"aria-label": "Refresh calendar"},
             ),
         ),
         spacing="2",
@@ -137,6 +142,7 @@ def _class_filter_popover() -> rx.Component:
                 rx.icon(tag="filter", size=16),
                 variant="ghost",
                 size="1",
+                custom_attrs={"aria-label": "Filter classes"},
             ),
         ),
         rx.popover.content(

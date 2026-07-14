@@ -6,12 +6,9 @@ import json
 
 import reflex as rx
 
-from firnline_webui.clients import TdbBrowser, WebuiClientError
+from firnline_webui.clients import TdbBrowser, WebuiClientError, make_tdb_browser
 from firnline_webui.introspect import doc_preview, inbox_classes
-from firnline_webui.settings import get_settings
 from firnline_webui.state.base import BaseState
-
-_settings = get_settings()
 
 
 async def _load_inbox_rows(tdb: TdbBrowser) -> tuple[list[dict], set[str]]:
@@ -71,17 +68,6 @@ class InboxState(BaseState):
     selected_doc: dict | None = None
     selected_json: str = ""
 
-    def _make_tdb(self) -> TdbBrowser:
-        return TdbBrowser(
-            _settings.tdb_url,
-            _settings.tdb_org,
-            _settings.tdb_db,
-            _settings.tdb_user,
-            _settings.tdb_password,
-            branch=_settings.tdb_branch,
-            timeout=_settings.request_timeout_seconds,
-        )
-
     @rx.event
     async def load(self):
         """Load schema, find inbox classes, fetch all documents."""
@@ -91,7 +77,7 @@ class InboxState(BaseState):
         self.selected_json = ""
         yield
 
-        tdb = self._make_tdb()
+        tdb = make_tdb_browser()
         try:
             all_rows, statuses = await _load_inbox_rows(tdb)
         except WebuiClientError as exc:
@@ -114,7 +100,7 @@ class InboxState(BaseState):
     @rx.event
     async def select(self, doc_id: str):
         """Fetch a single document by IRI and open the detail drawer."""
-        tdb = self._make_tdb()
+        tdb = make_tdb_browser()
         try:
             doc = await tdb.get_document(doc_id)
             self.selected_doc = doc

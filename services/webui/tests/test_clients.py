@@ -10,8 +10,8 @@ import pytest
 from firnline_core.tdb import TdbError
 from firnline_webui.clients import (
     CapturedClient,
-    IndexedHealthClient,
     QuerydClient,
+    ServiceHealthClient,
     TdbBrowser,
     WebuiClientError,
     class_display_fields,
@@ -137,15 +137,62 @@ async def test_queryd_healthz():
 
 
 # ---------------------------------------------------------------------------
-# IndexedHealthClient
+# ServiceHealthClient (indexed + mcpd)
 # ---------------------------------------------------------------------------
 
 
 async def test_indexed_healthz():
     transport = httpx.MockTransport(lambda req: _ok_json({"status": "ok"}))
-    client = IndexedHealthClient("http://i", transport=transport)
+    client = ServiceHealthClient("http://i", transport=transport)
     data = await client.healthz()
     assert data == {"status": "ok"}
+
+
+async def test_indexed_healthz_injects_bearer_token():
+    """When token is non-empty, the Authorization header is included."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.headers["authorization"] == "Bearer my-indexed-token"
+        return _ok_json({"status": "ok"})
+
+    transport = httpx.MockTransport(handler)
+    client = ServiceHealthClient("http://i", token="my-indexed-token", transport=transport)
+    data = await client.healthz()
+    assert data == {"status": "ok"}
+
+
+async def test_indexed_healthz_no_token_when_empty():
+    """When token is empty, no Authorization header is sent."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert "authorization" not in req.headers
+        return _ok_json({"status": "ok"})
+
+    transport = httpx.MockTransport(handler)
+    client = ServiceHealthClient("http://i", token="", transport=transport)
+    data = await client.healthz()
+    assert data == {"status": "ok"}
+
+
+async def test_mcpd_healthz():
+    transport = httpx.MockTransport(lambda req: _ok_json({"status": "ok"}))
+    client = ServiceHealthClient("http://mcpd:8090", transport=transport)
+    data = await client.healthz()
+    assert data == {"status": "ok"}
+
+
+async def test_mcpd_healthz_transport_error():
+    """Transport errors raise WebuiClientError with status None."""
+
+    async def failing_handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    transport = httpx.MockTransport(failing_handler)
+    client = ServiceHealthClient("http://mcpd:8090", transport=transport)
+    with pytest.raises(WebuiClientError) as exc_info:
+        await client.healthz()
+    assert exc_info.value.status is None
+    assert "transport error" in exc_info.value.detail
 
 
 # ---------------------------------------------------------------------------

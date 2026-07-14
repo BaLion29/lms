@@ -11,7 +11,14 @@ from firnline_webui.ui.cards import chip, info_row, stat_badge, status_card
 from firnline_webui.ui.nav import shell
 
 
-def _service_health(name: str, status: rx.Var[str], version: rx.Var[str], td_status_var: rx.Var[str]) -> rx.Component:
+def _service_health(
+    name: str,
+    status: rx.Var[str],
+    version: rx.Var[str],
+    td_status_var: rx.Var[str],
+    *,
+    show_extra: bool = True,
+) -> rx.Component:
     """A status card for a single service."""
     return status_card(
         name,
@@ -25,8 +32,15 @@ def _service_health(name: str, status: rx.Var[str], version: rx.Var[str], td_sta
             ),
         ),
         info_row("Status", rx.text(status, size="2")),
-        info_row("Version", rx.text(version, size="2")),
-        info_row("TerminusDB", rx.text(td_status_var, size="2")),
+        rx.cond(
+            show_extra,
+            rx.vstack(
+                info_row("Version", rx.text(version, size="2")),
+                info_row("TerminusDB", rx.text(td_status_var, size="2")),
+                spacing="0",
+            ),
+            rx.text(""),
+        ),
         size="2",
     )
 
@@ -77,7 +91,14 @@ def home_page() -> rx.Component:
                     HealthState.indexed_version,
                     HealthState.indexed_terminusdb,
                 ),
-                columns=rx.breakpoints(initial="1", md="3"),
+                _service_health(
+                    "MCPD",
+                    HealthState.mcpd_status,
+                    rx.Var.create("\u2014"),
+                    rx.Var.create("\u2014"),
+                    show_extra=False,
+                ),
+                columns=rx.breakpoints(initial="1", md="2", lg="4"),
                 spacing="4",
                 width="100%",
             ),

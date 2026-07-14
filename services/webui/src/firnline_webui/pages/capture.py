@@ -70,6 +70,7 @@ def _note_tab() -> rx.Component:
                             variant="ghost",
                             size="1",
                             on_click=CaptureState.clear_result,
+                            custom_attrs={"aria-label": "Dismiss result"},
                         ),
                         align="center",
                         width="100%",

@@ -6,6 +6,7 @@ import reflex as rx
 
 from firnline_webui.state.inbox import InboxState
 from firnline_webui.ui.detail import json_detail_drawer
+from firnline_webui.ui.feedback import error_callout
 from firnline_webui.ui.nav import shell
 
 
@@ -74,10 +75,13 @@ def _inbox_table() -> rx.Component:
                             text_overflow="ellipsis",
                             white_space="nowrap",
                         ),
+                        title=row["preview"].to(str),
                     ),
                     cursor="pointer",
                     _hover={"bg": rx.color("accent", 2)},
                     _odd={"background": rx.color("gray", 2)},
+                    tab_index=0,
+                    role="button",
                     on_click=InboxState.select(row["id"]),
                 ),
             ),
@@ -137,7 +141,7 @@ def inbox_page() -> rx.Component:
             # Error
             rx.cond(
                 InboxState.error != "",
-                rx.callout(InboxState.error, color_scheme="red", size="1"),
+                error_callout(InboxState.error),
             ),
             # Status filter chips + table in a card
             rx.card(

@@ -10,8 +10,9 @@ domain knowledge.
 | Dashboard | `/` | Greeting, per-service health summary (captured/queryd/indexed), quick-capture link, schema module chips. |
 | Capture | `/capture` | Submit notes via `POST /v1/capture/note` and upload files via `POST /v1/capture/file`. Handler names from captured `/healthz` are shown. |
 | Inbox | `/inbox` | Lists `Captured` documents — rendered with status badges, filter chips, and a JSON detail drawer. |
+| Automations | `/automations` | Read-only listing of `TriggerFiring` and `ActionExecution` documents with status filters, colored status badges, and a JSON detail drawer. Degrades gracefully when the triggers/actions schema modules are not installed. |
 | Browse | `/browse` | Classes grouped by `SchemaModule.exports`. Click a class → `/browse/[class_name]` paginated table with field-aware display and detail drawer. |
-| Health | `/health` | Full health detail per service: status, version, TerminusDB connectivity, active handler/plugin lists, blob-store availability. |
+| Health | `/health` | Full health detail per service: status, version, TerminusDB connectivity, active handler/plugin lists, blob-store availability. Includes mcpd and indexed store/poller fields. |
 | Modules | `/modules` | `SchemaModule` registry table (name, version, description, exports, deps) plus active plugins by service (from each service's `/healthz`). |
 | Login | `/login` | Centered password-gate card (only active when `WEBUI_PASSWORD` is set). |
 
@@ -48,7 +49,8 @@ additionally uses `WEBUI_HOST_PORT`, `WEBUI_API_URL`, and `REFLEX_API_URL`.
 | `WEBUI_QUERYD_URL` | `http://queryd:8087` | Base URL for the queryd service |
 | `WEBUI_QUERYD_API_TOKEN` | (empty) | Bearer token for queryd `/healthz` — server-side only |
 | `WEBUI_INDEXED_URL` | `http://indexed:8089` | Base URL for the indexed service |
-| `WEBUI_INDEXED_API_TOKEN` | (empty) | Bearer token for indexed endpoints (reserved) |
+| `WEBUI_INDEXED_API_TOKEN` | (empty) | Bearer token for indexed `/healthz` — server-side only |
+| `WEBUI_MCPD_URL` | `http://mcpd:8090` | Base URL for the mcpd service (healthz monitoring) |
 | `WEBUI_TDB_URL` | `http://terminusdb:6363` | TerminusDB base URL |
 | `WEBUI_TDB_ORG` | `admin` | TerminusDB organisation |
 | `WEBUI_TDB_DB` | `firnline` | TerminusDB database name |

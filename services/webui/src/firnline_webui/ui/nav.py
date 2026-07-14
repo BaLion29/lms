@@ -9,7 +9,7 @@ import reflex as rx
 from firnline_webui.state.auth import AuthState
 from firnline_webui.state.base import BaseState
 
-NavActive = Literal["home", "capture", "inbox", "chat", "browse", "calendar", "health", "modules"]
+NavActive = Literal["home", "capture", "inbox", "chat", "browse", "calendar", "automations", "health", "modules"]
 
 NAV_ITEMS: list[dict] = [
     {"label": "Home", "icon": "house", "active": "home", "route": "/"},
@@ -18,6 +18,7 @@ NAV_ITEMS: list[dict] = [
     {"label": "Chat", "icon": "message_circle", "active": "chat", "route": "/chat"},
     {"label": "Browse", "icon": "database", "active": "browse", "route": "/browse"},
     {"label": "Calendar", "icon": "calendar_days", "active": "calendar", "route": "/calendar"},
+    {"label": "Automations", "icon": "zap", "active": "automations", "route": "/automations"},
     {"label": "Health", "icon": "activity", "active": "health", "route": "/health"},
     {"label": "Modules", "icon": "blocks", "active": "modules", "route": "/modules"},
 ]
@@ -25,7 +26,19 @@ NAV_ITEMS: list[dict] = [
 SIDEBAR_WIDTH = "240px"
 
 
-def _nav_link(icon_tag: str, label: str, route: str, is_active: bool) -> rx.Component:
+class MobileNavState(rx.State):
+    """Tiny UI-only state for the mobile navigation drawer."""
+
+    drawer_open: bool = False
+
+    def toggle_drawer(self):
+        self.drawer_open = not self.drawer_open
+
+    def close_drawer(self):
+        self.drawer_open = False
+
+
+def _nav_link(icon_tag: str, label: str, route: str, is_active: bool, on_click=None) -> rx.Component:
     return rx.link(
         rx.hstack(
             rx.icon(tag=icon_tag, size=16),
@@ -45,13 +58,38 @@ def _nav_link(icon_tag: str, label: str, route: str, is_active: bool) -> rx.Comp
             _hover={"bg": rx.color("accent", 2)},
         ),
         href=route,
+        on_click=on_click,
         width="100%",
         text_decoration="none",
+        custom_attrs={"aria-current": rx.cond(is_active, "page", "false")},
+    )
+
+
+def _nav_links(active: str, on_navigate=None) -> rx.Component:
+    """Reusable nav-links list — shared by sidebar and mobile drawer.
+
+    If *on_navigate* is provided, it is attached as ``on_click`` to each link
+    (used by the mobile drawer to close on navigation).
+    """
+    return rx.vstack(
+        *[
+            _nav_link(
+                item["icon"],
+                item["label"],
+                item["route"],
+                item["active"] == active,
+                on_click=on_navigate,
+            )
+            for item in NAV_ITEMS
+        ],
+        spacing="1",
+        padding_x="8px",
+        width="100%",
     )
 
 
 def sidebar(active: str) -> rx.Component:
-    """Fixed left sidebar."""
+    """Fixed left sidebar — hidden on small screens (visible >= md)."""
     return rx.vstack(
         # Top spacer (replaces logo+wordmark moved to header)
         rx.box(height="16px"),
@@ -66,21 +104,8 @@ def sidebar(active: str) -> rx.Component:
             padding_x="16px",
             padding_y="4px",
         ),
-        # Nav links
-        rx.vstack(
-            *[
-                _nav_link(
-                    item["icon"],
-                    item["label"],
-                    item["route"],
-                    item["active"] == active,
-                )
-                for item in NAV_ITEMS
-            ],
-            spacing="1",
-            padding_x="8px",
-            width="100%",
-        ),
+        # Nav links (shared component)
+        _nav_links(active),
         rx.spacer(),
         # Bottom: footer with divider, color-mode toggle and logout
         rx.divider(),
@@ -91,6 +116,7 @@ def sidebar(active: str) -> rx.Component:
                 variant="ghost",
                 color_scheme="gray",
                 size="1",
+                custom_attrs={"aria-label": "Toggle color mode"},
             ),
             rx.spacer(),
             rx.cond(
@@ -101,6 +127,7 @@ def sidebar(active: str) -> rx.Component:
                     variant="ghost",
                     color_scheme="gray",
                     size="1",
+                    custom_attrs={"aria-label": "Log out"},
                 ),
             ),
             padding_x="16px",
@@ -117,12 +144,74 @@ def sidebar(active: str) -> rx.Component:
         backdrop_filter="blur(8px)",
         z_index="40",
         spacing="1",
+        display=rx.breakpoints({"initial": "none", "md": "flex"}),
+    )
+
+
+def _mobile_nav_drawer(active: str) -> rx.Component:
+    """Slide-out drawer for mobile navigation — shares nav-links with sidebar."""
+    return rx.drawer.root(
+        rx.drawer.overlay(),
+        rx.drawer.content(
+            rx.drawer.title(
+                rx.hstack(
+                    rx.icon(tag="mountain_snow", size=16, color=rx.color("accent", 11)),
+                    rx.text("firnline", size="4", weight="bold"),
+                    spacing="2",
+                ),
+            ),
+            rx.divider(),
+            _nav_links(active, on_navigate=MobileNavState.close_drawer),
+            rx.divider(),
+            rx.hstack(
+                rx.icon_button(
+                    rx.icon(tag="sun_moon", size=16),
+                    on_click=rx.toggle_color_mode,
+                    variant="ghost",
+                    color_scheme="gray",
+                    size="1",
+                    custom_attrs={"aria-label": "Toggle color mode"},
+                ),
+                rx.spacer(),
+                rx.cond(
+                    AuthState.auth_enabled,
+                    rx.icon_button(
+                        rx.icon(tag="log_out", size=16),
+                        on_click=AuthState.logout,
+                        variant="ghost",
+                        color_scheme="gray",
+                        size="1",
+                        custom_attrs={"aria-label": "Log out"},
+                    ),
+                ),
+                padding_x="16px",
+                padding_y="8px",
+                width="100%",
+            ),
+            padding="0",
+            width="280px",
+            background=rx.color("gray", 2),
+            height="100%",
+        ),
+        open=MobileNavState.drawer_open,
+        on_open_change=MobileNavState.close_drawer,
+        direction="left",
     )
 
 
 def page_header(title: str) -> rx.Component:
-    """Sticky top header bar with page title and env badge."""
+    """Sticky top header bar with page title, env badge, and mobile hamburger."""
     return rx.hstack(
+        # Hamburger — visible only on small screens
+        rx.icon_button(
+            rx.icon(tag="menu", size=16),
+            variant="ghost",
+            color_scheme="gray",
+            size="2",
+            display=rx.breakpoints({"initial": "flex", "md": "none"}),
+            custom_attrs={"aria-label": "Open navigation menu"},
+            on_click=MobileNavState.toggle_drawer,
+        ),
         # Logo + wordmark
         rx.hstack(
             rx.box(
@@ -152,7 +241,7 @@ def page_header(title: str) -> rx.Component:
         ),
         spacing="3",
         align="center",
-        padding_x="32px",
+        padding_x=rx.breakpoints({"initial": "16px", "md": "32px"}),
         padding_y="12px",
         position="sticky",
         top="0",
@@ -168,6 +257,7 @@ def shell(content: rx.Component, active: str) -> rx.Component:
     """Full-page layout: sidebar + header + scrollable content area."""
     return rx.flex(
         sidebar(active),
+        _mobile_nav_drawer(active),
         rx.vstack(
             page_header(_page_title_for(active)),
             rx.scroll_area(
@@ -175,11 +265,12 @@ def shell(content: rx.Component, active: str) -> rx.Component:
                     content,
                     max_width="1200px",
                     padding="32px",
+                    custom_attrs={"role": "main"},
                 ),
                 flex="1",
             ),
             flex="1",
-            margin_left=SIDEBAR_WIDTH,
+            margin_left=rx.breakpoints({"initial": "0", "md": SIDEBAR_WIDTH}),
             min_height="100vh",
             spacing="0",
             background=f"linear-gradient(to bottom, {rx.color('gray', 1)}, {rx.color('gray', 2)})",
@@ -195,6 +286,7 @@ def _page_title_for(active: str) -> str:
         "chat": "AI Chat",
         "browse": "Browse",
         "calendar": "Calendar",
+        "automations": "Automations",
         "health": "Service Health",
         "modules": "Schema Modules",
     }

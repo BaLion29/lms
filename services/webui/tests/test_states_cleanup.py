@@ -33,12 +33,26 @@ class _FakeTdb:
         tdb_error: tuple[int, str] = (500, "boof"),
     ) -> None:
         if schema is None:
-            schema = [{"@type": "Class", "@id": "Captured", "content": "xsd:string",
-                        "status": "xsd:string", "captured_at": "xsd:dateTime",
-                        "content_type": "xsd:string"}]
+            schema = [
+                {
+                    "@type": "Class",
+                    "@id": "Captured",
+                    "content": "xsd:string",
+                    "status": "xsd:string",
+                    "captured_at": "xsd:dateTime",
+                    "content_type": "xsd:string",
+                }
+            ]
         if docs is None:
-            docs = [{"@id": "Captured/1", "status": "new", "captured_at": "2025-01-01T00:00:00Z",
-                      "content_type": "text/plain", "content": "hello"}]
+            docs = [
+                {
+                    "@id": "Captured/1",
+                    "status": "new",
+                    "captured_at": "2025-01-01T00:00:00Z",
+                    "content_type": "text/plain",
+                    "content": "hello",
+                }
+            ]
         self._schema = schema
         self._docs = docs
         self._raise_runtime_on = raise_runtime_on
@@ -160,7 +174,7 @@ async def test_handler_closes_tdb_on_runtime_error():
             pass
         return state
 
-    with patch.object(InboxState, "_make_tdb", return_value=browser):
+    with patch("firnline_webui.state.inbox.make_tdb_browser", return_value=browser):
         await iter_handler()
 
     assert fake.aclose_called, "aclose() must be awaited even after RuntimeError"
@@ -181,7 +195,7 @@ async def test_handler_closes_tdb_on_webui_client_error():
             pass
         return state
 
-    with patch.object(InboxState, "_make_tdb", return_value=browser):
+    with patch("firnline_webui.state.inbox.make_tdb_browser", return_value=browser):
         state = await iter_handler()
 
     assert fake.aclose_called, "aclose() must be awaited even on WebuiClientError"
@@ -203,7 +217,7 @@ async def test_handler_closes_tdb_on_success():
             pass
         return state
 
-    with patch.object(InboxState, "_make_tdb", return_value=browser):
+    with patch("firnline_webui.state.inbox.make_tdb_browser", return_value=browser):
         state = await iter_handler()
 
     assert fake.aclose_called

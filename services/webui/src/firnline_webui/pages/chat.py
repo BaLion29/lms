@@ -5,6 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from firnline_webui.state.chat import ChatState
+from firnline_webui.ui.feedback import error_callout
 from firnline_webui.ui.nav import shell
 
 
@@ -64,12 +65,7 @@ def chat_page() -> rx.Component:
             # Error callout
             rx.cond(
                 ChatState.error != "",
-                rx.callout(
-                    rx.text(ChatState.error, size="2"),
-                    color_scheme="red",
-                    size="1",
-                    width="100%",
-                ),
+                error_callout(ChatState.error),
             ),
             # Message list area (scrollable fill)
             rx.scroll_area(

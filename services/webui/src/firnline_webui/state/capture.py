@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import reflex as rx
 
 from firnline_webui.clients import CapturedClient, WebuiClientError
 from firnline_webui.settings import get_settings
 from firnline_webui.state.base import BaseState
+
+logger = logging.getLogger(__name__)
 
 _settings = get_settings()
 
@@ -38,12 +41,16 @@ class CaptureState(BaseState):
     @rx.event
     async def load(self):
         """Fetch captured healthz to populate handler names (graceful on failure)."""
+        client = _make_captured()
         try:
-            client = _make_captured()
-            data = await client.healthz()
-            self.handler_names = list(data.get("handlers", []) or [])
-        except Exception:
-            self.handler_names = []
+            try:
+                data = await client.healthz()
+                self.handler_names = list(data.get("handlers", []) or [])
+            except Exception as exc:
+                logger.warning("failed to load capture handlers: %s", exc)
+                self.handler_names = []
+        finally:
+            await client.aclose()
         yield
 
     @rx.event
@@ -77,11 +84,14 @@ class CaptureState(BaseState):
 
         try:
             client = _make_captured()
-            result = await client.capture_note(
-                text=self.note_text.strip(),
-                kind=self.kind.strip() or "note",
-                metadata=metadata if metadata else None,
-            )
+            try:
+                result = await client.capture_note(
+                    text=self.note_text.strip(),
+                    kind=self.kind.strip() or "note",
+                    metadata=metadata if metadata else None,
+                )
+            finally:
+                await client.aclose()
             doc_id = result.get("id", "?")
             self.result_message = f"Note captured: {doc_id}"
             self.result_ok = True
@@ -137,13 +147,16 @@ class CaptureState(BaseState):
 
         try:
             client = _make_captured()
-            result = await client.capture_file(
-                filename=file.filename or "unnamed",
-                content=data,
-                content_type=file.content_type or "application/octet-stream",
-                kind=self.kind.strip() or "file",
-                metadata=metadata if metadata else None,
-            )
+            try:
+                result = await client.capture_file(
+                    filename=file.filename or "unnamed",
+                    content=data,
+                    content_type=file.content_type or "application/octet-stream",
+                    kind=self.kind.strip() or "file",
+                    metadata=metadata if metadata else None,
+                )
+            finally:
+                await client.aclose()
             doc_id = result.get("id", "?")
             self.result_message = f"File captured: {doc_id}"
             self.result_ok = True

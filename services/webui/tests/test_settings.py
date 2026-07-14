@@ -13,6 +13,7 @@ def test_defaults():
     assert s.queryd_api_token == ""
     assert s.indexed_url == "http://indexed:8089"
     assert s.indexed_api_token == ""
+    assert s.mcpd_url == "http://mcpd:8090"
     assert s.tdb_url == "http://terminusdb:6363"
     assert s.tdb_org == "admin"
     assert s.tdb_db == "firnline"

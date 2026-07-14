@@ -44,8 +44,14 @@ def captured_schema() -> list[dict]:
 def full_schema() -> list[dict]:
     """Schema with classes, enums, abstract, and subdocument entries."""
     return [
-        {"@id": "Captured", "@type": "Class", "content": "xsd:string", "status": "xsd:string",
-         "content_type": "xsd:string", "captured_at": "xsd:dateTime"},
+        {
+            "@id": "Captured",
+            "@type": "Class",
+            "content": "xsd:string",
+            "status": "xsd:string",
+            "content_type": "xsd:string",
+            "captured_at": "xsd:dateTime",
+        },
         {"@id": "Person", "@type": "Class", "name": "xsd:string", "age": "xsd:integer"},
         {"@id": "AbstractThing", "@type": "Class", "@abstract": True, "name": "xsd:string"},
         {"@id": "SubDoc", "@type": "Class", "@subdocument": True, "value": "xsd:string"},

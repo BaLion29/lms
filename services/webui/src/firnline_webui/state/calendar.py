@@ -13,11 +13,8 @@ from firnline_webui.calendar_introspect import (
     events_in_range,
     parse_events,
 )
-from firnline_webui.clients import TdbBrowser, WebuiClientError
+from firnline_webui.clients import WebuiClientError, make_tdb_browser
 from firnline_webui.state.base import BaseState
-from firnline_webui.settings import get_settings
-
-_settings = get_settings()
 
 
 # Typed shapes that Reflex can use to resolve nested Var types in rx.foreach.
@@ -51,18 +48,6 @@ class _CalWeekDay(TypedDict):
     events: list[_CalPositionedEvent]
 
 
-def _make_tdb() -> TdbBrowser:
-    return TdbBrowser(
-        _settings.tdb_url,
-        _settings.tdb_org,
-        _settings.tdb_db,
-        _settings.tdb_user,
-        _settings.tdb_password,
-        branch=_settings.tdb_branch,
-        timeout=_settings.request_timeout_seconds,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -78,7 +63,7 @@ _EVENT_PALETTE = [
     "var(--teal-9)",
 ]
 
-_VIEW_HOUR_MIN = 6 * 60   # 06:00 in minutes
+_VIEW_HOUR_MIN = 6 * 60  # 06:00 in minutes
 _VIEW_HOUR_MAX = 22 * 60  # 22:00 in minutes
 _VIEW_RANGE = _VIEW_HOUR_MAX - _VIEW_HOUR_MIN  # 960 minutes
 _MIN_HEIGHT_PCT = 3.0
@@ -289,7 +274,7 @@ class CalendarState(BaseState):
         if not self.cursor_date:
             self.cursor_date = _iso_date(date.today())
 
-        tdb = _make_tdb()
+        tdb = make_tdb_browser()
         try:
             schema = await tdb.get_schema()
         except WebuiClientError as exc:
@@ -384,7 +369,7 @@ class CalendarState(BaseState):
         """Fetch a single document and open the detail drawer."""
         if not doc_id:
             return
-        tdb = _make_tdb()
+        tdb = make_tdb_browser()
         try:
             doc = await tdb.get_document(doc_id)
             self.selected_doc = doc

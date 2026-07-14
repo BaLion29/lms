@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from urllib.parse import quote
 
 import reflex as rx
@@ -9,6 +10,8 @@ import reflex as rx
 from firnline_webui.clients import QuerydClient, WebuiClientError
 from firnline_webui.settings import get_settings
 from firnline_webui.state.base import BaseState
+
+logger = logging.getLogger(__name__)
 
 _settings = get_settings()
 
@@ -63,12 +66,11 @@ class ChatState(BaseState):
         try:
             client = _make_queryd()
             result = await client.chat(self.messages)
-            self.messages = self.messages + [
-                {"role": "assistant", "content": result.get("message", "")}
-            ]
+            self.messages = self.messages + [{"role": "assistant", "content": result.get("message", "")}]
         except WebuiClientError as exc:
             self.error = exc.detail
         except Exception:
+            logger.exception("unexpected error talking to queryd")
             self.error = "unexpected error talking to queryd"
         finally:
             self.sending = False

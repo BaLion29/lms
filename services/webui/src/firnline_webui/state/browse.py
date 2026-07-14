@@ -6,24 +6,9 @@ import json
 
 import reflex as rx
 
-from firnline_webui.clients import TdbBrowser, WebuiClientError, class_display_fields, schema_classes
+from firnline_webui.clients import WebuiClientError, class_display_fields, make_tdb_browser, schema_classes
 from firnline_webui.introspect import browsable_classes, group_classes_by_module, row_from_doc
-from firnline_webui.settings import get_settings
 from firnline_webui.state.base import BaseState
-
-_settings = get_settings()
-
-
-def _make_tdb() -> TdbBrowser:
-    return TdbBrowser(
-        _settings.tdb_url,
-        _settings.tdb_org,
-        _settings.tdb_db,
-        _settings.tdb_user,
-        _settings.tdb_password,
-        branch=_settings.tdb_branch,
-        timeout=_settings.request_timeout_seconds,
-    )
 
 
 class BrowseState(BaseState):
@@ -41,7 +26,7 @@ class BrowseState(BaseState):
         self.error = ""
         yield
 
-        tdb = _make_tdb()
+        tdb = make_tdb_browser()
         try:
             schema = await tdb.get_schema()
             modules = await tdb.get_modules()
@@ -128,7 +113,7 @@ class BrowseClassState(BaseState):
             yield
             return
 
-        tdb = _make_tdb()
+        tdb = make_tdb_browser()
         try:
             # Validate class exists in schema
             schema = await tdb.get_schema()
@@ -177,7 +162,7 @@ class BrowseClassState(BaseState):
         """Fetch a single document by IRI and open the detail drawer."""
         if not doc_id:
             return
-        tdb = _make_tdb()
+        tdb = make_tdb_browser()
         try:
             doc = await tdb.get_document(doc_id)
             self.selected_doc = doc

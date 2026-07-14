@@ -127,6 +127,16 @@ class CapturedClient:
         self._timeout = timeout
         self._transport = transport
 
+    async def aclose(self) -> None:
+        """Close the underlying transport if any.
+
+        The httpx client instances used by each method are created and
+        closed inside ``async with`` blocks, so there is no persistent
+        client to close here.  This method exists for API consistency
+        with ``TdbBrowser`` so that callers can use a uniform
+        ``try: … finally: await client.aclose()`` pattern.
+        """
+
     async def healthz(self) -> dict[str, Any]:
         """GET /healthz — return JSON body even on 503."""
         async with _make_client(self._base_url, self._token, self._timeout, self._transport) as client:
@@ -228,31 +238,32 @@ class QuerydClient:
 
 
 # ---------------------------------------------------------------------------
-# IndexedHealthClient
+# ServiceHealthClient — generic healthz client for services with optional auth
 # ---------------------------------------------------------------------------
 
 
-class IndexedHealthClient:
-    """Async client for the indexed service healthcheck.
+class ServiceHealthClient:
+    """Async healthz client for services with optional bearer auth.
 
-    Named ``IndexedHealthClient`` to avoid clashing with
-    ``firnline_core.IndexedClient``.
+    Used for both indexed and mcpd.
     """
 
     def __init__(
         self,
         base_url: str,
         *,
+        token: str = "",
         timeout: float = 30.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
+        self._token = token
         self._timeout = timeout
         self._transport = transport
 
     async def healthz(self) -> dict[str, Any]:
         """GET /healthz — return JSON body even on 503."""
-        async with _make_client(self._base_url, "", self._timeout, self._transport) as client:
+        async with _make_client(self._base_url, self._token, self._timeout, self._transport) as client:
             return await _healthz_raw(client)
 
 
@@ -318,6 +329,41 @@ class TdbBrowser:
 
     async def aclose(self) -> None:
         await self._tdb.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Factory helpers
+# ---------------------------------------------------------------------------
+
+
+def make_tdb_browser() -> TdbBrowser:
+    """Return a ``TdbBrowser`` configured from application settings."""
+    from firnline_webui.settings import get_settings
+
+    s = get_settings()
+    return TdbBrowser(
+        s.tdb_url,
+        s.tdb_org,
+        s.tdb_db,
+        s.tdb_user,
+        s.tdb_password,
+        branch=s.tdb_branch,
+        timeout=s.request_timeout_seconds,
+    )
+
+
+def make_health_clients() -> tuple[CapturedClient, QuerydClient, ServiceHealthClient, ServiceHealthClient]:
+    """Return ``(CapturedClient, QuerydClient, indexed_client, mcpd_client)`` configured from application settings."""
+    from firnline_webui.settings import get_settings
+
+    s = get_settings()
+    timeout = s.request_timeout_seconds
+    return (
+        CapturedClient(s.captured_url, s.captured_api_token, timeout=timeout),
+        QuerydClient(s.queryd_url, s.queryd_api_token, timeout=timeout),
+        ServiceHealthClient(s.indexed_url, token=s.indexed_api_token, timeout=timeout),
+        ServiceHealthClient(s.mcpd_url, timeout=timeout),
+    )
 
 
 # ---------------------------------------------------------------------------

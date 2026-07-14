@@ -8,6 +8,7 @@ from firnline_webui.state.browse import BrowseClassState, BrowseState
 from firnline_webui.state.graph import GraphState
 from firnline_webui.ui.cards import chip
 from firnline_webui.ui.detail import json_detail_drawer
+from firnline_webui.ui.feedback import empty_state, error_callout
 from firnline_webui.ui.graph import force_graph
 from firnline_webui.ui.nav import shell
 
@@ -116,14 +117,12 @@ def browse_page() -> rx.Component:
                     ),
                     rx.cond(
                         GraphState.error != "",
-                        rx.callout(GraphState.error, color_scheme="red", size="1"),
+                        error_callout(GraphState.error),
                     ),
                     # Graph container
                     rx.box(
                         rx.cond(
-                            (~GraphState.loading)
-                            & (GraphState.error == "")
-                            & (GraphState.loaded),
+                            (~GraphState.loading) & (GraphState.error == "") & (GraphState.loaded),
                             force_graph(
                                 graph_data=GraphState.graph_data,
                                 node_label="label",
@@ -164,17 +163,15 @@ def browse_page() -> rx.Component:
             # ── Error for list view ─────────────────────────────────
             rx.cond(
                 (GraphState.view != "graph") & (BrowseState.error != ""),
-                rx.callout(BrowseState.error, color_scheme="red", size="1"),
+                error_callout(BrowseState.error),
             ),
             # ── List view ───────────────────────────────────────────
             rx.cond(
-                (GraphState.view != "graph")
-                & (~BrowseState.loading)
-                & (BrowseState.error == ""),
+                (GraphState.view != "graph") & (~BrowseState.loading) & (BrowseState.error == ""),
                 rx.cond(
                     BrowseState.groups.length() > 0,
                     _module_cards(),
-                    rx.text("No browsable classes found in schema.", size="2", color_scheme="gray"),
+                    empty_state("database", "No browsable classes found in schema."),
                 ),
             ),
             # ── Detail drawer (shared) ──────────────────────────────
@@ -232,6 +229,7 @@ def _pagination_bar() -> rx.Component:
                 size="1",
                 on_click=BrowseClassState.prev_page,
                 disabled=BrowseClassState.page_index <= 0,
+                custom_attrs={"aria-label": "Previous page"},
             ),
             rx.icon_button(
                 rx.icon(tag="chevron_right", size=16),
@@ -239,6 +237,7 @@ def _pagination_bar() -> rx.Component:
                 size="1",
                 on_click=BrowseClassState.next_page,
                 disabled=BrowseClassState.page_index + 1 >= BrowseClassState.total_pages,
+                custom_attrs={"aria-label": "Next page"},
             ),
             spacing="1",
         ),
@@ -284,11 +283,14 @@ def _class_table() -> rx.Component:
                                     text_overflow="ellipsis",
                                     white_space="nowrap",
                                 ),
+                                title=row[field].to(str),  # type: ignore[index]
                             ),
                         ),
                         cursor="pointer",
                         _hover={"bg": rx.color("accent", 2)},
                         _odd={"background": rx.color("gray", 2)},
+                        tab_index=0,
+                        role="button",
                         on_click=BrowseClassState.select(row["@id"]),  # type: ignore[index]
                     ),
                 ),
@@ -322,6 +324,7 @@ def browse_class_page() -> rx.Component:
                             variant="ghost",
                             color_scheme="gray",
                             size="1",
+                            custom_attrs={"aria-label": "Back to browse"},
                         ),
                         href="/browse",
                     ),
@@ -365,7 +368,7 @@ def browse_class_page() -> rx.Component:
             ),
             rx.cond(
                 (BrowseClassState.error != "") & (~BrowseClassState.not_found),
-                rx.callout(BrowseClassState.error, color_scheme="red", size="1"),
+                error_callout(BrowseClassState.error),
             ),
             # Table with pagination
             rx.cond(

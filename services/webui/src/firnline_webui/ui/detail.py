@@ -45,6 +45,7 @@ def json_detail_drawer(
                             color_scheme="gray",
                             size="1",
                             on_click=on_close,
+                            custom_attrs={"aria-label": "Close detail"},
                         ),
                     ),
                     align="center",
@@ -78,6 +79,7 @@ def json_detail_drawer(
                                 rx.set_clipboard(iri_var),
                                 rx.toast.success("Copied IRI"),
                             ],
+                            custom_attrs={"aria-label": "Copy IRI to clipboard"},
                         ),
                         align="start",
                         width="100%",
@@ -88,9 +90,7 @@ def json_detail_drawer(
                 ),
             ),
             # Pretty JSON
-            rx.text(
-                "Raw Document", size="1", color_scheme="gray", weight="medium"
-            ),
+            rx.text("Raw Document", size="1", color_scheme="gray", weight="medium"),
             rx.box(
                 rx.code_block(
                     json_var,

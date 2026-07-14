@@ -17,7 +17,19 @@ def test_pages_registered():
     from firnline_webui.firnline_webui import app
 
     page_routes = list(app._unevaluated_pages.keys())
-    expected = {"index", "capture", "inbox", "chat", "browse", "browse/[class_name]", "calendar", "health", "modules", "login"}
+    expected = {
+        "index",
+        "capture",
+        "inbox",
+        "chat",
+        "browse",
+        "browse/[class_name]",
+        "calendar",
+        "automations",
+        "health",
+        "modules",
+        "login",
+    }
     assert set(page_routes) == expected
 
 
@@ -31,6 +43,7 @@ def test_pages_registered():
         ("browse/[class_name]", "Firnline — Browse"),
         ("chat", "Firnline — Chat"),
         ("calendar", "Firnline — Calendar"),
+        ("automations", "Firnline — Automations"),
         ("health", "Firnline — Health"),
         ("modules", "Firnline — Modules"),
         ("login", "Firnline — Sign in"),
@@ -57,6 +70,7 @@ def test_on_load_events():
     """Verify on_load handlers — each data page has [AuthState.check, Data.load]. Login has AuthState.check_login."""
     from firnline_webui.firnline_webui import app
 
+    from firnline_webui.state.automations import AutomationsState
     from firnline_webui.state.browse import BrowseClassState, BrowseState
     from firnline_webui.state.calendar import CalendarState
     from firnline_webui.state.capture import CaptureState
@@ -69,6 +83,7 @@ def test_on_load_events():
     login = app._unevaluated_pages["login"].on_load
     assert login is not None
     from reflex_base.event import EventHandler
+
     assert isinstance(login, EventHandler)
     assert login.fn.__name__ == "check_login"
 
@@ -81,6 +96,7 @@ def test_on_load_events():
         "browse": (BrowseState, "load"),
         "browse/[class_name]": (BrowseClassState, "load"),
         "calendar": (CalendarState, "load"),
+        "automations": (AutomationsState, "load"),
         "health": (HealthState, "refresh"),
         "modules": (ModulesState, "load"),
     }

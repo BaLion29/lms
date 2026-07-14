@@ -12,6 +12,7 @@ from importlib.metadata import version as pkg_version
 
 import reflex as rx
 
+from firnline_webui.pages.automations import automations_page
 from firnline_webui.pages.browse import browse_class_page, browse_page
 from firnline_webui.pages.calendar import calendar_page
 from firnline_webui.pages.capture import capture_page
@@ -22,6 +23,7 @@ from firnline_webui.pages.inbox import inbox_page
 from firnline_webui.pages.login import login_page
 from firnline_webui.pages.modules import modules_page
 from firnline_webui.state.auth import AuthState
+from firnline_webui.state.automations import AutomationsState
 from firnline_webui.state.browse import BrowseClassState, BrowseState
 from firnline_webui.state.calendar import CalendarState
 from firnline_webui.state.capture import CaptureState
@@ -77,5 +79,13 @@ app.add_page(
 app.add_page(health_page, route="/health", title="Firnline — Health", on_load=[AuthState.check, HealthState.refresh])
 app.add_page(modules_page, route="/modules", title="Firnline — Modules", on_load=[AuthState.check, ModulesState.load])
 app.add_page(chat_page, route="/chat", title="Firnline — Chat", on_load=[AuthState.check, ChatState.init_from_query])
-app.add_page(calendar_page, route="/calendar", title="Firnline — Calendar", on_load=[AuthState.check, CalendarState.load])
+app.add_page(
+    calendar_page, route="/calendar", title="Firnline — Calendar", on_load=[AuthState.check, CalendarState.load]
+)
+app.add_page(
+    automations_page,
+    route="/automations",
+    title="Firnline — Automations",
+    on_load=[AuthState.check, AutomationsState.load],
+)
 app.add_page(login_page, route="/login", title="Firnline — Sign in", on_load=AuthState.check_login)

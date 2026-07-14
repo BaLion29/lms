@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`parse_duration`) and datetime parser (`parse_iso_datetime`) moved from
   individual services into firnline_core so executor extensions can consume
   them without depending on service internals.
+- **webui: indexed health card** now shows `store` and `poller` health fields;
+  absent fields (indexed has no version/plugins) render as "—". Optional bearer
+  auth for indexed healthz via `WEBUI_INDEXED_API_TOKEN`.
+- **webui: internal cleanup.** Shared client factories, shared feedback UI
+  helpers (error/empty/loading), healthz parsing updated to services' current
+  flat response shape, previously swallowed exceptions now logged.
 
 ### Added
 
@@ -76,6 +82,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   firnline://schema, firnline://schema/introspection, firnline://modules.
   Talks to queryd+captured over HTTP (no direct DB access).
 - `@metadata` composer validation L4 (label_field) and L5 (anchor_field).
+- **webui: Automations page** at `/automations`. Read-only listing of
+  `TriggerFiring` and `ActionExecution` documents from TerminusDB with status
+  filters, colored status badges, pending/awaiting-approval summary counts, and
+  a JSON detail drawer. Degrades gracefully when the triggers/actions schema
+  modules are not installed.
+- **webui: mcpd health monitoring.** The health page and home dashboard now
+  include mcpd status. New env var `WEBUI_MCPD_URL` (default
+  `http://mcpd:8090`).
+- **webui: Responsive/mobile layout.** Sidebar collapses into a
+  hamburger-triggered drawer below the `md` breakpoint; main content goes
+  full-width on small screens.
+- **webui: Accessibility.** Aria-labels on all icon-only buttons, `role="main"`
+  on content area, `aria-current` on the active nav link, keyboard-focusable
+  table rows.
 
 ### Deprecated
 
