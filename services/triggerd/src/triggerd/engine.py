@@ -12,8 +12,6 @@ import structlog
 
 from firnline_core.base import _format_datetime
 from firnline_core.conventions import agent_id
-from firnline_core.generated.core import Provenance
-from firnline_core.generated.triggers import FiringStatus, TriggerFiring
 from firnline_core.plugins import EvalContext
 from firnline_core.tdb import TdbError, short_iri
 from triggerd.evaluators import _parse_iso_datetime, resolve_anchor
@@ -37,14 +35,15 @@ class Engine:
 
     def __init__(
         self,
-        tdb: Any,
+        repo: Any,
         settings: Any,
         evaluators: list[object],
         *,
         now: Any = None,
         logger: Any = None,
     ) -> None:
-        self.tdb = tdb
+        self.repo = repo
+        self.tdb = repo.tdb
         self.settings = settings
         self.evaluators = evaluators
         self.log = logger or structlog.get_logger(__name__)
@@ -285,96 +284,61 @@ class Engine:
                 subjects_resolved += 1
 
             now_val = self._now()
-            firing_doc = TriggerFiring(
-                trigger=trigger_iri,
-                occurrence_key=occurrence_key,
-                scheduled_for=scheduled,
-                fired_at=window_end,
-                status=FiringStatus.PENDING,
-                subject=subject,
-                created_at=now_val,
-                updated_at=now_val,
-                provenance=Provenance(agent=agent_id("service", "triggerd"), at=now_val),
-            ).to_tdb()
+            firing_doc = {
+                "@type": "TriggerFiring",
+                "trigger": trigger_iri,
+                "occurrence_key": occurrence_key,
+                "scheduled_for": _format_datetime(scheduled),
+                "fired_at": _format_datetime(window_end),
+                "status": "pending",
+                "subject": subject,
+            }
             grouped.setdefault(trigger_iri, []).append(firing_doc)
 
         for trigger_iri, firings in grouped.items():
             short = short_iri(trigger_iri)
-            first_key = firings[0]["occurrence_key"]
             n = len(firings)
-            if n == 1:
-                msg = f"triggerd: fire {short} @ {first_key}"
-            else:
-                msg = f"triggerd: fire {short} @ {first_key} (+{n - 1} more)"
+            _agent = agent_id("service", "triggerd")
 
-            if self.settings.dry_run:
-                for fdoc in firings:
-                    self.log.info("firing_dry_run", trigger=trigger_iri, occurrence_key=fdoc["occurrence_key"])
-                continue
+            for fdoc in firings:
+                key = fdoc["occurrence_key"]
+                if self.settings.dry_run:
+                    self.log.info("firing_dry_run", trigger=trigger_iri, occurrence_key=key)
+                    continue
 
-            try:
-                await self.tdb.insert_documents(firings, branch=branch, message=msg, author="triggerd")
-            except TdbError as exc:
-                body_str = str(exc.body)
-                is_duplicate = exc.status in (400, 409) and "DocumentIdAlreadyExists" in body_str
-
-                if is_duplicate and n > 1:
-                    # Batch was rejected atomically — one duplicate can poison the
-                    # whole batch.  Fall back to individual inserts so that new
-                    # firings sharing a batch with a duplicate are not lost.
-                    deduped = 0
-                    lost = 0
-                    for i, fdoc in enumerate(firings):
-                        key = fdoc["occurrence_key"]
-                        ind_msg = f"triggerd: fire {short} @ {key}"
-                        try:
-                            await self.tdb.insert_documents([fdoc], branch=branch, message=ind_msg, author="triggerd")
-                        except TdbError as exc2:
-                            if "DocumentIdAlreadyExists" in str(exc2.body):
-                                deduped += 1
-                                self.log.debug(
-                                    "firing_duplicate",
-                                    trigger=trigger_iri,
-                                    occurrence_key=key,
-                                    status=exc2.status,
-                                )
-                            else:
-                                lost += 1
-                                self.log.warning(
-                                    "firing_insert_failed",
-                                    trigger=trigger_iri,
-                                    occurrence_key=key,
-                                    status=exc2.status,
-                                    body=str(exc2.body)[:500],
-                                )
-                        else:
-                            firings_written += 1
-                    duplicates_suppressed += deduped
-                    if lost:
-                        self.log.warning(
-                            "firing_batch_fallback_loss",
-                            trigger=trigger_iri,
-                            lost=lost,
-                            total=n,
-                        )
-                elif is_duplicate:
-                    duplicates_suppressed += n
-                    self.log.debug(
-                        "firing_duplicate",
-                        trigger=trigger_iri,
-                        count=n,
-                        status=exc.status,
+                try:
+                    await self.repo.create(
+                        fdoc,
+                        agent=_agent,
+                        method="evaluation",
+                        branch=branch,
                     )
-                else:
+                except TdbError as exc:
+                    if "DocumentIdAlreadyExists" in str(exc.body):
+                        duplicates_suppressed += 1
+                        self.log.debug(
+                            "firing_duplicate",
+                            trigger=trigger_iri,
+                            occurrence_key=key,
+                            status=exc.status,
+                        )
+                    else:
+                        self.log.warning(
+                            "firing_insert_failed",
+                            trigger=trigger_iri,
+                            occurrence_key=key,
+                            status=exc.status,
+                            body=str(exc.body)[:500],
+                        )
+                except Exception:
                     self.log.warning(
                         "firing_insert_failed",
                         trigger=trigger_iri,
-                        count=n,
-                        status=exc.status,
-                        body=body_str[:500],
+                        occurrence_key=key,
+                        exc_info=True,
                     )
-            else:
-                firings_written += n
+                else:
+                    firings_written += 1
 
         # ── Cycle summary ──────────────────────────────────────────────
         self.log.info(

@@ -381,7 +381,7 @@ def _generate_module(
             concrete.append(cls)
             metadata = cls.get("@metadata")
             if isinstance(metadata, dict):
-                if "label_field" in metadata or "anchor_field" in metadata:
+                if "label_field" in metadata or "anchor_field" in metadata or "transitions" in metadata:
                     needs_classvar = True
 
     # First pass: determine all nested model references per concrete class
@@ -535,6 +535,10 @@ def _generate_module(
             af = metadata.get("anchor_field")
             if isinstance(af, str):
                 L(f'    anchor_field: ClassVar[str | None] = "{af}"')
+            tr = metadata.get("transitions")
+            if isinstance(tr, dict):
+                tr_repr = repr(tr)
+                L(f"    transitions: ClassVar[dict[str, list[str]] | None] = {tr_repr}")
 
         # Fields
         for f in fields:

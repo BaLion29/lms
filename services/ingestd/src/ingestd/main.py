@@ -169,6 +169,7 @@ async def async_main(
         db=settings.tdb_db,
         user=settings.tdb_user,
         password=settings.tdb_password,
+        author="service:ingestd",
     )
 
     model = build_llm_model(

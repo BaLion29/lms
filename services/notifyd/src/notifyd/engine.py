@@ -9,7 +9,9 @@ from typing import Any
 import structlog
 
 from firnline_core.base import _format_datetime
+from firnline_core.conventions import agent_id
 from firnline_core.plugins import DeliveryResult, NotifyContext
+from firnline_core.repository import TransitionError as RepoTransitionError
 from firnline_core.tdb import TdbConflictError
 
 logger = structlog.get_logger(__name__)
@@ -78,11 +80,19 @@ def _parse_iso_datetime(raw: str) -> datetime:
 
 
 def _strip_nones(doc: dict[str, Any]) -> dict[str, Any]:
-    """Return a shallow copy of *doc* with all ``None``-valued keys removed.
-
-    TerminusDB Optional fields expect ABSENCE, not JSON null.
-    """
+    """Return a shallow copy of *doc* with all ``None``-valued keys removed."""
     return {k: v for k, v in doc.items() if v is not None}
+
+
+_TRANSITIONS = {
+    "TriggerFiring": {
+        "pending": ["notified"],
+        "notified": ["acknowledged", "snoozed", "expired"],
+        "snoozed": ["notified", "expired"],
+        "acknowledged": [],
+        "expired": [],
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -101,18 +111,17 @@ class NotifyEngine:
 
     def __init__(
         self,
-        tdb: Any,
-        settings: Any,
+        repo: Any,
         channels: list[object],
         *,
         now: Any = None,
         logger: Any = None,
     ) -> None:
-        self.tdb = tdb
-        self.settings = settings
+        self.repo = repo
         self.channels = channels
         self.log = logger or structlog.get_logger(__name__)
         self._now = now if now is not None else self._utc_now
+        self._agent = agent_id("service", "notifyd")
 
     @staticmethod
     def _utc_now() -> datetime:
@@ -127,11 +136,10 @@ class NotifyEngine:
         if should_stop is not None and getattr(should_stop, "is_set", lambda: False)():
             return
 
-        branch = self.settings.tdb_branch
+        repo = self.repo
         now = self._now()
 
         if not self.channels:
-            # Idle gracefully — log nothing on every cycle, just at startup.
             self.log.debug("cycle_idle_no_channels")
             return
 
@@ -140,36 +148,49 @@ class NotifyEngine:
             if not subject_iri:
                 return None
             try:
-                return await self.tdb.get_document(subject_iri, branch=branch)
+                return await repo.get_document(subject_iri)
             except Exception:
                 self.log.debug("subject_resolution_failed", subject=subject_iri, exc_info=True)
                 return None
 
         # ── Phase a: PENDING firings ─────────────────────────────────
         try:
-            pending = await self.tdb.get_documents_by_status("TriggerFiring", "pending", branch)
+            pending = await repo.get_documents_by_status("TriggerFiring", "pending")
         except Exception:
             self.log.warning("pending_fetch_failed", exc_info=True)
             pending = []
 
         for firing in pending:
             subject = await _resolve_subject(firing.get("subject"))
-            ctx = NotifyContext(tdb=self.tdb, logger=self.log, now=lambda: now)
+            ctx = NotifyContext(tdb=repo.tdb, logger=self.log, now=lambda: now)
             delivered = await self._deliver(firing, subject, ctx)
             if delivered:
-                updates = {
-                    "status": "notified",
-                    "last_notified_at": _format_datetime(now),
-                    "notification_count": 1,
-                    "updated_at": _format_datetime(now),
-                }
-                await self._update_firing(firing, updates, branch)
+                try:
+                    await repo.transition(
+                        firing["@id"],
+                        "status",
+                        "pending",
+                        "notified",
+                        agent=self._agent,
+                    )
+                except RepoTransitionError as exc:
+                    self.log.warning("firing_transition_failed", firing=firing.get("@id"), error=str(exc))
+                # Update non-status fields (notification_count, last_notified_at)
+                # on top of the already-transitioned document
+                try:
+                    doc = await repo.get_document(firing["@id"])
+                    doc["last_notified_at"] = _format_datetime(now)
+                    doc["notification_count"] = 1
+                    doc["updated_at"] = _format_datetime(now)
+                    await repo.tdb.insert_documents([doc], message=f"notifyd: bump {firing.get('@id', '?')}")
+                except Exception:
+                    self.log.warning("firing_bump_failed", firing=firing.get("@id"), exc_info=True)
             else:
                 self.log.info("delivery_all_failed", firing=firing.get("@id"))
 
         # ── Phase b: NOTIFIED firings (renag / expiry) ───────────────
         try:
-            notified = await self.tdb.get_documents_by_status("TriggerFiring", "notified", branch)
+            notified = await repo.get_documents_by_status("TriggerFiring", "notified")
         except Exception:
             self.log.warning("notified_fetch_failed", exc_info=True)
             notified = []
@@ -179,7 +200,7 @@ class NotifyEngine:
             trigger_iri = firing.get("trigger")
             if trigger_iri:
                 try:
-                    trigger_doc = await self.tdb.get_document(trigger_iri, branch=branch)
+                    trigger_doc = await repo.get_document(trigger_iri)
                 except Exception:
                     self.log.debug("trigger_fetch_failed", trigger=trigger_iri, exc_info=True)
 
@@ -197,11 +218,16 @@ class NotifyEngine:
                 expire_delta = _parse_duration(expire_after_raw)
                 if expire_delta is not None:
                     if now >= scheduled_for + expire_delta:
-                        updates = {
-                            "status": "expired",
-                            "updated_at": _format_datetime(now),
-                        }
-                        await self._update_firing(firing, updates, branch)
+                        try:
+                            await repo.transition(
+                                firing["@id"],
+                                "status",
+                                "notified",
+                                "expired",
+                                agent=self._agent,
+                            )
+                        except RepoTransitionError as exc:
+                            self.log.warning("expire_transition_failed", firing=firing.get("@id"), error=str(exc))
                         continue
                 else:
                     self.log.warning(
@@ -228,27 +254,26 @@ class NotifyEngine:
                 last_notified = _parse_iso_datetime(last_notified_raw)
                 if now >= last_notified + renotify_delta:
                     notification_count = firing.get("notification_count") or 0
-                    # notification_count counts total notifications sent.
-                    # Renotify while notification_count < 1 + max_renotifications.
                     cap = (1 + max_renotifications) if max_renotifications is not None else None
                     if cap is None or notification_count < cap:
                         subject = await _resolve_subject(firing.get("subject"))
-                        ctx = NotifyContext(tdb=self.tdb, logger=self.log, now=lambda: now)
+                        ctx = NotifyContext(tdb=repo.tdb, logger=self.log, now=lambda: now)
                         redelivered = await self._deliver(firing, subject, ctx)
                         if redelivered:
-                            new_count = notification_count + 1
-                            updates = {
-                                "notification_count": new_count,
-                                "last_notified_at": _format_datetime(now),
-                                "updated_at": _format_datetime(now),
-                            }
-                            await self._update_firing(firing, updates, branch)
+                            try:
+                                doc = await repo.get_document(firing["@id"])
+                                doc["notification_count"] = notification_count + 1
+                                doc["last_notified_at"] = _format_datetime(now)
+                                doc["updated_at"] = _format_datetime(now)
+                                await repo.tdb.insert_documents([doc], message=f"notifyd: renotify {firing.get('@id', '?')}")
+                            except Exception:
+                                self.log.warning("renotify_bump_failed", firing=firing.get("@id"), exc_info=True)
                         else:
                             self.log.info("renotify_all_failed", firing=firing.get("@id"))
 
         # ── Phase c: SNOOZED firings ─────────────────────────────────
         try:
-            snoozed = await self.tdb.get_documents_by_status("TriggerFiring", "snoozed", branch)
+            snoozed = await repo.get_documents_by_status("TriggerFiring", "snoozed")
         except Exception:
             self.log.warning("snoozed_fetch_failed", exc_info=True)
             snoozed = []
@@ -260,17 +285,29 @@ class NotifyEngine:
             snoozed_until = _parse_iso_datetime(snoozed_until_raw)
             if now >= snoozed_until:
                 subject = await _resolve_subject(firing.get("subject"))
-                ctx = NotifyContext(tdb=self.tdb, logger=self.log, now=lambda: now)
+                ctx = NotifyContext(tdb=repo.tdb, logger=self.log, now=lambda: now)
                 delivered = await self._deliver(firing, subject, ctx)
                 if delivered:
-                    updates = {
-                        "status": "notified",
-                        "last_notified_at": _format_datetime(now),
-                        "notification_count": (firing.get("notification_count") or 0) + 1,
-                        "snoozed_until": None,  # stripped by _strip_nones → key removed
-                        "updated_at": _format_datetime(now),
-                    }
-                    await self._update_firing(firing, updates, branch)
+                    try:
+                        await repo.transition(
+                            firing["@id"],
+                            "status",
+                            "snoozed",
+                            "notified",
+                            agent=self._agent,
+                        )
+                    except RepoTransitionError as exc:
+                        self.log.warning("snoozed_transition_failed", firing=firing.get("@id"), error=str(exc))
+                    try:
+                        doc = await repo.get_document(firing["@id"])
+                        doc["last_notified_at"] = _format_datetime(now)
+                        doc["notification_count"] = (firing.get("notification_count") or 0) + 1
+                        doc["snoozed_until"] = None
+                        doc["updated_at"] = _format_datetime(now)
+                        cleaned = _strip_nones(doc)
+                        await repo.tdb.insert_documents([cleaned], message=f"notifyd: unsnooze {firing.get('@id', '?')}")
+                    except Exception:
+                        self.log.warning("unsnooze_bump_failed", firing=firing.get("@id"), exc_info=True)
                 else:
                     self.log.info("snoozed_delivery_all_failed", firing=firing.get("@id"))
 
@@ -308,23 +345,4 @@ class NotifyEngine:
                 )
         return any_ok
 
-    async def _update_firing(
-        self,
-        firing: dict[str, Any],
-        updates: dict[str, Any],
-        branch: str,
-    ) -> None:
-        """Apply updates to a firing document via replace_document."""
-        updated = _strip_nones({**firing, **updates})
-        short = firing.get("@id", "?")
-        try:
-            await self.tdb.replace_document(
-                updated,
-                branch=branch,
-                message=f"notifyd: update {short}",
-                author="notifyd",
-            )
-        except TdbConflictError:
-            self.log.warning("firing_update_conflict", firing=short)
-        except Exception:
-            self.log.warning("firing_update_failed", firing=short, exc_info=True)
+

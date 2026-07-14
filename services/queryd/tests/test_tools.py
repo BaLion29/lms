@@ -66,7 +66,7 @@ def _make_ctx(
 ) -> RunContext[QuerydDeps]:
     """Build a minimal RunContext with QuerydDeps for testing."""
     if tdb is None:
-        tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw")
+        tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw", author="service:queryd")
     if settings is None:
         settings = _settings()
     deps = QuerydDeps(

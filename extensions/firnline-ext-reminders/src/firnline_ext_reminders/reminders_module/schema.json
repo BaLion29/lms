@@ -1,5 +1,9 @@
 [
+  {"@id": "Remindable", "@inherits": ["Entity"], "@type": "Class",
+   "@documentation": {"@comment": "Marker interface for entities that can be reminded about."},
+   "@abstract": true},
   {"@id": "Reminder", "@inherits": ["Entity", "Triggerable"], "@type": "Class",
+   "@metadata": {"label_field": "name"},
    "@documentation": {"@comment": "A user-created reminder bound to a trigger and optionally referring to a remindable entity."},
    "description": {"@class": "xsd:string", "@type": "Optional"},
    "name": "xsd:string",

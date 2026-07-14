@@ -1,9 +1,28 @@
 [
   {"@id": "Task", "@inherits": ["Entity", "Remindable", "Source", "Anchored", "TaskSpec"], "@type": "Class",
+   "@metadata": {
+     "label_field": "name",
+     "anchor_field": "due_date",
+     "transitions": {
+       "open": ["planned", "done"],
+       "planned": ["open", "done"],
+       "done": ["open"]
+     }
+   },
    "@documentation": {"@comment": "A todo item with a due date and status. Derives from a source, can be reminded, and has a canonical anchor instant."},
    "due_date": {"@class": "xsd:dateTime", "@type": "Optional"},
    "status": "TaskStatus"},
   {"@id": "Event", "@inherits": ["Entity", "Remindable", "Source", "Context", "Anchored"], "@type": "Class",
+   "@metadata": {
+     "label_field": "name",
+     "anchor_field": "start_datetime",
+     "transitions": {
+       "open": ["planned", "closed", "cancelled"],
+       "planned": ["open", "closed", "cancelled"],
+       "closed": ["open"],
+       "cancelled": ["open"]
+     }
+   },
    "@documentation": {"@comment": "A calendar event with start/end datetimes, location, priority, and status. Can be a context for other documents."},
    "description": {"@class": "xsd:string", "@type": "Optional"},
    "end_datetime": {"@class": "xsd:dateTime", "@type": "Optional"},

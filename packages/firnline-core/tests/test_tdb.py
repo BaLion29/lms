@@ -69,7 +69,7 @@ def test_tdberror_str_includes_status_and_body():
 
 @pytest.fixture
 async def client():
-    c = TdbClient(base_url=BASE, org=ORG, db=DB, user="admin", password="root")
+    c = TdbClient(base_url=BASE, org=ORG, db=DB, user="admin", password="root", author="service:ingestd")
     yield c
     await c.aclose()
 
@@ -128,7 +128,7 @@ async def test_insert_documents(client, respx_mock):
 
     assert route.called
     req = route.calls.last.request
-    assert req.url.params["author"] == "ingestd"
+    assert req.url.params["author"] == "service:ingestd"
     assert req.url.params["message"] == "ingestd"
     assert req.url.params["graph_type"] == "instance"
 
@@ -150,17 +150,20 @@ async def test_insert_documents_custom_message(client, respx_mock):
     assert req.url.params["message"] == "custom commit"
 
 
-async def test_insert_documents_custom_author(client, respx_mock):
-    """The *author* keyword-only parameter controls the commit author."""
+async def test_insert_documents_custom_author(respx_mock):
+    """The *author* constructor argument controls the commit author."""
     route = respx_mock.post(
         f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
     ).respond(json=[])
 
-    await client.insert_documents([], author="queryd")
-    req = route.calls.last.request
-    assert req.url.params["author"] == "queryd"
-    # Default message still works
-    assert req.url.params["message"] == "ingestd"
+    c = TdbClient(base_url=BASE, org=ORG, db=DB, user="admin", password="root", author="service:queryd")
+    try:
+        await c.insert_documents([])
+        req = route.calls.last.request
+        assert req.url.params["author"] == "service:queryd"
+        assert req.url.params["message"] == "ingestd"
+    finally:
+        await c.aclose()
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +181,7 @@ async def test_replace_document(client, respx_mock):
 
     assert route.called
     req = route.calls.last.request
-    assert req.url.params["author"] == "ingestd"
+    assert req.url.params["author"] == "service:ingestd"
     assert req.url.params["graph_type"] == "instance"
 
     sent = json.loads(req.read())
@@ -198,18 +201,22 @@ async def test_replace_document_missing_at_id_raises_valueerror(client, respx_mo
     assert not route.called
 
 
-async def test_replace_document_custom_author(client, respx_mock):
-    """The *author* keyword-only parameter controls the commit author."""
+async def test_replace_document_custom_author(respx_mock):
+    """The *author* constructor argument controls the commit author."""
     route = respx_mock.put(
         f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
     ).respond(json=["terminusdb:///data/Task/abc"])
 
-    doc = {"@id": "Task/abc", "@type": "Task", "status": "open"}
-    await client.replace_document(doc, author="queryd", message="status change")
-    assert route.called
-    req = route.calls.last.request
-    assert req.url.params["author"] == "queryd"
-    assert req.url.params["message"] == "status change"
+    c = TdbClient(base_url=BASE, org=ORG, db=DB, user="admin", password="root", author="service:queryd")
+    try:
+        doc = {"@id": "Task/abc", "@type": "Task", "status": "open"}
+        await c.replace_document(doc, message="status change")
+        assert route.called
+        req = route.calls.last.request
+        assert req.url.params["author"] == "service:queryd"
+        assert req.url.params["message"] == "status change"
+    finally:
+        await c.aclose()
 
 
 # ---------------------------------------------------------------------------
@@ -497,7 +504,7 @@ async def test_push_schema(client, respx_mock):
     req = route.calls.last.request
     assert req.url.params["graph_type"] == "schema"
     assert req.url.params["full_replace"] == "true"
-    assert req.url.params["author"] == "ingestd"
+    assert req.url.params["author"] == "service:ingestd"
     assert req.url.params["message"] == "bootstrap"
 
     sent = json.loads(req.read())
@@ -539,19 +546,23 @@ async def test_push_schema_without_full_replace(client, respx_mock):
     assert route.calls.last.request.url.params["full_replace"] == "false"
 
 
-async def test_push_schema_custom_author_message(client, respx_mock):
-    """Keyword-only author and message are forwarded."""
+async def test_push_schema_custom_author_message(respx_mock):
+    """The *author* constructor argument controls the commit author."""
     route = respx_mock.post(
         f"{BASE}/api/document/{ORG}/{DB}",
     ).respond(status_code=200, json=[])
 
-    await client.push_schema(
-        [], author="schema-bot", message="v2 migration"
-    )
-    assert route.called
-    req = route.calls.last.request
-    assert req.url.params["author"] == "schema-bot"
-    assert req.url.params["message"] == "v2 migration"
+    c = TdbClient(base_url=BASE, org=ORG, db=DB, user="admin", password="root", author="service:schema-bot")
+    try:
+        await c.push_schema(
+            [], message="v2 migration"
+        )
+        assert route.called
+        req = route.calls.last.request
+        assert req.url.params["author"] == "service:schema-bot"
+        assert req.url.params["message"] == "v2 migration"
+    finally:
+        await c.aclose()
 
 
 # ---------------------------------------------------------------------------
@@ -716,7 +727,7 @@ async def test_graphql_branch_none_uses_default(client, respx_mock):
 
 
 async def test_async_context_manager():
-    async with TdbClient(base_url=BASE, org=ORG, db=DB, user="u", password="p") as c:
+    async with TdbClient(base_url=BASE, org=ORG, db=DB, user="u", password="p", author="service:ingestd") as c:
         assert isinstance(c._client, httpx.AsyncClient)
         assert not c._client.is_closed
     # After exit the client is closed

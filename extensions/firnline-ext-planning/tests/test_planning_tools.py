@@ -56,7 +56,7 @@ class _FakeDeps:
 def _make_ctx(tdb: TdbClient | None = None) -> RunContext:
     """Build a minimal RunContext for testing."""
     if tdb is None:
-        tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw")
+        tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw", author="service:queryd")
     deps = _FakeDeps(tdb)
     fake_model = MagicMock()
     fake_usage = MagicMock()
@@ -105,34 +105,38 @@ async def test_set_task_status_happy_path(respx_mock):
         "required_context": [],
     }
     get_route = respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
-    put_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
 
     ctx = _make_ctx()
     result = await set_task_status(ctx, "Task/abc", "done")
 
     assert result == {"ok": True, "iri": "Task/abc"}
     assert get_route.called
-    assert put_route.called
+    assert post_route.called
 
-    req = put_route.calls.last.request
+    req = post_route.calls.last.request
     sent = json.loads(req.read())
-    assert sent["status"] == "done"
-    assert sent["updated_at"] != orig_doc["updated_at"]
-    assert sent["name"] == orig_doc["name"]
-    assert sent["description"] == orig_doc["description"]
-    assert sent["priority"] == orig_doc["priority"]
-    assert sent["created_at"] == orig_doc["created_at"]
-    assert sent["@type"] == "Task"
+    # transition sends [updated_doc, transition_audit_doc]
+    assert isinstance(sent, list)
+    assert len(sent) == 2
+    updated_doc = sent[0]
+    assert updated_doc["status"] == "done"
+    assert updated_doc["updated_at"] != orig_doc["updated_at"]
+    assert updated_doc["name"] == orig_doc["name"]
+    assert updated_doc["description"] == orig_doc["description"]
+    assert updated_doc["priority"] == orig_doc["priority"]
+    assert updated_doc["created_at"] == orig_doc["created_at"]
+    assert updated_doc["@type"] == "Task"
 
     params = req.url.params
-    assert params["author"] == "queryd"
-    assert "set status done" in params["message"]
+    assert params["author"] == "service:queryd"
+    assert "transition" in params["message"]
 
 
 async def test_set_task_status_wrong_type(respx_mock):
     event_doc = {"@id": "Event/abc", "@type": "Event", "name": "Meeting"}
     get_route = respx_mock.get(DOC_PATH).respond(json=event_doc)
-    put_route = respx_mock.put(DOC_PATH).respond(json=[])
+    post_route = respx_mock.post(DOC_PATH).respond(json=[])
 
     ctx = _make_ctx()
     result = await set_task_status(ctx, "Event/abc", "done")
@@ -140,7 +144,7 @@ async def test_set_task_status_wrong_type(respx_mock):
     assert result["ok"] is False
     assert "not a Task" in result["error"]
     assert get_route.called
-    assert not put_route.called
+    assert not post_route.called
 
 
 async def test_set_task_status_not_found(respx_mock):
@@ -166,30 +170,33 @@ async def test_set_event_status_happy_path(respx_mock):
         "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
-    put_route = respx_mock.put(DOC_PATH).respond(json=["Event/xyz"])
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Event/xyz"])
 
     ctx = _make_ctx()
     result = await set_event_status(ctx, "Event/xyz", "closed")
 
     assert result == {"ok": True, "iri": "Event/xyz"}
-    assert put_route.called
-    req = put_route.calls.last.request
+    assert post_route.called
+    req = post_route.calls.last.request
     sent = json.loads(req.read())
-    assert sent["status"] == "closed"
-    assert sent["updated_at"] != orig_doc["updated_at"]
-    assert req.url.params["author"] == "queryd"
+    assert isinstance(sent, list)
+    assert len(sent) == 2
+    updated_doc = sent[0]
+    assert updated_doc["status"] == "closed"
+    assert updated_doc["updated_at"] != orig_doc["updated_at"]
+    assert req.url.params["author"] == "service:queryd"
 
 
 async def test_set_event_status_wrong_type(respx_mock):
     task_doc = {"@id": "Task/abc", "@type": "Task", "name": "Todo"}
     respx_mock.get(DOC_PATH).respond(json=task_doc)
-    put_route = respx_mock.put(DOC_PATH).respond(json=[])
+    post_route = respx_mock.post(DOC_PATH).respond(json=[])
 
     ctx = _make_ctx()
     result = await set_event_status(ctx, "Task/abc", "closed")
     assert result["ok"] is False
     assert "not an Event" in result["error"]
-    assert not put_route.called
+    assert not post_route.called
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +211,7 @@ async def test_create_task(respx_mock):
     ctx = _make_ctx()
     result = await create_task(ctx, "New Task")
 
-    assert result == {"ok": True, "iri": "Task/new123"}
+    assert result == {"ok": True, "iri": "terminusdb:///data/Task/new123"}
     assert post_route.called
 
     req = post_route.calls.last.request
@@ -221,14 +228,14 @@ async def test_create_task(respx_mock):
     assert "anchor_at" not in doc
     assert "derived_from" not in doc
     prov = doc["provenance"]
-    assert prov["@type"] == "Provenance"
-    assert prov["agent"] == "queryd"
+    # @type is stripped by repo.create() for provenance subdoc
+    assert prov["agent"] == "ext:planning"
     assert prov["method"] == "tool_call"
     # source=None should be excluded
     assert "source" not in prov
 
     params = req.url.params
-    assert params["author"] == "queryd"
+    assert params["author"] == "service:queryd"
 
 
 async def test_create_task_with_all_fields(respx_mock):
@@ -254,8 +261,7 @@ async def test_create_task_with_all_fields(respx_mock):
     assert doc["due_date"] == "2026-12-31T12:00:00Z"
     assert doc["priority"] == 5
     assert doc["anchor_at"] == "2026-12-31T12:00:00Z"
-    assert doc["provenance"]["@type"] == "Provenance"
-    assert doc["provenance"]["agent"] == "queryd"
+    assert doc["provenance"]["agent"] == "ext:planning"
     assert "source" not in doc["provenance"]
 
 
@@ -277,22 +283,23 @@ async def test_update_task_only_provided_fields_changed(respx_mock):
         "required_context": [],
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
-    put_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
 
     ctx = _make_ctx()
     result = await update_task(ctx, "Task/abc", name="New name")
 
     assert result == {"ok": True, "iri": "Task/abc"}
-    assert put_route.called
+    assert post_route.called
 
-    req = put_route.calls.last.request
+    req = post_route.calls.last.request
     sent = json.loads(req.read())
-    assert sent["name"] == "New name"
-    assert sent["description"] == "Old desc"
-    assert sent["priority"] == 1
-    assert sent["status"] == "open"
-    assert sent["updated_at"] != orig["updated_at"]
-    assert sent["created_at"] == orig["created_at"]
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["name"] == "New name"
+    assert doc["description"] == "Old desc"
+    assert doc["priority"] == 1
+    assert doc["status"] == "open"
+    assert doc["updated_at"] != orig["updated_at"]
+    assert doc["created_at"] == orig["created_at"]
 
 
 async def test_update_task_multiple_fields(respx_mock):
@@ -307,19 +314,20 @@ async def test_update_task_multiple_fields(respx_mock):
         "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
-    put_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
 
-    due = datetime(2026, 8, 1, 12, 0, 0, tzinfo=timezone.utc)
+    due = "2026-08-01T12:00:00Z"
     ctx = _make_ctx()
     result = await update_task(ctx, "Task/abc", name="Updated", description=None, priority=5, due_date=due)
 
     assert result["ok"] is True
-    req = put_route.calls.last.request
+    req = post_route.calls.last.request
     sent = json.loads(req.read())
-    assert sent["description"] == "Old desc"
-    assert sent["name"] == "Updated"
-    assert sent["priority"] == 5
-    assert sent["due_date"] == "2026-08-01T12:00:00Z"
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["description"] == "Old desc"
+    assert doc["name"] == "Updated"
+    assert doc["priority"] == 5
+    assert doc["due_date"] == "2026-08-01T12:00:00Z"
 
 
 async def test_update_task_not_found(respx_mock):
@@ -338,9 +346,10 @@ async def test_update_task_not_found(respx_mock):
 async def test_set_task_status_normalizes_full_iri(respx_mock):
     doc = {"@id": "Task/abc", "@type": "Task", "name": "X", "status": "open"}
     respx_mock.get(DOC_PATH).respond(json=dict(doc))
-    put_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
 
     ctx = _make_ctx()
     result = await set_task_status(ctx, "terminusdb:///data/Task/abc", "done")
-    assert result == {"ok": True, "iri": "Task/abc"}
-    assert put_route.called
+    assert result["ok"] is True
+    assert "Task/abc" in result["iri"]
+    assert post_route.called

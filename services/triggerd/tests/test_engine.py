@@ -16,6 +16,7 @@ from triggerd.evaluators import (
     ScheduleEvaluator,
 )
 from firnline_core.plugins import ModuleRequirement
+from firnline_core.repository import Repository
 from firnline_core.tdb import TdbError
 
 UTC = timezone.utc
@@ -91,7 +92,7 @@ def _make_engine(
     if evaluators is None:
         evaluators = [OneShotEvaluator(), ScheduleEvaluator(), CompositeEvaluator()]
 
-    return Engine(tdb=tdb, settings=settings, evaluators=evaluators, now=now)
+    return Engine(repo=Repository(tdb), settings=settings, evaluators=evaluators, now=now)
 
 
 def _default_schema() -> list[dict]:

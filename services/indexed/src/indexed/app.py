@@ -165,6 +165,7 @@ def create_app(settings: Settings) -> FastAPI:
             db=settings.tdb_db,
             user=settings.tdb_user,
             password=settings.tdb_password,
+            author="service:indexed",
         )
         store = Store(settings.data_dir + "/index.db")
         store.open()

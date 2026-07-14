@@ -109,7 +109,7 @@ async def graphql_query(
         return f"ERROR: {exc}"
 
     # ---- serialize & truncate -----------------------------------------
-    text = json.dumps(result, ensure_ascii=False, default=str)
+    text = _serialize_graphql_result(result)
     if len(text) > 50_000:
         text = (
             text[:50_000] + "\n\u2026[TRUNCATED: response exceeded 50000 chars;"
@@ -275,6 +275,30 @@ _READ_TOOLS = [
     Tool(find_class),
     Tool(find_field),
 ]
+
+
+def _strip_archived(obj: Any) -> Any:
+    """Recursively strip dict entries that have a non-null ``archived_at``."""
+    if isinstance(obj, dict):
+        if obj.get("archived_at") is not None:
+            return None
+        result: dict[str, Any] = {}
+        for k, v in obj.items():
+            stripped = _strip_archived(v)
+            if stripped is not None:
+                result[k] = stripped
+        return result
+    if isinstance(obj, list):
+        return [x for x in (_strip_archived(i) for i in obj) if x is not None]
+    return obj
+
+
+def _serialize_graphql_result(result: dict[str, Any]) -> str:
+    """Serialize a GraphQL result, stripping archived entries."""
+    cleaned = _strip_archived(result)
+    if cleaned is None:
+        cleaned = {}
+    return json.dumps(cleaned, ensure_ascii=False, default=str)
 
 # Extension point: future vector-search / RAG tools can be appended here.
 # _READ_TOOLS.append(Tool(semantic_search))  # future: vector search service plugs in here

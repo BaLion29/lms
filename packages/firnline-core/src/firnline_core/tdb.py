@@ -108,9 +108,14 @@ class TdbClient:
         db: str,
         user: str,
         password: str,
+        author: str,
         *,
         timeout: float = 30.0,
     ) -> None:
+        from firnline_core.conventions import parse_agent
+
+        parse_agent(author)
+        self._author = author
         self.base_url = base_url.rstrip("/")
         self.org = org
         self.db = db
@@ -187,15 +192,13 @@ class TdbClient:
         docs: list[dict[str, Any]],
         branch: str = "main",
         message: str = "ingestd",
-        *,
-        author: str = "ingestd",
     ) -> list[str]:
         """Insert *docs* and return the list of full IRIs."""
         response = await self._client.post(
             self._doc_path(branch),
             params={
                 "graph_type": "instance",
-                "author": author,
+                "author": self._author,
                 "message": message,
             },
             json=docs,
@@ -209,7 +212,6 @@ class TdbClient:
         branch: str = "main",
         message: str = "ingestd",
         *,
-        author: str = "ingestd",
         expected_head: str | None = None,
     ) -> None:
         """Replace a single document (must contain ``@id``).
@@ -233,7 +235,7 @@ class TdbClient:
             self._doc_path(branch),
             params={
                 "graph_type": "instance",
-                "author": author,
+                "author": self._author,
                 "message": message,
             },
             json=doc,
@@ -305,7 +307,6 @@ class TdbClient:
         branch: str = "main",
         *,
         full_replace: bool = True,
-        author: str = "ingestd",
         message: str = "bootstrap",
     ) -> None:
         """Push/replace the full schema (``full_replace=true``, idempotent).
@@ -324,7 +325,7 @@ class TdbClient:
             params={
                 "graph_type": "schema",
                 "full_replace": "true" if full_replace else "false",
-                "author": author,
+                "author": self._author,
                 "message": message,
             },
             json=schema,

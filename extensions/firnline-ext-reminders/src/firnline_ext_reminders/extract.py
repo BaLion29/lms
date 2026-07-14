@@ -13,9 +13,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from firnline_core.models import OneShotTrigger, Provenance
+from firnline_core.models import OneShotTrigger
 from firnline_core.plugins import BuildContext, ExtractorPlugin, ModuleRequirement
-from firnline_core.tdb import short_iri
 from firnline_ext_reminders.models import Reminder
 
 
@@ -58,7 +57,6 @@ class ReminderExtractPlugin(ExtractorPlugin):
         return [ReminderProposal]
 
     def prompt_snippet(self) -> str:
-        """Return instruction text (the kernel owns the JSON contract)."""
         return ""
 
     async def linking_context(self, tdb: Any, *, index: Any, branch: str) -> str:
@@ -66,49 +64,46 @@ class ReminderExtractPlugin(ExtractorPlugin):
 
     async def build_documents(self, proposal: BaseModel, ctx: BuildContext) -> list[dict[str, Any]]:
         now = ctx.now()
-        provenance = Provenance(
-            agent="ingestd",
-            method="llm_extraction",
-            at=now,
-            source=short_iri(ctx.captured_iri),
-        )
+        docs: list[dict[str, Any]] = []
 
-        if isinstance(proposal, ReminderProposal):
-            docs: list[dict[str, Any]] = []
-            trigger_iri: str | None = None
+        if not isinstance(proposal, ReminderProposal):
+            return []
 
-            if proposal.fire_at is not None:
-                # The LLM may emit naive (offset-less) datetimes.  Treat
-                # naive as UTC so they round-trip predictably — consistent
-                # with triggerd's _parse_iso_datetime convention and with
-                # TdbDateTime's _format_datetime serialization (both assume
-                # naive == UTC).
-                trigger_id = f"OneShotTrigger/{uuid4().hex}"
-                trigger_doc = OneShotTrigger(
-                    id_=trigger_id,
-                    name=f"Reminder: {proposal.name}",
-                    enabled=True,
-                    fire_at=proposal.fire_at,
-                    created_at=now,
-                    updated_at=now,
-                    provenance=provenance,
-                ).to_tdb()
-                docs.append(trigger_doc)
-                trigger_iri = trigger_id
+        trigger_iri: str | None = None
 
-            reminder_doc = Reminder(
-                name=proposal.name,
-                description=proposal.description,
-                refers_to=None,
-                trigger=trigger_iri,
+        if proposal.fire_at is not None:
+            trigger_id = f"OneShotTrigger/{uuid4().hex}"
+            trigger_doc = OneShotTrigger(
+                id_=trigger_id,
+                name=f"Reminder: {proposal.name}",
+                enabled=True,
+                fire_at=proposal.fire_at,
                 created_at=now,
                 updated_at=now,
-                provenance=provenance,
+                provenance={
+                    "agent": "ext:reminders",
+                    "at": now,
+                    "method": "llm_extraction",
+                },
             ).to_tdb()
-            docs.append(reminder_doc)
-            return docs
+            docs.append(trigger_doc)
+            trigger_iri = trigger_id
 
-        return []
+        reminder_doc = Reminder(
+            name=proposal.name,
+            description=proposal.description,
+            refers_to=None,
+            trigger=trigger_iri,
+            created_at=now,
+            updated_at=now,
+            provenance={
+                "agent": "ext:reminders",
+                "at": now,
+                "method": "llm_extraction",
+            },
+        ).to_tdb()
+        docs.append(reminder_doc)
+        return docs
 
 
 # ---------------------------------------------------------------------------

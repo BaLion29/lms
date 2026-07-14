@@ -64,7 +64,7 @@ class _FakeDeps:
 
 def _make_ctx(tdb: TdbClient | None = None) -> RunContext:
     if tdb is None:
-        tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw")
+        tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw", author="service:queryd")
     deps = _FakeDeps(tdb)
     fake_model = MagicMock()
     fake_usage = MagicMock()
@@ -102,7 +102,7 @@ async def test_create_reminder_no_refers_to(respx_mock):
     ctx = _make_ctx()
     result = await create_reminder(ctx, "Buy milk", description="don't forget")
 
-    assert result == {"ok": True, "iri": "Reminder/r1"}
+    assert result == {"ok": True, "iri": "terminusdb:///data/Reminder/r1"}
     assert post_route.called
     req = post_route.calls.last.request
     sent = json.loads(req.read())
@@ -113,7 +113,7 @@ async def test_create_reminder_no_refers_to(respx_mock):
     assert doc.get("refers_to") is None or "refers_to" not in doc
     # provenance present (source=None excluded by to_tdb exclude_none)
     prov = doc["provenance"]
-    assert prov["agent"] == "queryd"
+    assert prov["agent"] == "ext:reminders"
     assert prov["method"] == "tool_call"
     assert "source" not in prov
     assert "at" in prov
@@ -126,12 +126,12 @@ async def test_create_reminder_with_valid_refers_to(respx_mock):
         json=["terminusdb:///data/Reminder/r2"],
     )
 
-    tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw")
+    tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw", author="service:queryd")
     tdb.get_schema = AsyncMock(return_value=SCHEMA_REMINDABLE)
     ctx = _make_ctx(tdb)
     result = await create_reminder(ctx, "Follow up", refers_to_iri="Task/abc")
 
-    assert result == {"ok": True, "iri": "Reminder/r2"}
+    assert result == {"ok": True, "iri": "terminusdb:///data/Reminder/r2"}
     assert get_route.called
     assert post_route.called
 
@@ -141,7 +141,7 @@ async def test_create_reminder_with_valid_refers_to(respx_mock):
     assert doc["refers_to"] == "Task/abc"
     # provenance present
     prov = doc["provenance"]
-    assert prov["agent"] == "queryd"
+    assert prov["agent"] == "ext:reminders"
     assert prov["method"] == "tool_call"
 
 
@@ -163,7 +163,7 @@ async def test_create_reminder_refers_to_wrong_type(respx_mock):
     respx_mock.get(DOC_PATH).respond(json=target)
     post_route = respx_mock.post(DOC_PATH).respond(json=[])
 
-    tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw")
+    tdb = TdbClient(base_url=TDB_URL, org=ORG, db=TDB_DB, user="admin", password="pw", author="service:queryd")
     tdb.get_schema = AsyncMock(return_value=SCHEMA_REMINDABLE)
     ctx = _make_ctx(tdb)
     result = await create_reminder(ctx, "Nope", refers_to_iri="InboxNote/x")

@@ -275,6 +275,7 @@ async def _lifespan(
         user=settings.tdb_user,
         password=settings.tdb_password,
         timeout=settings.request_timeout_seconds,
+        author="service:queryd",
     )
     app.state.tdb = tdb
 

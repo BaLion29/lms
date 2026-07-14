@@ -2,6 +2,7 @@
 
 Provides the pydantic-ai Tool object for create_reminder.
 Imports tracing from ``firnline_core.tooling`` (public kernel contract, L7).
+All writes go through the Repository layer (L6).
 """
 
 from __future__ import annotations
@@ -13,27 +14,22 @@ import structlog
 
 from pydantic_ai import RunContext, Tool
 
-from firnline_core.models import Provenance
-from firnline_core.tdb import TdbError, short_iri
 from firnline_core.plugins import ModuleRequirement
+from firnline_core.repository import Repository
 from firnline_core.tooling import traced
 
 from firnline_ext_reminders.models import Reminder
 
 log = structlog.get_logger()
 
+_AGENT = "ext:reminders"
+
 # Simple in-plugin cache for Remindable-inheriting types, keyed by branch.
-# Per-tool-call resolution is fine — this is a small cache to avoid
-# repeated schema fetches within a single call, not a module-level singleton.
 _remindable_cache: dict[str, set[str]] = {}
 
 
 async def _get_remindable_types(tdb: Any, branch: str) -> set[str]:
-    """Return the set of @type values that inherit ``Remindable`` on *branch*.
-
-    Fetches the raw schema from TerminusDB and inspects ``@inherits`` lists.
-    Cached per *branch*; falls back to permissive on missing/unknown schema.
-    """
+    """Return the set of @type values that inherit ``Remindable`` on *branch*."""
     cached = _remindable_cache.get(branch)
     if cached is not None:
         return cached
@@ -41,7 +37,6 @@ async def _get_remindable_types(tdb: Any, branch: str) -> set[str]:
     try:
         raw_schema = await tdb.get_schema(branch)
     except Exception:
-        # Schema not available → permissive fallback
         return set()
 
     remindable: set[str] = set()
@@ -58,6 +53,13 @@ async def _get_remindable_types(tdb: Any, branch: str) -> set[str]:
     return remindable
 
 
+def _get_repo(ctx: RunContext[Any]) -> Repository:
+    tdb = ctx.deps.tdb
+    if not isinstance(tdb, Repository):
+        return Repository(tdb)
+    return tdb
+
+
 # ---------------------------------------------------------------------------
 # Tool function
 # ---------------------------------------------------------------------------
@@ -70,59 +72,51 @@ async def create_reminder(
     description: str | None = None,
     refers_to_iri: str | None = None,
 ) -> dict[str, object]:
-    """Create a new Reminder, optionally linked to a Remindable entity.
-
-    When *refers_to_iri* is given, the target MUST exist and its ``@type``
-    must inherit ``Remindable`` (checked against the live schema).  Falls
-    back to permissive if the schema is unavailable — TerminusDB range
-    validation will reject invalid references anyway.
-    """
+    """Create a new Reminder, optionally linked to a Remindable entity."""
+    repo = _get_repo(ctx)
     branch = ctx.deps.settings.tdb_branch
     refers_to: str | None = None
 
     if refers_to_iri is not None:
-        siri = short_iri(refers_to_iri)
         try:
-            target = await ctx.deps.tdb.get_document(siri, branch=branch)
-        except TdbError as exc:
+            target = await repo.get_document(refers_to_iri, branch=branch)
+        except Exception as exc:
             return {
                 "ok": False,
-                "error": f"refers_to document not found: {siri} ({exc.status})",
+                "error": f"refers_to document not found: {refers_to_iri}: {exc}",
             }
 
-        remindable_types = await _get_remindable_types(ctx.deps.tdb, branch)
+        remindable_types = await _get_remindable_types(repo.tdb, branch)
         if remindable_types and target.get("@type") not in remindable_types:
             return {
                 "ok": False,
-                "error": (f"refers_to {siri} has type {target.get('@type')}, expected a type inheriting Remindable"),
+                "error": (f"refers_to {refers_to_iri} has type {target.get('@type')}, "
+                          f"expected a type inheriting Remindable"),
             }
-        refers_to = siri
+        refers_to = refers_to_iri
 
-    now_dt = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
     reminder = Reminder(
         name=name,
         description=description,
         refers_to=refers_to,
-        created_at=now_dt,
-        updated_at=now_dt,
-        provenance=Provenance(agent="queryd", method="tool_call", source=None, at=now_dt),
-    )
-    doc = reminder.to_tdb()
+        created_at=now,
+        updated_at=now,
+    ).to_tdb()
 
-    log.info("queryd: create_reminder", doc=doc)
+    log.info("queryd: create_reminder", doc=reminder)
 
     try:
-        iris = await ctx.deps.tdb.insert_documents(
-            [doc],
+        iri = await repo.create(
+            reminder,
+            agent=_AGENT,
+            method="tool_call",
             branch=branch,
-            message=f"queryd: create reminder {name}",
-            author="queryd",
         )
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
-    result_iri = short_iri(iris[0]) if iris else "unknown"
-    return {"ok": True, "iri": result_iri}
+    return {"ok": True, "iri": iri}
 
 
 # ---------------------------------------------------------------------------

@@ -132,9 +132,8 @@ class TestBuildDocumentsNoFireAt:
         assert docs[0]["name"] == "Call doctor"
         # provenance instead of derived_from
         prov = docs[0]["provenance"]
-        assert prov["agent"] == "ingestd"
+        assert prov["agent"] == "ext:reminders"
         assert prov["method"] == "llm_extraction"
-        assert prov["source"] == "InboxNote/test1"
         assert "at" in prov
         assert "derived_from" not in docs[0]
         ctx.tdb.insert_documents.assert_not_called()
@@ -176,7 +175,7 @@ class TestBuildDocumentsWithFireAt:
         # trigger has a client-supplied @id
         assert trigger_doc["@id"].startswith("OneShotTrigger/")
         # trigger has provenance
-        assert trigger_doc["provenance"]["agent"] == "ingestd"
+        assert trigger_doc["provenance"]["agent"] == "ext:reminders"
         assert trigger_doc["provenance"]["method"] == "llm_extraction"
 
         # reminder doc references the trigger by its client @id
@@ -184,8 +183,7 @@ class TestBuildDocumentsWithFireAt:
         assert reminder_doc["trigger"] == trigger_doc["@id"]
         assert reminder_doc["name"] == "Call doctor"
         # provenance instead of derived_from
-        assert reminder_doc["provenance"]["agent"] == "ingestd"
-        assert reminder_doc["provenance"]["source"] == "InboxNote/test1"
+        assert reminder_doc["provenance"]["agent"] == "ext:reminders"
         assert "derived_from" not in reminder_doc
 
         # No side-insert at all

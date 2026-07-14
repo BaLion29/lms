@@ -93,6 +93,7 @@ async def _lifespan(app: FastAPI, settings: Settings):
         db=settings.tdb_db,
         user=settings.tdb_user,
         password=settings.tdb_password,
+        author="service:captured",
     )
     app.state.tdb = tdb
 

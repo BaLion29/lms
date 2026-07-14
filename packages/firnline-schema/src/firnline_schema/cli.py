@@ -374,6 +374,7 @@ async def _diff_live(
         db=tdb_db,
         user=tdb_user,
         password=tdb_password,
+        author="service:firnline-schema",
     ) as client:
         fetched = await client.get_schema(branch=branch)
 
@@ -573,6 +574,7 @@ async def _plan_branch(args: argparse.Namespace, tdb_password: str):
         db=args.tdb_db,
         user=args.tdb_user,
         password=tdb_password,
+        author="service:firnline-schema",
     ) as client:
         return await plan_branch(client, args.branch, compose_result, modules_dir)
 
@@ -647,6 +649,7 @@ async def _apply_branch(args: argparse.Namespace, tdb_password: str) -> ActionPl
         db=args.tdb_db,
         user=args.tdb_user,
         password=tdb_password,
+        author="service:firnline-schema",
     ) as client:
         # Ensure branch exists; if not, create from main
         if not await client.branch_exists(args.branch):
@@ -697,6 +700,7 @@ async def _validate_branch(args: argparse.Namespace, tdb_password: str) -> bool:
         db=args.tdb_db,
         user=args.tdb_user,
         password=tdb_password,
+        author="service:firnline-schema",
     ) as client:
         ok, errors = await validate_branch(client, args.branch, compose_result)
 
@@ -754,6 +758,7 @@ async def _promote_branch(args: argparse.Namespace, tdb_password: str) -> str:
         db=args.tdb_db,
         user=args.tdb_user,
         password=tdb_password,
+        author="service:firnline-schema",
     ) as client:
         return await promote_branch(client, args.branch, compose_result, force=args.force)
 

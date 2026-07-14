@@ -41,7 +41,7 @@ def _make_db_name() -> str:
 
 
 async def _tdb(db_name: str) -> TdbClient:
-    return TdbClient(base_url=BASE_URL, org=ORG, db=db_name, user=USER, password=PASSWORD)
+    return TdbClient(base_url=BASE_URL, org=ORG, db=db_name, user=USER, password=PASSWORD, author="test")
 
 
 async def _check_dev_reachable() -> bool:
@@ -161,7 +161,6 @@ async def test_integration_bootstrap_on_legacy():
             mono_schema,
             branch="main",
             full_replace=True,
-            author="test",
             message="bootstrap monolithic schema",
         )
 
@@ -173,7 +172,7 @@ async def test_integration_bootstrap_on_legacy():
             "created_at": "2026-01-01T00:00:00+00:00",
             "updated_at": "2026-01-01T00:00:00+00:00",
         }
-        iris = await tdb.insert_documents([task_doc], branch="main", author="test", message="seed task")
+        iris = await tdb.insert_documents([task_doc], branch="main", message="seed task")
         assert len(iris) == 1
         task_iri = iris[0]
 
@@ -372,7 +371,6 @@ async def test_integration_promote():
         iris = await tdb.insert_documents(
             [task_doc],
             branch="feature",
-            author="test",
             message="feature task",
         )
         assert len(iris) == 1
@@ -450,7 +448,6 @@ async def test_integration_promote_diverged_main_refused():
         await tdb.insert_documents(
             [task_doc_main],
             branch="main",
-            author="test",
             message="diverging commit on main",
         )
 
@@ -465,7 +462,6 @@ async def test_integration_promote_diverged_main_refused():
         await tdb.insert_documents(
             [task_doc_feature],
             branch="feature",
-            author="test",
             message="feature task",
         )
 

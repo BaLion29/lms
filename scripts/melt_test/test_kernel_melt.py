@@ -89,6 +89,7 @@ class TestTriggerdMelt:
     async def test_engine_cycle_zero_evaluators(self) -> None:
         from triggerd.engine import Engine
         from triggerd.settings import Settings
+        from firnline_core.repository import Repository
 
         tdb = AsyncMock()
         tdb.get_schema = AsyncMock(return_value=[])  # no trigger types
@@ -98,7 +99,7 @@ class TestTriggerdMelt:
         settings = Settings(tdb_db="test", tdb_password="x")  # type: ignore[call-arg]
 
         engine = Engine(
-            tdb=tdb,
+            repo=Repository(tdb),
             settings=settings,
             evaluators=[],
         )
@@ -401,16 +402,15 @@ class TestNotifydMelt:
     @pytest.mark.asyncio
     async def test_run_cycle_zero_channels(self) -> None:
         from notifyd.engine import NotifyEngine
-        from notifyd.settings import NotifydSettings
+        from firnline_core.repository import Repository
 
         tdb = AsyncMock()
         tdb.get_documents_by_status = AsyncMock(return_value=[])
 
-        settings = NotifydSettings(tdb_db="test", tdb_password="x")  # type: ignore[call-arg]
+        repo = Repository(tdb)
 
         engine = NotifyEngine(
-            tdb=tdb,
-            settings=settings,
+            repo=repo,
             channels=[],  # zero channels → idles
         )
 

@@ -71,6 +71,7 @@ services:
                 db="$${TDB_DB:-firnline}",
                 user="$${TDB_USER:-admin}",
                 password="$${FIRNLINE_SCHEMA_TDB_PASSWORD}",
+                author="service:ingestd",
             ) as c:
                 if await c.db_exists():
                     print("Database already exists.")

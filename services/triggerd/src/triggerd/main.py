@@ -13,6 +13,7 @@ import structlog
 from triggerd.engine import Engine
 from triggerd.settings import Settings
 from firnline_core.plugins import HostPolicy, PluginHost, TriggerEvaluator
+from firnline_core.repository import Repository
 from firnline_core.tdb import TdbClient
 
 
@@ -94,11 +95,14 @@ async def async_main(
         db=settings.tdb_db,
         user=settings.tdb_user,
         password=settings.tdb_password,
+        author="service:triggerd",
     )
+
+    repo = Repository(tdb)
 
     # ── Discover evaluator plugins ──────────────────────────────────
     try:
-        evaluators = await _discover_evaluator_plugins_async(tdb, branch, logger, strict=settings.strict_plugins)
+        evaluators = await _discover_evaluator_plugins_async(repo.tdb, branch, logger, strict=settings.strict_plugins)
     except (RuntimeError, ValueError):
         logger.exception("evaluator_plugin_discovery_failed")
         sys.exit(1)
@@ -109,7 +113,7 @@ async def async_main(
         evaluator_names=[getattr(e, "name", "?") for e in evaluators],
     )
 
-    engine = Engine(tdb=tdb, settings=settings, evaluators=evaluators, logger=logger)
+    engine = Engine(repo=repo, settings=settings, evaluators=evaluators, logger=logger)
 
     last_cycle_ok = True
     liveness_path = pathlib.Path(settings.liveness_file)
@@ -134,7 +138,7 @@ async def async_main(
             except asyncio.TimeoutError:
                 pass
     finally:
-        await tdb.aclose()
+        await repo.tdb.aclose()
 
     if once and not last_cycle_ok:
         sys.exit(1)

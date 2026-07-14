@@ -647,6 +647,11 @@ def test_routines_without_reminders_resolves_triggers() -> None:
             path=_EXT_DIR / "firnline-ext-planning" / "src" / "firnline_ext_planning",
             origin="pkg:test-planning",
         ),
+        "reminders": ModuleSource(
+            name="reminders",
+            path=_EXT_DIR / "firnline-ext-reminders" / "src" / "firnline_ext_reminders" / "reminders_module",
+            origin="pkg:test-reminders",
+        ),
         "routines": ModuleSource(
             name="routines",
             path=_EXT_DIR / "firnline-ext-routines" / "src" / "firnline_ext_routines",
@@ -664,7 +669,7 @@ def test_routines_without_reminders_resolves_triggers() -> None:
     assert "routines" in names
     assert "planning" in names
     assert "places" in names
-    assert "reminders" not in names
+    assert "reminders" in names
 
 
 # ---------------------------------------------------------------------------

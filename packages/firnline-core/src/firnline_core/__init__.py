@@ -72,6 +72,7 @@ from firnline_core.plugins import (
 )
 from firnline_core.semver import Range, RangeError, Version, VersionError
 from firnline_core.settings import TdbSettings
+from firnline_core.repository import Repository, TransitionError as RepositoryTransitionError
 from firnline_core.tdb import (
     ChangeEvent,
     TdbClient,
@@ -114,6 +115,9 @@ __all__ = [
     "TdbError",
     "full_iri",
     "short_iri",
+    # repository
+    "Repository",
+    "RepositoryTransitionError",
     # settings
     "TdbSettings",
     # semver

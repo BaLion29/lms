@@ -18,6 +18,7 @@ from firnline_core.plugins import (
     NotificationChannel,
     PluginHost,
 )
+from firnline_core.repository import Repository
 from firnline_core.tdb import TdbClient
 
 _CHANNEL_GROUP = "firnline.notifyd.channels"
@@ -88,11 +89,22 @@ async def async_main(
         db=settings.tdb_db,
         user=settings.tdb_user,
         password=settings.tdb_password,
+        author="service:notifyd",
     )
+
+    repo = Repository(tdb, transitions={
+        "TriggerFiring": {
+            "pending": ["notified"],
+            "notified": ["acknowledged", "snoozed", "expired"],
+            "snoozed": ["notified", "expired"],
+            "acknowledged": [],
+            "expired": [],
+        },
+    })
 
     # ── Discover channel plugins ────────────────────────────────────
     try:
-        channels = await _discover_channel_plugins_async(tdb, branch, logger)
+        channels = await _discover_channel_plugins_async(repo.tdb, branch, logger)
     except (RuntimeError, ValueError):
         logger.exception("channel_plugin_discovery_failed")
         sys.exit(1)
@@ -103,7 +115,7 @@ async def async_main(
         channel_names=[getattr(c, "name", "?") for c in channels],
     )
 
-    engine = NotifyEngine(tdb=tdb, settings=settings, channels=channels, logger=logger)
+    engine = NotifyEngine(repo=repo, channels=channels, logger=logger)
 
     last_cycle_ok = True
     liveness_path = pathlib.Path(settings.liveness_file)
@@ -125,7 +137,7 @@ async def async_main(
             except asyncio.TimeoutError:
                 pass
     finally:
-        await tdb.aclose()
+        await repo.tdb.aclose()
 
     if once and not last_cycle_ok:
         sys.exit(1)

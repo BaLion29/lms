@@ -394,8 +394,8 @@ def test_captured_wrong_at_type_raises_validation_error():
 # ========================================================================
 
 
-def test_extra_fields_ignored():
-    """Parsing a server response with unknown keys is ok (ignore extra)."""
+def test_extra_fields_preserved():
+    """Unknown extra fields survive a round-trip through Pydantic (extra='allow')."""
     data = {
         "@id": "Captured/abc",
         "@type": "Captured",
@@ -411,12 +411,12 @@ def test_extra_fields_ignored():
             "at": "2026-07-05T14:00:00Z",
         },
         "derived_from": [],
-        "unknown_field": "should-be-ignored",
+        "unknown_field": "should-be-preserved",
     }
     cap = Captured.model_validate(data)
     assert cap.content == "test"
     result = cap.to_tdb()
-    assert "unknown_field" not in result
+    assert result["unknown_field"] == "should-be-preserved"
 
 
 # ========================================================================

@@ -273,7 +273,7 @@ def test_writes_enabled_set_task_status_e2e(respx_mock: respx.MockRouter):
         }
     )
     get_route = respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
-    put_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
     respx_mock.get(_tdb_exists_route()).respond(200)
 
     async def _fn(messages: list[ModelMessage], agent_info: AgentInfo) -> ModelResponse:
@@ -318,23 +318,26 @@ def test_writes_enabled_set_task_status_e2e(respx_mock: respx.MockRouter):
     data = resp.json()
     assert "done" in data["message"].lower()
     assert get_route.called
-    assert put_route.called
+    assert post_route.called
 
-    # Verify PUT body
-    req = put_route.calls.last.request
+    # Verify POST body (transition sends [updated_doc, transition_audit_doc])
+    req = post_route.calls.last.request
     sent = json.loads(req.read())
-    assert sent["status"] == "done"
-    assert sent["updated_at"] != orig_doc["updated_at"]
-    assert sent["name"] == orig_doc["name"]
-    assert sent["description"] == orig_doc["description"]
-    assert sent["priority"] == orig_doc["priority"]
-    assert sent["created_at"] == orig_doc["created_at"]
-    assert sent["@type"] == "Task"
+    assert isinstance(sent, list)
+    assert len(sent) == 2
+    updated_doc = sent[0]
+    assert updated_doc["status"] == "done"
+    assert updated_doc["updated_at"] != orig_doc["updated_at"]
+    assert updated_doc["name"] == orig_doc["name"]
+    assert updated_doc["description"] == orig_doc["description"]
+    assert updated_doc["priority"] == orig_doc["priority"]
+    assert updated_doc["created_at"] == orig_doc["created_at"]
+    assert updated_doc["@type"] == "Task"
 
     # Verify commit params
     params = req.url.params
-    assert params["author"] == "queryd"
-    assert "set status done" in params["message"]
+    assert params["author"] == "service:queryd"
+    assert "transition" in params["message"]
 
     # Trace must contain a set_task_status entry
     trace = [ToolTraceEntry(**e) for e in data["tool_trace"]]

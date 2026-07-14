@@ -83,6 +83,10 @@ class AnchorFieldError(ComposerError):
     """L5 law violation — non-abstract Anchored subclass missing @metadata.anchor_field (or field not xsd:dateTime)."""
 
 
+class TransitionError(ComposerError):
+    """L6 law violation — class with a status field missing or invalid @metadata.transitions."""
+
+
 # ---------------------------------------------------------------------------
 # Canonical serialization helpers
 # ---------------------------------------------------------------------------
@@ -528,6 +532,86 @@ def _validate_label_anchor(
         )
 
 
+def _validate_transitions(
+    modules: dict[str, Manifest],
+    all_classes: dict[str, list[dict[str, Any]]],
+) -> None:
+    """L6: non-abstract classes with a status field must declare @metadata.transitions."""
+    class_map = _build_class_map(all_classes)
+    enum_map: dict[str, list[str]] = {}
+    for name in sorted(all_classes):
+        for cls_def in all_classes[name]:
+            if cls_def.get("@type") == "Enum":
+                enum_map[cls_def["@id"]] = cls_def.get("@value", [])
+
+    errors: list[str] = []
+
+    for name in sorted(modules):
+        classes = all_classes.get(name, [])
+        for cls_def in classes:
+            cid = cls_def.get("@id", "?")
+            if cls_def.get("@type") != "Class":
+                continue
+            if "@abstract" in cls_def or "@subdocument" in cls_def:
+                continue
+
+            status_field = None
+            for key, val in cls_def.items():
+                if key.startswith("@"):
+                    continue
+                ref = val
+                if isinstance(val, dict):
+                    ref = val.get("@class", "")
+                if isinstance(ref, str) and ref in enum_map and key == "status":
+                    status_field = (key, ref)
+                    break
+
+            if status_field is None:
+                continue
+
+            _, status_enum = status_field
+            valid_values = set(enum_map.get(status_enum, []))
+
+            metadata = cls_def.get("@metadata")
+            if not isinstance(metadata, dict):
+                metadata = _resolve_metadata_transitively(cid, class_map)
+
+            transitions = metadata.get("transitions") if isinstance(metadata, dict) else None
+            if not isinstance(transitions, dict):
+                errors.append(
+                    f"{name}:{cid}: has status field '{status_enum}' but no "
+                    f"'@metadata.transitions' declared"
+                )
+                continue
+
+            for src, targets in transitions.items():
+                if src not in valid_values:
+                    errors.append(
+                        f"{name}:{cid}: '@metadata.transitions' source '{src}' "
+                        f"is not a valid value of '{status_enum}' "
+                        f"(valid: {sorted(valid_values)})"
+                    )
+                if not isinstance(targets, list):
+                    errors.append(
+                        f"{name}:{cid}: '@metadata.transitions.{src}' must be a list, "
+                        f"got {type(targets).__name__}"
+                    )
+                    continue
+                for tgt in targets:
+                    if tgt not in valid_values:
+                        errors.append(
+                            f"{name}:{cid}: '@metadata.transitions' target '{tgt}' "
+                            f"is not a valid value of '{status_enum}' "
+                            f"(valid: {sorted(valid_values)})"
+                        )
+
+    if errors:
+        raise TransitionError(
+            "L6: @metadata.transitions required for classes with a status field:\n  "
+            + "\n  ".join(sorted(errors))
+        )
+
+
 def _validate_all(
     modules: dict[str, Manifest], order: list[str],
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
@@ -589,6 +673,9 @@ def _validate_all(
 
     # L4/L5: @metadata label_field / anchor_field
     _validate_label_anchor(modules, all_classes_per_module)
+
+    # L6: @metadata transitions for classes with status fields
+    _validate_transitions(modules, all_classes_per_module)
 
     return all_classes_per_module, class_to_module
 

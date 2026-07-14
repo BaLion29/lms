@@ -42,13 +42,13 @@ TdbDateTime = Annotated[
 class TdbDocument(BaseModel):
     """Base for every TerminusDB document model.
 
-    Provides ``@id``, ``extra="ignore"`` (forward-compat) and
-    ``to_tdb()`` which serialises with ``@`` aliases and omits ``None``
-    values.
+    Provides ``@id``, ``extra="allow"`` (forward-compat, preserves unknown
+    fields through round-trips) and ``to_tdb()`` which serialises with
+    ``@`` aliases and omits ``None`` values.
     """
 
     id_: str | None = Field(alias="@id", default=None)
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     def to_tdb(self) -> dict[str, object]:
         """Return a dict suitable for the TerminusDB document API."""

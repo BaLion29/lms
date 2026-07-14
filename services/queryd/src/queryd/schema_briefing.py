@@ -315,7 +315,8 @@ Every document carries these fields (inherited from the abstract Entity base):
       confidence — Float | null;  0.0–1.0
   }
   derived_from: [String] — ancestry chain (this document was derived from these sources)
-  archived_at: DateTime | null — soft-delete tombstone
+  archived_at: DateTime | null — soft-delete tombstone; ALWAYS filter archived_at: {eq: null}
+      in every query unless the user explicitly asks for archived/deleted items.
   contexts: [String | Context] — situational tags or linked Context objects
   external_refs: [{ external_id, system, url?, version?, last_synced_at? }]
 """

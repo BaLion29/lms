@@ -291,6 +291,7 @@ class TdbBrowser:
                 user=user,
                 password=password,
                 timeout=timeout,
+                author="service:webui",
             )
 
     async def _call(self, coro):

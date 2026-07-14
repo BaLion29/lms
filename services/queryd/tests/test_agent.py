@@ -231,6 +231,7 @@ async def test_soft_cap_stops_after_max_tool_iterations(respx_mock):
         user=s.tdb_user,
         password=s.tdb_password,
         timeout=10,
+        author="service:queryd",
     )
     deps.tdb = tdb
 

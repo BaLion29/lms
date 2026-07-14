@@ -444,7 +444,6 @@ async def apply_plan(
             compose_result.composed_schema,
             branch=branch,
             full_replace=True,
-            author="firnline-schema",
             message=f"firnline-schema apply: schema update ({len(compose_result.modules)} modules)",
         )
         print("  Schema pushed.")
@@ -489,7 +488,6 @@ async def apply_plan(
         await tdb.insert_documents(
             migration_docs,
             branch=branch,
-            author="firnline-schema",
             message=f"firnline-schema apply: {len(executed)} migration(s) recorded",
         )
         print(f"  {len(executed)} migration record(s) inserted.")
@@ -530,7 +528,6 @@ async def _upsert_registry_doc(
         await tdb.replace_document(
             doc,
             branch=branch,
-            author="firnline-schema",
             message="firnline-schema apply: registry upsert",
         )
     except TdbError as exc:
@@ -539,7 +536,6 @@ async def _upsert_registry_doc(
             await tdb.insert_documents(
                 [doc],
                 branch=branch,
-                author="firnline-schema",
                 message="firnline-schema apply: registry upsert",
             )
         else:

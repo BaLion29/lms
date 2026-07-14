@@ -9,7 +9,6 @@ import pytest
 import structlog
 
 from notifyd.engine import NotifyEngine, _parse_duration
-from notifyd.settings import NotifydSettings
 from firnline_core.plugins import DeliveryResult, ModuleRequirement
 
 UTC = timezone.utc
@@ -53,6 +52,23 @@ class FakeChannel:
 
 
 # ---------------------------------------------------------------------------
+# Fake repository
+# ---------------------------------------------------------------------------
+
+
+class FakeRepo:
+    """A minimal Repository-like object wrapping an AsyncMock TdbClient."""
+
+    def __init__(self, tdb):
+        self.tdb = tdb
+        self.transition = AsyncMock()
+        self.get_documents_by_status = tdb.get_documents_by_status
+        self.get_document = tdb.get_document
+        self.get_documents = AsyncMock(return_value=[])
+        self.create = AsyncMock()
+
+
+# ---------------------------------------------------------------------------
 # Engine factory
 # ---------------------------------------------------------------------------
 
@@ -67,42 +83,54 @@ def _make_engine(
     subject_doc: dict | None = None,
     now: datetime | None = None,
 ) -> NotifyEngine:
-    """Build a NotifyEngine backed by an AsyncMock TdbClient."""
+    """Build a NotifyEngine backed by an AsyncMock TdbClient wrapped in FakeRepo."""
     tdb = AsyncMock()
     tdb.get_documents_by_status = AsyncMock()
     tdb.get_document = AsyncMock()
-    tdb.replace_document = AsyncMock()
+    tdb.insert_documents = AsyncMock(return_value=["fake-iri"])
+
+    # Build lookup of all docs by @id for get_document
+    all_docs_by_id: dict[str, dict] = {}
+    for f in (pending_firings or []):
+        all_docs_by_id[f["@id"]] = dict(f)
+    for f in (notified_firings or []):
+        all_docs_by_id[f["@id"]] = dict(f)
+    for f in (snoozed_firings or []):
+        all_docs_by_id[f["@id"]] = dict(f)
+    if trigger_doc:
+        all_docs_by_id[trigger_doc["@id"]] = dict(trigger_doc)
+    if subject_doc:
+        all_docs_by_id[subject_doc["@id"]] = dict(subject_doc)
 
     # Route get_documents_by_status by status
     async def _docs_by_status(type_: str, status: str, branch: str = "main"):
         if status == "pending":
-            return pending_firings or []
+            return [dict(f) for f in (pending_firings or [])]
         if status == "notified":
-            return notified_firings or []
+            return [dict(f) for f in (notified_firings or [])]
         if status == "snoozed":
-            return snoozed_firings or []
+            return [dict(f) for f in (snoozed_firings or [])]
         return []
 
     tdb.get_documents_by_status.side_effect = _docs_by_status
 
-    # Route get_document
+    # Route get_document (also handles firing @ids for post-transition bumps)
     async def _get_doc(iri: str, branch: str = "main"):
-        if trigger_doc and iri == trigger_doc.get("@id"):
-            return trigger_doc
-        if subject_doc and iri == subject_doc.get("@id"):
-            return subject_doc
+        doc = all_docs_by_id.get(iri)
+        if doc is not None:
+            return dict(doc)
         raise Exception(f"Not found: {iri}")
 
     tdb.get_document.side_effect = _get_doc
 
-    settings = NotifydSettings(tdb_db="test", tdb_password="pw")
+    repo = FakeRepo(tdb)
 
     if channels is None:
         channels = []
     if now is None:
         now = _frozen_now()
 
-    return NotifyEngine(tdb=tdb, settings=settings, channels=channels, now=lambda: now)
+    return NotifyEngine(repo=repo, channels=channels, now=lambda: now)
 
 
 # ---------------------------------------------------------------------------
@@ -171,13 +199,22 @@ class TestPendingToNotified:
         assert channel.calls[0]["firing"]["@id"] == "TriggerFiring/f1"
         assert channel.calls[0]["subject"] is None
 
-        # replace_document called with correct updates
-        engine.tdb.replace_document.assert_called_once()
-        updated_doc = engine.tdb.replace_document.call_args[0][0]
-        assert updated_doc["status"] == "notified"
-        assert updated_doc["notification_count"] == 1
-        assert updated_doc["last_notified_at"] is not None
-        assert updated_doc["last_notified_at"].endswith("Z")
+        # transition called with correct args
+        engine.repo.transition.assert_called_once_with(
+            "TriggerFiring/f1",
+            "status",
+            "pending",
+            "notified",
+            agent="service:notifyd",
+        )
+        # insert_documents called for bump
+        engine.repo.tdb.insert_documents.assert_called_once()
+        bump_call = engine.repo.tdb.insert_documents.call_args[0]
+        bump_docs = bump_call[0]
+        assert len(bump_docs) == 1
+        assert bump_docs[0]["notification_count"] == 1
+        assert bump_docs[0]["last_notified_at"] is not None
+        assert bump_docs[0]["last_notified_at"].endswith("Z")
 
     @pytest.mark.asyncio
     async def test_pending_with_subject_resolved(self):
@@ -207,6 +244,7 @@ class TestPendingToNotified:
 
         assert len(channel.calls) == 1
         assert channel.calls[0]["subject"] == subject_doc
+        engine.repo.transition.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_pending_subject_resolution_failure_tolerated(self):
@@ -233,11 +271,11 @@ class TestPendingToNotified:
         # Still delivered with subject=None
         assert len(channel.calls) == 1
         assert channel.calls[0]["subject"] is None
-        engine.tdb.replace_document.assert_called_once()
+        engine.repo.transition.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_all_channels_fail_leaves_pending(self):
-        """When all channels return ok=False, firing stays pending — no replace_document."""
+        """When all channels return ok=False, firing stays pending — no transition."""
         now = _frozen_now()
         channel = FakeChannel(ok=False, detail="send failed")
         firing = {
@@ -258,7 +296,8 @@ class TestPendingToNotified:
             await engine.run_cycle()
 
         assert len(channel.calls) == 1
-        engine.tdb.replace_document.assert_not_called()
+        engine.repo.transition.assert_not_called()
+        engine.repo.tdb.insert_documents.assert_not_called()
         all_failed = [e for e in captured if e.get("event") == "delivery_all_failed"]
         assert len(all_failed) == 1
 
@@ -286,7 +325,7 @@ class TestPendingToNotified:
 
         assert len(ok_channel.calls) == 1
         assert len(fail_channel.calls) == 1
-        engine.tdb.replace_document.assert_called_once()
+        engine.repo.transition.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_channel_exception_is_tolerated(self):
@@ -311,7 +350,7 @@ class TestPendingToNotified:
         await engine.run_cycle()
 
         assert len(good_channel.calls) == 1
-        engine.tdb.replace_document.assert_called_once()
+        engine.repo.transition.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -327,8 +366,8 @@ class TestNoChannelsIdle:
 
         await engine.run_cycle()
 
-        engine.tdb.get_documents_by_status.assert_not_called()
-        engine.tdb.replace_document.assert_not_called()
+        engine.repo.tdb.get_documents_by_status.assert_not_called()
+        engine.repo.tdb.insert_documents.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -372,8 +411,8 @@ class TestRenotifyAndExpiry:
         await engine.run_cycle()
 
         assert len(channel.calls) == 1
-        engine.tdb.replace_document.assert_called_once()
-        updated_doc = engine.tdb.replace_document.call_args[0][0]
+        engine.repo.tdb.insert_documents.assert_called_once()
+        updated_doc = engine.repo.tdb.insert_documents.call_args[0][0][0]
         assert updated_doc["notification_count"] == 2
 
     @pytest.mark.asyncio
@@ -411,7 +450,7 @@ class TestRenotifyAndExpiry:
         await engine.run_cycle()
 
         assert len(channel.calls) == 0
-        engine.tdb.replace_document.assert_not_called()
+        engine.repo.tdb.insert_documents.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_max_renotifications_respected(self):
@@ -449,7 +488,7 @@ class TestRenotifyAndExpiry:
         await engine.run_cycle()
 
         assert len(channel.calls) == 0
-        engine.tdb.replace_document.assert_not_called()
+        engine.repo.tdb.insert_documents.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_max_renotifications_none_unlimited(self):
@@ -487,8 +526,8 @@ class TestRenotifyAndExpiry:
         await engine.run_cycle()
 
         assert len(channel.calls) == 1
-        engine.tdb.replace_document.assert_called_once()
-        updated_doc = engine.tdb.replace_document.call_args[0][0]
+        engine.repo.tdb.insert_documents.assert_called_once()
+        updated_doc = engine.repo.tdb.insert_documents.call_args[0][0][0]
         assert updated_doc["notification_count"] == 100
 
     @pytest.mark.asyncio
@@ -528,9 +567,13 @@ class TestRenotifyAndExpiry:
 
         # Expiry takes precedence over renotify
         assert len(channel.calls) == 0
-        engine.tdb.replace_document.assert_called_once()
-        updated_doc = engine.tdb.replace_document.call_args[0][0]
-        assert updated_doc["status"] == "expired"
+        engine.repo.transition.assert_called_once_with(
+            "TriggerFiring/f11",
+            "status",
+            "notified",
+            "expired",
+            agent="service:notifyd",
+        )
 
     @pytest.mark.asyncio
     async def test_malformed_renotify_every_skipped_with_log(self):
@@ -567,7 +610,7 @@ class TestRenotifyAndExpiry:
             await engine.run_cycle()
 
         assert len(channel.calls) == 0
-        engine.tdb.replace_document.assert_not_called()
+        engine.repo.tdb.insert_documents.assert_not_called()
         warnings = [e for e in captured if e.get("event") == "unparseable_renotify_every"]
         assert len(warnings) == 1
 
@@ -608,7 +651,7 @@ class TestRenotifyAndExpiry:
 
         # Renotify still happened
         assert len(channel.calls) == 1
-        engine.tdb.replace_document.assert_called_once()
+        engine.repo.tdb.insert_documents.assert_called_once()
         warnings = [e for e in captured if e.get("event") == "unparseable_expire_after"]
         assert len(warnings) == 1
 
@@ -642,7 +685,8 @@ class TestRenotifyAndExpiry:
         await engine.run_cycle()
 
         assert len(channel.calls) == 0
-        engine.tdb.replace_document.assert_not_called()
+        engine.repo.transition.assert_not_called()
+        engine.repo.tdb.insert_documents.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -680,9 +724,19 @@ class TestSnoozed:
         await engine.run_cycle()
 
         assert len(channel.calls) == 1
-        engine.tdb.replace_document.assert_called_once()
-        updated_doc = engine.tdb.replace_document.call_args[0][0]
-        assert updated_doc["status"] == "notified"
+        # transition called: snoozed → notified
+        engine.repo.transition.assert_called_once_with(
+            "TriggerFiring/f15",
+            "status",
+            "snoozed",
+            "notified",
+            agent="service:notifyd",
+        )
+        # insert_documents called for unsnooze bump
+        engine.repo.tdb.insert_documents.assert_called_once()
+        bump_docs = engine.repo.tdb.insert_documents.call_args[0][0]
+        assert len(bump_docs) == 1
+        updated_doc = bump_docs[0]
         # Preserved count + 1
         assert updated_doc["notification_count"] == 4
         # snoozed_until must be absent (not null)
@@ -715,7 +769,8 @@ class TestSnoozed:
         await engine.run_cycle()
 
         assert len(channel.calls) == 0
-        engine.tdb.replace_document.assert_not_called()
+        engine.repo.transition.assert_not_called()
+        engine.repo.tdb.insert_documents.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_snoozed_delivery_all_fails_stays_snoozed(self):
@@ -743,7 +798,8 @@ class TestSnoozed:
             await engine.run_cycle()
 
         assert len(channel.calls) == 1
-        engine.tdb.replace_document.assert_not_called()
+        engine.repo.transition.assert_not_called()
+        engine.repo.tdb.insert_documents.assert_not_called()
         failed = [e for e in captured if e.get("event") == "snoozed_delivery_all_failed"]
         assert len(failed) == 1
 
