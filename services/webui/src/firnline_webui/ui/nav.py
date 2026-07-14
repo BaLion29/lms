@@ -149,53 +149,82 @@ def sidebar(active: str) -> rx.Component:
 
 
 def _mobile_nav_drawer(active: str) -> rx.Component:
-    """Slide-out drawer for mobile navigation — shares nav-links with sidebar."""
-    return rx.drawer.root(
-        rx.drawer.overlay(),
-        rx.drawer.content(
-            rx.drawer.title(
-                rx.hstack(
-                    rx.icon(tag="mountain_snow", size=16, color=rx.color("accent", 11)),
-                    rx.text("firnline", size="4", weight="bold"),
-                    spacing="2",
-                ),
+    """SSR-safe mobile navigation overlay (conditional, no vaul dependency)."""
+    return rx.cond(
+        MobileNavState.drawer_open,
+        rx.fragment(
+            # Backdrop overlay — closes drawer on click
+            rx.box(
+                on_click=MobileNavState.close_drawer,
+                position="fixed",
+                inset="0",
+                z_index="50",
+                background="rgba(0,0,0,0.5)",
+                display=rx.breakpoints({"initial": "block", "md": "none"}),
             ),
-            rx.divider(),
-            _nav_links(active, on_navigate=MobileNavState.close_drawer),
-            rx.divider(),
-            rx.hstack(
-                rx.icon_button(
-                    rx.icon(tag="sun_moon", size=16),
-                    on_click=rx.toggle_color_mode,
-                    variant="ghost",
-                    color_scheme="gray",
-                    size="1",
-                    custom_attrs={"aria-label": "Toggle color mode"},
-                ),
-                rx.spacer(),
-                rx.cond(
-                    AuthState.auth_enabled,
+            # Slide-in panel from the left
+            rx.vstack(
+                rx.hstack(
+                    rx.hstack(
+                        rx.icon(tag="mountain_snow", size=16, color=rx.color("accent", 11)),
+                        rx.text("firnline", size="4", weight="bold"),
+                        spacing="2",
+                    ),
+                    rx.spacer(),
                     rx.icon_button(
-                        rx.icon(tag="log_out", size=16),
-                        on_click=AuthState.logout,
+                        rx.icon(tag="x", size=16),
+                        on_click=MobileNavState.close_drawer,
                         variant="ghost",
                         color_scheme="gray",
                         size="1",
-                        custom_attrs={"aria-label": "Log out"},
+                        custom_attrs={"aria-label": "Close navigation menu"},
                     ),
+                    padding_x="16px",
+                    padding_y="12px",
+                    width="100%",
                 ),
-                padding_x="16px",
-                padding_y="8px",
-                width="100%",
+                rx.divider(),
+                _nav_links(active, on_navigate=MobileNavState.close_drawer),
+                rx.spacer(),
+                rx.divider(),
+                rx.hstack(
+                    rx.icon_button(
+                        rx.icon(tag="sun_moon", size=16),
+                        on_click=rx.toggle_color_mode,
+                        variant="ghost",
+                        color_scheme="gray",
+                        size="1",
+                        custom_attrs={"aria-label": "Toggle color mode"},
+                    ),
+                    rx.spacer(),
+                    rx.cond(
+                        AuthState.auth_enabled,
+                        rx.icon_button(
+                            rx.icon(tag="log_out", size=16),
+                            on_click=AuthState.logout,
+                            variant="ghost",
+                            color_scheme="gray",
+                            size="1",
+                            custom_attrs={"aria-label": "Log out"},
+                        ),
+                    ),
+                    padding_x="16px",
+                    padding_y="8px",
+                    width="100%",
+                ),
+                position="fixed",
+                top="0",
+                left="0",
+                height="100vh",
+                width="260px",
+                background=rx.color("gray", 2),
+                overflow_y="auto",
+                z_index="60",
+                spacing="1",
+                display=rx.breakpoints({"initial": "flex", "md": "none"}),
+                custom_attrs={"role": "dialog", "aria-modal": "true", "aria-label": "Navigation"},
             ),
-            padding="0",
-            width="280px",
-            background=rx.color("gray", 2),
-            height="100%",
         ),
-        open=MobileNavState.drawer_open,
-        on_open_change=MobileNavState.close_drawer,
-        direction="left",
     )
 
 
