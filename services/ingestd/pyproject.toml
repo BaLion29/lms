@@ -23,8 +23,8 @@ firnline-ext-reminders = { workspace = true }
 firnline-ext-people = { workspace = true }
 
 [project.entry-points."firnline.ingestd.sources"]
-inbox_note = "ingestd.sources:inbox_note_plugin"
-inbox_audio = "ingestd.sources:inbox_audio_plugin"
+inbox_note = "ingestd.sources:captured_text_plugin"
+inbox_audio = "ingestd.sources:captured_audio_plugin"
 
 [project.scripts]
 ingestd = "ingestd.main:main"
