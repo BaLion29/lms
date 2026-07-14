@@ -106,8 +106,8 @@ class PlanningPlugin(ExtractorPlugin):
                 created_at=now,
                 updated_at=now,
                 anchor_at=proposal.due_date,
+                derived_from=[source_iri],
                 provenance=Provenance(
-                    source=source_iri,
                     agent="ingestd",
                     at=now,
                     method="llm_extraction",
@@ -127,8 +127,8 @@ class PlanningPlugin(ExtractorPlugin):
                 created_at=now,
                 updated_at=now,
                 anchor_at=proposal.start_datetime,
+                derived_from=[source_iri],
                 provenance=Provenance(
-                    source=source_iri,
                     agent="ingestd",
                     at=now,
                     method="llm_extraction",
@@ -145,8 +145,8 @@ class PlanningPlugin(ExtractorPlugin):
                         name=proposal.location_name,
                         created_at=now,
                         updated_at=now,
+                        derived_from=[source_iri],
                         provenance=Provenance(
-                            source=source_iri,
                             agent="ingestd",
                             at=now,
                             method="llm_extraction",
@@ -172,8 +172,8 @@ class PlanningPlugin(ExtractorPlugin):
                         if (proposal.email or proposal.phone)
                         else None
                     ),
+                    derived_from=[source_iri],
                     provenance=Provenance(
-                        source=source_iri,
                         agent="ingestd",
                         at=now,
                         method="llm_extraction",

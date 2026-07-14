@@ -175,10 +175,9 @@ class TestBuildDocuments:
         assert doc["created_at"] == "2026-07-07T12:00:00Z"
         assert doc["updated_at"] == "2026-07-07T12:00:00Z"
         assert doc["anchor_at"] == "2026-07-10T17:00:00Z"
-        assert "derived_from" not in doc
+        assert doc["derived_from"] == ["InboxNote/test123"]
         assert doc["provenance"] == {
             "@type": "Provenance",
-            "source": "InboxNote/test123",
             "agent": "ingestd",
             "at": "2026-07-07T12:00:00Z",
             "method": "llm_extraction",
@@ -200,7 +199,7 @@ class TestBuildDocuments:
         assert doc["start_datetime"] == "2026-07-08T09:00:00Z"
         assert doc["anchor_at"] == "2026-07-08T09:00:00Z"
         assert "location" not in doc  # exclude_none
-        assert "derived_from" not in doc
+        assert doc["derived_from"] == ["InboxNote/test123"]
         assert doc["provenance"]["agent"] == "ingestd"
         assert doc["provenance"]["method"] == "llm_extraction"
 
