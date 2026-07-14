@@ -8,7 +8,6 @@ from typing import ClassVar, Literal
 from pydantic import Field
 from firnline_core.base import TdbDateTime, TdbDocument
 
-# --- forward references for local nested types ---
 
 
 __all__ = [
