@@ -315,6 +315,16 @@ class TdbClient:
         (non-branch-scoped) path for backward compatibility.  For any other
         branch the branch-scoped document path is used.
         """
+        _NON_WOQL_KEYS = frozenset({"@abstract", "@documentation", "@metadata"})
+
+        def _strip_non_woql(item: dict[str, Any]) -> dict[str, Any]:
+            return {k: v for k, v in item.items() if k not in _NON_WOQL_KEYS}
+
+        clean_schema = [
+            _strip_non_woql(item) if isinstance(item, dict) else item
+            for item in schema
+        ]
+
         if branch == "main":
             path = f"/api/document/{self.org}/{self.db}"
         else:
@@ -328,7 +338,7 @@ class TdbClient:
                 "author": self._author,
                 "message": message,
             },
-            json=schema,
+            json=clean_schema,
         )
         await self._raise_on_error(response)
 
