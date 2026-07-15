@@ -14,11 +14,8 @@ members = [
     "captured",
     "effectd",
     "firnline-core",
-<<<<<<< HEAD
     "firnline-ext-address-book",
-=======
     "firnline-ext-decisions",
->>>>>>> main
     "firnline-ext-gotify",
     "firnline-ext-reminders",
     "firnline-ext-time-management",
@@ -494,7 +491,6 @@ dev = [
 ]
 
 [[package]]
-<<<<<<< HEAD
 name = "firnline-ext-address-book"
 version = "0.2.0"
 source = { editable = "extensions/firnline-ext-address-book" }
@@ -502,45 +498,51 @@ dependencies = [
     { name = "firnline-core" },
     { name = "httpx" },
     { name = "pydantic-settings" },
-=======
-name = "firnline-ext-decisions"
-version = "0.1.0"
-source = { editable = "extensions/firnline-ext-decisions" }
-dependencies = [
-    { name = "firnline-core" },
->>>>>>> main
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
-<<<<<<< HEAD
     { name = "pytest-asyncio" },
     { name = "respx" },
-=======
->>>>>>> main
     { name = "ruff" },
 ]
 
 [package.metadata]
-<<<<<<< HEAD
 requires-dist = [
     { name = "firnline-core", editable = "packages/firnline-core" },
     { name = "httpx" },
     { name = "pydantic-settings" },
 ]
-=======
-requires-dist = [{ name = "firnline-core", editable = "packages/firnline-core" }]
->>>>>>> main
 
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest" },
-<<<<<<< HEAD
     { name = "pytest-asyncio" },
     { name = "respx" },
-=======
->>>>>>> main
+    { name = "ruff" },
+]
+
+[[package]]
+name = "firnline-ext-decisions"
+version = "0.1.0"
+source = { editable = "extensions/firnline-ext-decisions" }
+dependencies = [
+    { name = "firnline-core" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "firnline-core", editable = "packages/firnline-core" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
     { name = "ruff" },
 ]
 

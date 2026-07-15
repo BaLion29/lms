@@ -1,8 +1,0 @@
-[
-  {"@id": "Location", "@inherits": ["Entity", "Context"], "@type": "Class",
-   "@metadata": {"label_field": "name"},
-   "@documentation": {"@comment": "A physical place with address and coordinates (aliases inherited from Entity). Can serve as context for events, tasks, and activities."},
-    "address": {"@class": "xsd:string", "@type": "Optional"},
-    "coordinates": {"@class": "xdd:coordinate", "@type": "Optional"},
-   "name": "xsd:string"}
-]
