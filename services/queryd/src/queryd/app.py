@@ -6,45 +6,27 @@ import asyncio
 import secrets
 import tempfile
 from contextlib import asynccontextmanager
-from typing import Any, Literal
+from typing import Any
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from firnline_core.conventions import blob_root_from_env
-from firnline_core.plugins import HostPolicy, PluginHost, ToolPlugin
+from firnline_core.plugins import HostPolicy, PluginHost, ToolSpecPlugin
 from firnline_core.tdb import TdbClient, TdbError
-from pydantic_ai import Tool
-from pydantic_ai.exceptions import (
-    ModelAPIError,
-    ModelHTTPError,
-    UnexpectedModelBehavior,
-    UsageLimitExceeded,
-)
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelRequest,
-    ModelResponse,
-    TextPart,
-    UserPromptPart,
-)
-from pydantic_ai.models import Model
+from firnline_core.toolspec import ToolContext, ToolSpec
 
 from queryd import operations
-from queryd.agent import build_agent, usage_limits
 from queryd.schema_briefing import (
     fetch_introspection,
     fetch_module_list,
     fetch_schema_meta_or_none,
-    render_module_briefing,
-    render_prompt_briefing,
     render_schema_summary,
 )
 from queryd.settings import Settings
-from queryd.tools import QuerydDeps, ToolTraceEntry, build_tools
 
 log = structlog.get_logger()
 
@@ -52,26 +34,11 @@ log = structlog.get_logger()
 # Constants
 # ---------------------------------------------------------------------------
 
-_PLACEHOLDER_BRIEFING = "schema unavailable at startup"
 _PLUGIN_GROUP = "firnline.queryd.tools"
 
 # ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
-
-
-class ChatMessage(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str
-
-
-class ChatRequest(BaseModel):
-    messages: list[ChatMessage]
-
-
-class ChatResponse(BaseModel):
-    message: str
-    tool_trace: list[ToolTraceEntry] = []
 
 
 class GraphQLRequest(BaseModel):
@@ -163,99 +130,6 @@ def _validate_doc_iri(iri: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Lazy briefing helpers
-# ---------------------------------------------------------------------------
-
-
-async def _ensure_briefing(app: FastAPI) -> None:
-    """If the cached briefing is the placeholder, attempt one re-fetch.
-
-    Uses an asyncio.Lock so concurrent requests don't stampede.
-    On failure the placeholder stays in place and the agent still runs.
-    """
-    if app.state.briefings[1] != _PLACEHOLDER_BRIEFING:
-        return
-
-    async with app.state._briefing_lock:
-        # Double-check after acquiring the lock
-        if app.state.briefings[1] != _PLACEHOLDER_BRIEFING:
-            return
-        tdb: TdbClient = app.state.tdb
-        try:
-            intro = await fetch_introspection(tdb)
-            _rebuild_briefings(app, intro)
-            log.info("lazy schema re-fetch succeeded")
-        except Exception:
-            log.warning("lazy schema re-fetch failed", exc_info=True)
-
-
-def _rebuild_briefings(app: FastAPI, intro: dict) -> None:
-    """Rebuild summary + prompt briefing from introspection + stored module data."""
-    schema_docs = getattr(app.state, "schema_docs", None)
-    schema_summary = render_schema_summary(intro)
-    prompt_briefing = render_prompt_briefing(intro, schema_docs=schema_docs)
-
-    modules = getattr(app.state, "modules", [])
-    active_plugins = getattr(app.state, "active_plugins", [])
-    if modules or active_plugins:
-        prompt_briefing += "\n\n" + render_module_briefing(
-            modules, active_plugins=active_plugins
-        )
-
-    app.state.briefings = (schema_summary, prompt_briefing)
-
-
-# ---------------------------------------------------------------------------
-# Plugin helper
-# ---------------------------------------------------------------------------
-
-
-def _collect_plugin_tools(
-    plugins: list[tuple[str, object]],
-    settings: Settings,
-    tdb: TdbClient,
-) -> tuple[list[Tool], list[str]]:
-    """Call ``tools(deps)`` on each plugin, check for name collisions
-    against read tools and across plugins.
-
-    Returns ``(all_tools, active_names)``.  Raises ``RuntimeError`` on
-    any name collision.
-    """
-    plugin_tools: list[Tool] = []
-    active_names: list[str] = []
-    seen_tool_names: set[str] = set()
-
-    read_tool_names = {t.name for t in build_tools(settings, plugin_tools=[])}
-
-    for ep_name, obj in plugins:
-        if hasattr(obj, "tools") and hasattr(obj, "name"):
-            plugin = obj
-        else:
-            log.warning("plugin '%s' is not a ToolPlugin", ep_name)
-            continue
-
-        active_names.append(plugin.name)
-        tools: list[Tool] = plugin.tools(deps=None)
-
-        for t in tools:
-            if t.name in read_tool_names:
-                raise RuntimeError(
-                    f"Tool name collision: plugin '{plugin.name}' tool "
-                    f"'{t.name}' conflicts with a core read tool"
-                )
-            if t.name in seen_tool_names:
-                raise RuntimeError(
-                    f"Plugin collision on tool name {t.name!r}: "
-                    f"already registered by another plugin"
-                )
-            seen_tool_names.add(t.name)
-
-        plugin_tools.extend(tools)
-
-    return plugin_tools, active_names
-
-
-# ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
 
@@ -264,9 +138,8 @@ def _collect_plugin_tools(
 async def _lifespan(
     app: FastAPI,
     settings: Settings,
-    model: Model | None = None,
     *,
-    plugin_tools_override: list[Tool] | None = None,
+    tool_specs_override: dict[str, ToolSpec] | None = None,
 ):
     tdb = TdbClient(
         base_url=settings.tdb_url,
@@ -278,14 +151,19 @@ async def _lifespan(
         author="service:queryd",
     )
     app.state.tdb = tdb
+    app.state.tool_specs: dict[str, ToolSpec] = {}
 
     # ── Introspection ──────────────────────────────────────────────────
+    schema_summary: str | None = None
     try:
         intro = await fetch_introspection(tdb)
+        schema_summary = render_schema_summary(intro)
         log.info("schema introspection succeeded at startup")
     except Exception:
         log.warning("schema introspection failed at startup", exc_info=True)
-        intro = None
+
+    schema_summary_cached = schema_summary
+    app.state.schema_summary = schema_summary_cached
 
     # ── Schema @documentation annotations ──────────────────────────────
     schema_docs: dict[str, str] | None = None
@@ -305,75 +183,56 @@ async def _lifespan(
     app.state.modules = modules
 
     # ── Plugin discovery and selection (PluginHost) ────────────────────
-    plugin_tools: list[Tool] = []
-    active_plugins: list[str] = []
+    host = PluginHost(
+        group=_PLUGIN_GROUP,
+        protocol=ToolSpecPlugin,
+        tdb=tdb,
+        branch=settings.tdb_branch,
+        policy=HostPolicy(
+            broken_entry_point_fatal=settings.strict_plugins,
+            zero_active_fatal=False,
+            strict=settings.strict_plugins,
+            tdb_unavailable_fatal=False,  # graceful degradation
+        ),
+        logger=log,
+    )
 
-    if plugin_tools_override is not None:
-        # Test seam: use explicitly provided write tools
-        if settings.enable_writes:
-            plugin_tools = list(plugin_tools_override)
-            active_plugins = ["test_override"]
-        else:
-            log.info(
-                "write-tool plugins suppressed (ENABLE_WRITES=false)",
-                count=len(plugin_tools_override),
-            )
-    else:
-        host = PluginHost(
-            group=_PLUGIN_GROUP,
-            protocol=ToolPlugin,
-            tdb=tdb,
-            branch=settings.tdb_branch,
-            policy=HostPolicy(
-                broken_entry_point_fatal=settings.strict_plugins,
-                zero_active_fatal=False,
-                strict=settings.strict_plugins,
-                tdb_unavailable_fatal=False,  # graceful degradation
-            ),
-            logger=log,
+    try:
+        result = await host.start(
+            registry=modules,
         )
+    except RuntimeError:
+        raise
 
-        try:
-            result = await host.start(
-                registry=modules,
-            )
-        except RuntimeError:
-            raise
-
-        if settings.enable_writes and result.active:
-            p_tools, active_plugins = _collect_plugin_tools(
-                result.active, settings, tdb
-            )
-            log.info("active write-tool plugins", plugins=active_plugins)
-        elif settings.enable_writes:
-            log.info("no active write-tool plugins")
-        else:
-            # Writes disabled: report active plugin names but don't
-            # materialize tools.  Only post-selection (active) plugins
-            # are reported — plugins skipped by requirement checks are
-            # not listed.
-            active_plugins = [
-                getattr(obj, "name", ep_name)
-                for ep_name, obj in result.active
-            ]
-            log.info(
-                "write-tool plugins suppressed (ENABLE_WRITES=false)",
-                count=len(result.active),
-            )
-
+    # ── Report active plugins (regardless of enable_writes) ────────────
+    active_plugins: list[str] = [
+        getattr(obj, "name", ep_name)
+        for ep_name, obj in result.active
+    ]
+    log.info("active plugins", plugins=active_plugins)
     app.state.active_plugins = active_plugins
 
-    # ── Build agent once ───────────────────────────────────────────────
-    tools = build_tools(settings, plugin_tools=plugin_tools)
-    app.state.agent = build_agent(settings, model=model, tools=tools)
-
-    # ── Build briefings ────────────────────────────────────────────────
-    if intro is not None:
-        _rebuild_briefings(app, intro)
+    # ── Collect ToolSpecs for REST exposure ──
+    tool_specs_dict: dict[str, ToolSpec]
+    if tool_specs_override is not None:
+        tool_specs_dict = (
+            dict(tool_specs_override) if settings.enable_writes else {}
+        )
+    elif settings.enable_writes:
+        tool_specs_dict = {}
+        for ep_name, obj in result.active:
+            if isinstance(obj, ToolSpecPlugin):
+                for spec in obj.tool_specs():
+                    if spec.name in tool_specs_dict:
+                        raise RuntimeError(
+                            f"ToolSpec name collision: plugin "
+                            f"'{getattr(obj, 'name', ep_name)}' tool "
+                            f"'{spec.name}' conflicts with another plugin"
+                        )
+                    tool_specs_dict[spec.name] = spec
     else:
-        app.state.briefings = (_PLACEHOLDER_BRIEFING, _PLACEHOLDER_BRIEFING)
-
-    app.state._briefing_lock = asyncio.Lock()
+        tool_specs_dict = {}
+    app.state.tool_specs = tool_specs_dict
 
     try:
         yield
@@ -406,26 +265,25 @@ def _get_version() -> str:
 
 def create_app(
     settings: Settings,
-    model: Model | None = None,
     *,
-    plugin_tools: list[Tool] | None = None,
+    tool_specs: dict[str, ToolSpec] | None = None,
 ) -> FastAPI:
     """Build the FastAPI application for the given *settings*.
 
-    *model* is a **test seam**: when provided it is injected into the
-    agent so unit tests can supply a ``FunctionModel`` or ``TestModel``
-    without reaching a real LLM.
-
-    *plugin_tools* is a **test seam**: when provided, these ``Tool``
-    objects are used as write-tool plugins instead of discovering them
-    via entry points.  When ``None`` (default, production),
-    ``PluginHost`` discovers ``"firnline.queryd.tools"``.
+    *tool_specs* is a **test seam**: when provided, these ``ToolSpec``
+    objects are used for the ``/v1/tools`` REST endpoints instead of
+    collecting them from discovered plugins.  When ``None`` (default,
+    production), ToolSpecs are collected from plugins that implement
+    ``ToolSpecPlugin``.
     """
     _configure_logging()
 
     @asynccontextmanager
     async def _app_lifespan(app: FastAPI):
-        async with _lifespan(app, settings, model, plugin_tools_override=plugin_tools) as _:
+        async with _lifespan(
+            app, settings,
+            tool_specs_override=tool_specs,
+        ) as _:
             yield
 
     app = FastAPI(
@@ -484,6 +342,8 @@ def create_app(
                 blob_root_writable = False
 
         active_plugins: list[str] = getattr(app.state, "active_plugins", [])
+        tool_specs_dict: dict[str, object] = getattr(app.state, "tool_specs", {})
+        write_tools: list[str] = sorted(tool_specs_dict.keys())
 
         status = "ok" if tdb_ok else "degraded"
         status_code = 200 if tdb_ok else 503
@@ -496,6 +356,7 @@ def create_app(
                 "version": _get_version(),
                 "modules": module_versions,
                 "plugins": active_plugins,
+                "write_tools": write_tools,
                 "blob_root_writable": blob_root_writable,
             },
         )
@@ -511,8 +372,8 @@ def create_app(
     )
     async def v1_schema():
         """Return the rendered schema summary."""
-        schema_summary, _ = app.state.briefings
-        if schema_summary == _PLACEHOLDER_BRIEFING:
+        schema_summary: str | None = app.state.schema_summary
+        if schema_summary is None:
             summary = await operations.get_schema_summary(app.state.tdb)
         else:
             summary = schema_summary
@@ -672,92 +533,72 @@ def create_app(
         return JSONResponse(content={"candidates": candidates})
 
     # ------------------------------------------------------------------
-    # /v1/chat (auth + validation)
+    # /v1/tools (auth) — list available write tools
+    # ------------------------------------------------------------------
+
+    @app.get(
+        "/v1/tools",
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_tools():
+        specs: dict[str, object] = app.state.tool_specs
+        tools_list = sorted(
+            [
+                {
+                    "name": name,
+                    "description": spec.description,
+                    "input_schema": spec.input_schema,
+                }
+                for name, spec in specs.items()
+            ],
+            key=lambda t: t["name"],
+        )
+        return JSONResponse(content={"tools": tools_list})
+
+    # ------------------------------------------------------------------
+    # /v1/tools/{name} (auth) — invoke a specific write tool
     # ------------------------------------------------------------------
 
     @app.post(
-        "/v1/chat",
-        response_model=ChatResponse,
+        "/v1/tools/{name}",
         dependencies=[Depends(_bearer_auth)],
     )
-    async def v1_chat(body: ChatRequest):
-        if not body.messages:
+    async def v1_tools_call(name: str, request: Request):
+        specs: dict[str, object] = app.state.tool_specs
+        spec: ToolSpec | None = specs.get(name)
+        if spec is None:
+            raise HTTPException(status_code=404, detail=f"unknown tool: {name}")
+
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=422, detail="invalid JSON body")
+
+        try:
+            args = spec.args_model(**body)
+        except ValidationError as exc:
             raise HTTPException(
                 status_code=422,
-                detail="messages must not be empty",
-            )
-        if body.messages[-1].role != "user":
-            raise HTTPException(
-                status_code=422,
-                detail="last message must be from the user",
+                detail=exc.errors(),
             )
 
-        # Lazy retry schema briefing if it was unavailable at startup.
-        await _ensure_briefing(app)
-
-        # Build history from all messages except the last.
-        history: list[ModelMessage] | None = None
-        if len(body.messages) > 1:
-            history = []
-            for msg in body.messages[:-1]:
-                if msg.role == "user":
-                    history.append(
-                        ModelRequest(parts=[UserPromptPart(content=msg.content)])
-                    )
-                else:
-                    history.append(ModelResponse(parts=[TextPart(content=msg.content)]))
-
-        prompt = body.messages[-1].content
-
-        # Build fresh deps for this request.
-        schema_summary, prompt_briefing = app.state.briefings
-        deps = QuerydDeps(
-            tdb=app.state.tdb,
-            settings=app.state.settings,
-            schema_summary=schema_summary,
-            prompt_briefing=prompt_briefing,
-            trace=[],
-            tool_calls_used=0,
-        )
-
-        agent = app.state.agent
-        limits = usage_limits(app.state.settings)
+        ctx = ToolContext(tdb=app.state.tdb, branch=app.state.settings.tdb_branch)
 
         try:
             async with asyncio.timeout(app.state.settings.request_timeout_seconds):
-                result = await agent.run(
-                    prompt,
-                    deps=deps,
-                    message_history=history or None,
-                    usage_limits=limits,
-                )
+                result = await spec.handler(args, ctx)
         except asyncio.TimeoutError:
             return JSONResponse(
                 status_code=504,
                 content={"detail": "request timed out"},
             )
-        except UsageLimitExceeded:
-            log.warning("usage limit exceeded (hard backstop)")
+        except Exception:
+            log.error("tool handler error", tool=name, exc_info=True)
             return JSONResponse(
                 status_code=502,
-                content={"detail": "model exceeded iteration budget"},
-            )
-        except HTTPException:
-            raise
-        except (
-            ModelHTTPError,
-            ModelAPIError,
-            UnexpectedModelBehavior,
-        ):
-            log.error("llm provider error", exc_info=True)
-            return JSONResponse(
-                status_code=502,
-                content={"detail": "llm provider error"},
+                content={"detail": "tool execution failed"},
             )
 
-        return ChatResponse(
-            message=result.output,
-            tool_trace=deps.trace,
-        )
+        return JSONResponse(content=result)
 
     return app

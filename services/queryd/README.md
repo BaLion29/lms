@@ -1,8 +1,7 @@
 # queryd
 
-Conversational agent API over a TerminusDB-backed knowledge graph. Exposes a
-stateless `POST /v1/chat` endpoint: clients send the full message history each
-turn and receive a natural-language answer plus an observability `tool_trace`.
+GraphQL read proxy + document lookup + schema introspection + guarded write-tool
+endpoints over a TerminusDB-backed knowledge graph. Model-free — no embedded LLM.
 
 ## Quickstart
 
@@ -21,41 +20,48 @@ QUERYD_TDB_URL=http://localhost:6363 \
 QUERYD_TDB_DB=dev \
 QUERYD_TDB_PASSWORD=root \
 QUERYD_API_TOKEN=dev-token \
-QUERYD_LLM_BASE_URL=http://localhost:4000 \
-QUERYD_LLM_API_KEY=sk-placeholder \
-QUERYD_LLM_MODEL=gpt-4.1-mini \
 uv run queryd
 ```
 
 ## API
 
-### `POST /v1/chat`
+### `POST /v1/graphql`
 
 Auth: `Authorization: Bearer <token>`.
 
 ```json
 {
-  "messages": [
-    {"role": "user", "content": "Was steht diese Woche an?"}
-  ]
+  "query": "{ Task { id name done } }"
 }
 ```
 
-Response:
+Response is a standard GraphQL JSON payload.
 
-```json
-{
-  "message": "...",
-  "tool_trace": [
-    {"tool": "graphql_query", "input": {...}, "output_summary": "1288 chars"}
-  ]
-}
-```
+### `GET /v1/tools`
+
+Lists write-tool specs (name, description, input_schema). Empty when
+`QUERYD_ENABLE_WRITES=false`. See [mcpd](../../docs/mcpd.md) for how mcpd
+registers these as dynamic MCP tools.
+
+### `POST /v1/tools/{name}`
+
+Invokes a write tool by name. Requires `QUERYD_ENABLE_WRITES=true`.
+
+### `GET /v1/documents/{iri}`
+
+Fetches a single document by IRI.
+
+### `GET /v1/schema` / `GET /v1/modules`
+
+Schema introspection and module registry.
+
+### `POST /v1/find/entity|class|field`
+
+Semantic search endpoints (requires indexed grounding service).
 
 ### `GET /healthz`
 
-No auth. Returns `{"status": "ok", "terminusdb": "up", "version": "...",
-"modules": {...}, "active_tools": [...]}`.
+No auth. Returns `{"status": "ok", "terminusdb": "up", "write_tools": [...], "version": "...", "modules": {...}}`.
 
 ## Configuration, extensions, and tests
 

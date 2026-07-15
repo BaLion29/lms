@@ -14,7 +14,7 @@ An extension package may contain any subset of:
   (`firnline.ingestd.sources`).
 - **Extractor plugins** — LLM extraction logic for turning text into typed
   documents (`firnline.ingestd.extractors`).
-- **Query tool plugins** — write tools the conversational agent can use
+- **Query tool plugins** — guarded write tools exposed via queryd's `/v1/tools` REST surface
   (`firnline.queryd.tools`).
 - **Indexer plugins** — tell the `indexed` service which TDB classes to
   mirror into the hybrid search index (`firnline.indexed.indexers`).

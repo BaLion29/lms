@@ -21,7 +21,6 @@ def test_pages_registered():
         "index",
         "capture",
         "inbox",
-        "chat",
         "browse",
         "browse/[class_name]",
         "calendar",
@@ -41,7 +40,6 @@ def test_pages_registered():
         ("inbox", "Firnline — Inbox"),
         ("browse", "Firnline — Browse"),
         ("browse/[class_name]", "Firnline — Browse"),
-        ("chat", "Firnline — Chat"),
         ("calendar", "Firnline — Calendar"),
         ("automations", "Firnline — Automations"),
         ("health", "Firnline — Health"),
@@ -74,7 +72,6 @@ def test_on_load_events():
     from firnline_webui.state.browse import BrowseClassState, BrowseState
     from firnline_webui.state.calendar import CalendarState
     from firnline_webui.state.capture import CaptureState
-    from firnline_webui.state.chat import ChatState
     from firnline_webui.state.health import HealthState
     from firnline_webui.state.inbox import InboxState
     from firnline_webui.state.modules import ModulesState
@@ -92,7 +89,6 @@ def test_on_load_events():
         "index": (HealthState, "refresh"),
         "capture": (CaptureState, "load"),
         "inbox": (InboxState, "load"),
-        "chat": (ChatState, "init_from_query"),
         "browse": (BrowseState, "load"),
         "browse/[class_name]": (BrowseClassState, "load"),
         "calendar": (CalendarState, "load"),

@@ -6,7 +6,7 @@
 An opinionated ADHD-focused Life-Management System. Capture thoughts (text
 notes, voice memos, files), let the AI extraction pipeline turn them into
 linked typed documents (tasks, events, people, places, reminders, routines),
-and query everything through a conversational agent. Everything backed by a
+and query everything through structured GraphQL and REST endpoints. Everything backed by a
 TerminusDB graph database — the single source of truth.
 
 ## Quickstart
@@ -29,13 +29,20 @@ curl -s -X POST http://localhost:8088/v1/capture/note \
   -d '{"text": "Buy milk on the way home", "kind": "note"}'
 ```
 
-Chat with your data:
+Query your data (GraphQL):
 
 ```bash
-curl -s -X POST http://localhost:8087/v1/chat \
+curl -s -X POST http://localhost:8087/v1/graphql \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"What do I need to do today?"}]}'
+  -d '{"query": "{ Task { id name done } }"}'
+```
+
+List available write tools:
+
+```bash
+curl -s http://localhost:8087/v1/tools \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 Full guide: [docs/getting-started.md](docs/getting-started.md).
@@ -49,7 +56,7 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `services/captured/` | Capture-ingress daemon (`POST /v1/capture/note`, `/v1/capture/file`) |
 | `services/ingestd/` | AI ingestion polling worker (LLM extraction + entity linking) |
 | `services/indexed/` | Search index sidecar: entity and schema lookup over TerminusDB (SQLite + embeddings) |
-| `services/queryd/` | Conversational agent API (`POST /v1/chat` + structured REST) |
+| `services/queryd/` | GraphQL read proxy + document lookup, find/entity|class|field, schema introspection, write-tool endpoints |
 | `services/mcpd/` | MCP server — exposes firnline to external AI agents via Model Context Protocol |
 | `services/triggerd/` | Trigger evaluation daemon (poll → evaluate → insert TriggerFiring) |
 | `services/effectd/` | Effect delivery daemon (pending firing → channel delivery → nag policy) |

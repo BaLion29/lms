@@ -285,7 +285,7 @@ services:
       retries: 3
       start_period: 90s
 
-  # ── queryd — conversational agent API ──────────────────────────────────
+  # ── queryd — GraphQL read proxy + document lookup + write-tool endpoints ─
   queryd:
     build:
       context: .
@@ -304,9 +304,6 @@ services:
       QUERYD_TDB_USER: ${TDB_USER:-admin}
       QUERYD_TDB_PASSWORD: ${TDB_PASSWORD:?}
       QUERYD_API_TOKEN: ${QUERYD_API_TOKEN:?err QUERYD_API_TOKEN must be set}
-      QUERYD_LLM_BASE_URL: ${FIRNLINE_LLM_BASE_URL:?err FIRNLINE_LLM_BASE_URL must be set}
-      QUERYD_LLM_API_KEY: ${FIRNLINE_LLM_API_KEY:-}
-      QUERYD_LLM_MODEL: ${FIRNLINE_LLM_MODEL:-}
       QUERYD_ENABLE_WRITES: ${QUERYD_ENABLE_WRITES:-false}
       QUERYD_INDEXED_ENABLED: ${QUERYD_INDEXED_ENABLED:-false}
       QUERYD_INDEXED_URL: ${INDEXED_URL:-http://indexed:8089}
@@ -349,6 +346,8 @@ services:
       MCPD_QUERYD_TOKEN: ${QUERYD_API_TOKEN:?}
       MCPD_CAPTURED_URL: ${MCPD_CAPTURED_URL:-http://captured:8088}
       MCPD_CAPTURED_TOKEN: ${CAPTURED_API_TOKEN:?}
+      MCPD_ENABLE_QUERYD_TOOLS: ${MCPD_ENABLE_QUERYD_TOOLS:-true}
+      MCPD_REQUEST_TIMEOUT_SECONDS: ${MCPD_REQUEST_TIMEOUT_SECONDS:-30.0}
     restart: unless-stopped
     healthcheck:
       test:
