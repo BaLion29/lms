@@ -138,13 +138,8 @@ def _cmd_codegen(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 return 1
-        # Also filter class_id_to_module
-        filtered_classes = {
-            cid: mod for cid, mod in class_id_to_module.items()
-            if mod in filtered_targets
-        }
         module_to_target = filtered_targets
-        class_id_to_module = filtered_classes
+        # Keep full class_id_to_module so cross-module references resolve correctly
 
     try:
         paths = write_generated(composed_schema, class_id_to_module, module_to_target, checksum, module_to_import=module_to_import)
