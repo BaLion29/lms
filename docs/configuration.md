@@ -1,8 +1,86 @@
 # Configuration
 
-All configuration is done via environment variables. There are no config files.
+Configuration is primarily done via environment variables, with an optional
+persistent TOML config file as a lower-precedence fallback.
 The `.env.example` in the repo root lists every variable; copy it to `.env` and
 edit as needed.
+
+## Persistent TOML config file (optional)
+
+An optional TOML configuration file can hold settings that apply across
+restarts without relying on environment variables alone. The file is read
+*after* `.env` — environment variables always win.
+
+### Precedence order (highest → lowest)
+
+1. **Init kwargs** (programmatic instantiation)
+2. **Process environment variables** (`export VAR=val`)
+3. **`.env` file**
+4. **TOML config file** (path from `FIRNLINE_CONFIG_FILE`, default `/etc/firnline/config.toml`)
+5. **Secrets directory**
+6. **Hardcoded defaults**
+
+### Enabling the TOML file
+
+| Variable | Default | Description |
+|---|---|---|
+| `FIRNLINE_CONFIG_FILE` | `/etc/firnline/config.toml` | Path to the TOML config file |
+
+The file is entirely optional. If it is missing, or a service's table is
+missing from the file, the behaviour is identical to the zero-config case —
+nothing breaks and existing defaults are used.
+
+### Structure
+
+Each top-level table is named after the service's `env_prefix` lower-cased
+without trailing underscore:
+
+| Table | Service |
+|---|---|
+| `[captured]` | captured |
+| `[ingestd]` | ingestd |
+| `[indexed]` | indexed |
+| `[queryd]` | queryd |
+| `[triggerd]` | triggerd |
+| `[effectd]` | effectd |
+| `[mcpd]` | mcpd |
+| `[webui]` | webui |
+
+Key names under each table are the lower-cased env-var suffixes. Example:
+
+```toml
+[captured]
+listen_addr = "0.0.0.0:8088"
+
+[ingestd]
+poll_interval_seconds = 15
+
+[effectd]
+dry_run = true
+```
+
+### Deployment
+
+Mount the TOML file into each service container. In `compose.yaml`:
+
+```yaml
+volumes:
+  - ./firnline.toml:/etc/firnline/config.toml:ro
+```
+
+For local development without Docker, export the variable:
+
+```bash
+export FIRNLINE_CONFIG_FILE=./firnline.toml
+```
+
+### Limitations
+
+- **Environment variables always override** the TOML file. There is no merge
+  or "deep" override — each setting is resolved independently through the
+  precedence chain.
+- **Extensions** (`firnline-ext-*`) do **not** read the TOML file yet; they
+  continue to be configured solely via environment variables.
 
 ## Shared TerminusDB settings
 
