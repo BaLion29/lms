@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn",
     "pydantic>=2",
     "pydantic-settings",
+    "pydantic-ai-slim",
     "httpx",
     "structlog",
 ]
