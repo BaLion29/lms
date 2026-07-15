@@ -17,6 +17,7 @@ from firnline_webui.pages.browse import browse_class_page, browse_page
 from firnline_webui.pages.calendar import calendar_page
 from firnline_webui.pages.capture import capture_page
 from firnline_webui.pages.health import health_page
+from firnline_webui.pages.history import history_page
 from firnline_webui.pages.home import home_page
 from firnline_webui.pages.inbox import inbox_page
 from firnline_webui.pages.login import login_page
@@ -27,6 +28,7 @@ from firnline_webui.state.browse import BrowseClassState, BrowseState
 from firnline_webui.state.calendar import CalendarState
 from firnline_webui.state.capture import CaptureState
 from firnline_webui.state.health import HealthState
+from firnline_webui.state.history import HistoryState
 from firnline_webui.state.inbox import InboxState
 from firnline_webui.state.modules import ModulesState
 
@@ -68,6 +70,9 @@ app.add_page(
 )
 app.add_page(health_page, route="/health", title="Firnline — Health", on_load=[AuthState.check, HealthState.refresh])
 app.add_page(modules_page, route="/modules", title="Firnline — Modules", on_load=[AuthState.check, ModulesState.load])
+app.add_page(
+    history_page, route="/history", title="Firnline — History", on_load=[AuthState.check, HistoryState.load]
+)
 app.add_page(
     calendar_page, route="/calendar", title="Firnline — Calendar", on_load=[AuthState.check, CalendarState.load]
 )

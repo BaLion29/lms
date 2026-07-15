@@ -61,6 +61,9 @@ WORKDIR /app/services/captured
 
 EXPOSE 8088
 
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=10s \
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8088/healthz',timeout=5)"]
+
 USER captured
 
 # All configuration is supplied via environment variables (CAPTURED_ prefix).

@@ -8,8 +8,7 @@ endpoints over a TerminusDB-backed knowledge graph. Model-free — no embedded L
 From the monorepo root:
 
 ```bash
-docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-docker compose up -d                        # starts queryd on port 8087
+docker compose up -d                        # bootstrap auto-runs, then starts queryd on port 8087
 curl http://localhost:8087/healthz          # verify
 ```
 

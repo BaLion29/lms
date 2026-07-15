@@ -1,6 +1,14 @@
 """Tests for mcpd.settings."""
 
+import pytest
+
 from mcpd.settings import McpdSettings
+
+
+@pytest.fixture(autouse=True)
+def _isolate_toml(monkeypatch, tmp_path):
+    """Ensure ambient FIRNLINE_CONFIG_FILE never leaks into test settings."""
+    monkeypatch.setenv("FIRNLINE_CONFIG_FILE", str(tmp_path / "__nonexistent__.toml"))
 
 
 def test_settings_defaults():
@@ -33,3 +41,15 @@ def test_settings_from_env(monkeypatch):
     assert s.captured_url == "https://capture.example.com"
     assert s.captured_token == "c-token"
     assert s.request_timeout_seconds == 10.5
+
+
+def test_toml_config_overrides_default(monkeypatch, tmp_path):
+    """A [mcpd] table in the TOML config file overrides a defaulted field."""
+    toml_file = tmp_path / "config.toml"
+    toml_file.write_text('[mcpd]\nport = 9876\n')
+    monkeypatch.setenv("FIRNLINE_CONFIG_FILE", str(toml_file))
+    monkeypatch.delenv("MCPD_PORT", raising=False)
+
+    s = McpdSettings()
+    assert s.port == 9876
+    assert s.host == "0.0.0.0"  # still the default

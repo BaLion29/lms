@@ -10,8 +10,7 @@ inbox item, with full provenance via `derived_from`.
 From the monorepo root:
 
 ```bash
-docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-docker compose up -d                        # starts ingestd (polling)
+docker compose up -d                        # bootstrap auto-runs, then starts ingestd (polling)
 ```
 
 For local dev without Docker:

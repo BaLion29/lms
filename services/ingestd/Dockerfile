@@ -55,6 +55,9 @@ COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
 
 WORKDIR /app/services/ingestd
 
+HEALTHCHECK --interval=60s --timeout=10s --retries=3 --start-period=120s \
+  CMD find /tmp/ingestd-alive -mmin -5 2>/dev/null | grep -q .
+
 USER ingestd
 
 # All configuration is supplied via environment variables (INGESTD_ prefix).

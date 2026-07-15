@@ -78,9 +78,9 @@ hard error listing all failures — extensions are never silently ignored.
       "source": "repo:core"
     },
     "time_management": {
-      "version": "0.1.0",
+      "version": "0.2.0",
       "checksum": "def456...",
-      "source": "pkg:firnline-ext-time-management==0.1.0"
+      "source": "pkg:firnline-ext-time-management==0.2.0"
     }
   }
 }

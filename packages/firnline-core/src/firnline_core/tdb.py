@@ -800,3 +800,50 @@ class TdbClient:
                 deleted.append(str(doc_id))
 
         return (inserted, updated, deleted)
+
+    # ------------------------------------------------------------------
+    # Single-commit diff
+    # ------------------------------------------------------------------
+
+    async def get_commit_diff(
+        self, commit_id: str, branch: str = "main"
+    ) -> tuple[list[str], list[str], list[str]]:
+        """Return (inserted, updated, deleted) document IDs for *commit_id*.
+
+        Diffs the commit against its parent, found by scanning the branch log.
+        For the initial commit (no parent), returns empty lists — matching
+        the boundary behaviour of :meth:`_diff_commit`.
+
+        Raises ``StaleCommitError`` if *commit_id* is not found in the
+        fetched log window, or if the window may be truncated.
+        """
+        log_entries = await self.get_branch_log(branch, count=self._LOG_REQUEST_CAP)
+
+        # Find the commit and its parent (next entry in newest-first log).
+        commit_idx: int | None = None
+        for idx, entry in enumerate(log_entries):
+            if str(entry.get("identifier", "")) == commit_id:
+                commit_idx = idx
+                break
+
+        if commit_idx is None:
+            if len(log_entries) >= self._LOG_REQUEST_CAP:
+                raise TdbError(
+                    400,
+                    f"Commit '{commit_id}' not found in fetched log window "
+                    f"({self._LOG_REQUEST_CAP} entries) for branch "
+                    f"'{branch}'; log may be truncated.",
+                )
+            raise StaleCommitError(commit_id, branch)
+
+        parent_ident: str | None = None
+        if commit_idx + 1 < len(log_entries):
+            parent_ident = str(log_entries[commit_idx + 1].get("identifier", ""))
+
+        if parent_ident is None:
+            # Initial commit — no parent to diff against.
+            return ([], [], [])
+
+        before_desc = f"{self.org}/{self.db}/local/commit/{parent_ident}"
+        after_desc = f"{self.org}/{self.db}/local/commit/{commit_id}"
+        return await self._diff_between(before_desc, after_desc)
