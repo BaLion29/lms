@@ -128,7 +128,7 @@ def _commit_detail_dialog() -> rx.Component:
             rx.dialog.title(
                 rx.hstack(
                     rx.box(
-                        rx.icon(tag="git_commit", size=14, color=rx.color("accent", 11)),
+                        rx.icon(tag="git_commit_horizontal", size=14, color=rx.color("accent", 11)),
                         background=rx.color("accent", 3),
                         border_radius="6px",
                         width="26px",
@@ -223,14 +223,14 @@ def _commit_detail_dialog() -> rx.Component:
                     _change_section(
                         "Inserted",
                         "green",
-                        "plus_circle",
+                        "circle_plus",
                         HistoryState.inserted,
                     ),
                     # Updated
                     _change_section(
                         "Updated",
                         "blue",
-                        "edit",
+                        "pencil",
                         HistoryState.updated,
                     ),
                     # Deleted
@@ -377,7 +377,7 @@ def history_page() -> rx.Component:
                             width="100%",
                         ),
                         empty_state(
-                            "git_commit",
+                            "git_commit_horizontal",
                             "No commits found.",
                             "Commit history will appear here once changes are made.",
                         ),
