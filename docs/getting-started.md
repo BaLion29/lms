@@ -98,20 +98,19 @@ The `compose.bundled-tdb.yaml` overlay adds a `terminusdb` service
 `depends_on` relationships so services wait for TerminusDB to be healthy.
 Data is persisted in the `terminusdb_data` Docker volume.
 
-## Chatting with queryd
+## Querying queryd
 
 ```bash
-curl -s -X POST http://localhost:8087/v1/chat \
+curl -s -X POST http://localhost:8087/v1/graphql \
   -H "Authorization: Bearer $QUERYD_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"What do I need to do today?"}]}'
+  -d '{"query": "{ Task { id name done } }"}'
 ```
 
-The response includes a `message` (natural-language answer) and a `tool_trace`
-(debug information about tool calls the agent made).
+The response is a standard GraphQL JSON payload listing all Task documents.
 
-To enable write tools (e.g. marking tasks done), set
-`QUERYD_ENABLE_WRITES=true` in `.env` and restart.
+To list available write tools, call `GET /v1/tools`. Tools are gated by
+`QUERYD_ENABLE_WRITES` (see [mcpd](mcpd.md) for dynamic MCP tool registration).
 
 ## Adding or changing extensions
 
@@ -153,9 +152,6 @@ QUERYD_TDB_URL=http://localhost:6363 \
 QUERYD_TDB_DB=dev \
 QUERYD_TDB_PASSWORD=root \
 QUERYD_API_TOKEN=dev-token \
-QUERYD_LLM_BASE_URL=http://localhost:4000 \
-QUERYD_LLM_API_KEY=sk-placeholder \
-QUERYD_LLM_MODEL=gpt-4.1-mini \
 uv run queryd
 ```
 

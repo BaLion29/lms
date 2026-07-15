@@ -1,7 +1,7 @@
 [project]
 name = "queryd"
 version = "0.1.0"
-description = "FastAPI conversational agent over TerminusDB"
+description = "GraphQL read proxy + guarded write-tool endpoints over TerminusDB"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
 ]
@@ -13,7 +13,6 @@ dependencies = [
     "uvicorn",
     "pydantic>=2",
     "pydantic-settings",
-    "pydantic-ai-slim[openai]",
     "httpx",
     "structlog",
 ]

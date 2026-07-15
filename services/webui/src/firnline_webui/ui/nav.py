@@ -9,13 +9,12 @@ import reflex as rx
 from firnline_webui.state.auth import AuthState
 from firnline_webui.state.base import BaseState
 
-NavActive = Literal["home", "capture", "inbox", "chat", "browse", "calendar", "automations", "health", "modules"]
+NavActive = Literal["home", "capture", "inbox", "browse", "calendar", "automations", "health", "modules"]
 
 NAV_ITEMS: list[dict] = [
     {"label": "Home", "icon": "house", "active": "home", "route": "/"},
     {"label": "Capture", "icon": "pencil_line", "active": "capture", "route": "/capture"},
     {"label": "Inbox", "icon": "inbox", "active": "inbox", "route": "/inbox"},
-    {"label": "Chat", "icon": "message_circle", "active": "chat", "route": "/chat"},
     {"label": "Browse", "icon": "database", "active": "browse", "route": "/browse"},
     {"label": "Calendar", "icon": "calendar_days", "active": "calendar", "route": "/calendar"},
     {"label": "Automations", "icon": "zap", "active": "automations", "route": "/automations"},
@@ -312,7 +311,6 @@ def _page_title_for(active: str) -> str:
         "home": "Dashboard",
         "capture": "Capture",
         "inbox": "Inbox",
-        "chat": "AI Chat",
         "browse": "Browse",
         "calendar": "Calendar",
         "automations": "Automations",

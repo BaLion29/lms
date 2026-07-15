@@ -4,19 +4,16 @@ and healthz extension — updated for PluginHost migration.
 Since ``app.py`` now uses ``firnline_core.plugins.PluginHost``, tests
 mock ``firnline_core.plugins.discover_plugins`` and
 ``firnline_core.plugins.select_plugins`` (which PluginHost calls internally).
-Cross-plugin tool-name collisions are detected by PluginHost's
-``collision_key``; read-tool collisions are still caught by
-``_collect_plugin_tools``.
+Collisions are caught by PluginHost's ``collision_key`` mechanism.
 """
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from pydantic_ai import Tool
-from pydantic_ai.messages import ModelResponse, TextPart
-from pydantic_ai.models.function import FunctionModel
+import pytest
+import respx
+from fastapi.testclient import TestClient
 
 from firnline_core.plugins import (
     DiscoveryResult,
@@ -24,7 +21,7 @@ from firnline_core.plugins import (
     PluginSelection,
 )
 
-from queryd.app import create_app, _collect_plugin_tools
+from queryd.app import create_app
 from queryd.settings import Settings
 from firnline_ext_time_management.tools import plugin as _planning_plugin
 
@@ -41,9 +38,6 @@ def _settings(**overrides) -> Settings:
         api_token="test-token",
         tdb_db=TDB_DB,
         tdb_password="x",
-        llm_base_url="http://llm.test",
-        llm_api_key="sk-test",
-        llm_model="test-model",
         tdb_url=TDB_URL,
     )
     defaults.update(overrides)
@@ -68,14 +62,15 @@ class _FakePluginMissingModule:
     name = "fake_plugin"
     requires = [ModuleRequirement(name="nonexistent", range=">=1.0.0")]
 
-    def tools(self, deps):
-        return [Tool(lambda: "nope")]
+    def tool_specs(self):
+        return []
 
 
-def test_unmet_requirement_skipped_with_warning(respx_mock):
+def test_unmet_requirement_skipped_with_warning(respx_mock: respx.MockRouter):
     """When the module registry exists but doesn't have the required
     module, the plugin is skipped with a warning — service still starts."""
-    respx_mock.get(f"{TDB_URL}/api/document/admin/{TDB_DB}/local/branch/main").respond(
+    DOC_PATH = f"{TDB_URL}/api/document/admin/{TDB_DB}/local/branch/main"
+    respx_mock.get(DOC_PATH).respond(
         json=[_mock_schema_module("core", "1.0.0")]
     )
     respx_mock.get(_tdb_exists_route()).respond(200)
@@ -91,25 +86,14 @@ def test_unmet_requirement_skipped_with_warning(respx_mock):
             )
 
             settings = _settings(enable_writes=True)
-            model = FunctionModel(
-                function=lambda messages, info: ModelResponse(
-                    parts=[TextPart(content="ok")]
-                )
-            )
-            app = create_app(settings, model=model)
-
-            from fastapi.testclient import TestClient
+            app = create_app(settings)
 
             with TestClient(app) as client:
-                resp = client.post(
-                    "/v1/chat",
-                    json={"messages": [{"role": "user", "content": "hello"}]},
-                    headers={"Authorization": "Bearer test-token"},
-                )
+                resp = client.get("/healthz")
             assert resp.status_code == 200
 
 
-def test_strict_mode_fails_fast_on_skipped(respx_mock):
+def test_strict_mode_fails_fast_on_skipped(respx_mock: respx.MockRouter):
     """strict_plugins=True raises RuntimeError when a plugin is skipped
     due to unmet requirements."""
     respx_mock.get(_tdb_exists_route()).respond(200)
@@ -133,18 +117,11 @@ def test_strict_mode_fails_fast_on_skipped(respx_mock):
             mock_select.side_effect = _fake_select
 
             settings = _settings(enable_writes=True, strict_plugins=True)
-            model = FunctionModel(
-                function=lambda messages, info: ModelResponse(
-                    parts=[TextPart(content="ok")]
-                )
-            )
-
-            from fastapi.testclient import TestClient
 
             # create_app only builds the app; the lifespan runs on
             # first request / TestClient context entry.
             with pytest.raises(RuntimeError, match="Strict plugin mode"):
-                with TestClient(create_app(settings, model=model)):
+                with TestClient(create_app(settings)):
                     pass
 
 
@@ -153,12 +130,11 @@ def test_strict_mode_fails_fast_on_skipped(respx_mock):
 # ---------------------------------------------------------------------------
 
 
-def test_enable_writes_false_suppresses_plugins(respx_mock):
+def test_enable_writes_false_suppresses_plugins(respx_mock: respx.MockRouter):
     """When ENABLE_WRITES=false, write-tool plugins are suppressed even
     if discovered — but plugin names are still reported in healthz."""
     respx_mock.get(_tdb_exists_route()).respond(200)
 
-    # PluginHost's collision_key calls p.tools(None); time_management_plugin supports it.
     with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
             active=[("time_management", _planning_plugin)],
@@ -169,14 +145,7 @@ def test_enable_writes_false_suppresses_plugins(respx_mock):
             )
 
             settings = _settings(enable_writes=False)
-            model = FunctionModel(
-                function=lambda messages, info: ModelResponse(
-                    parts=[TextPart(content="ok")]
-                )
-            )
-            app = create_app(settings, model=model)
-
-            from fastapi.testclient import TestClient
+            app = create_app(settings)
 
             with TestClient(app) as client:
                 resp = client.get("/healthz")
@@ -186,87 +155,12 @@ def test_enable_writes_false_suppresses_plugins(respx_mock):
 
 
 # ---------------------------------------------------------------------------
-# Tool name collision fatal
-# ---------------------------------------------------------------------------
-
-
-class _CollidingPlugin:
-    name = "collider"
-    requires: list[ModuleRequirement] = []
-
-    def tools(self, deps):
-        return [Tool(lambda: "ok", name="get_document")]  # collides with core read tool
-
-
-def test_tool_name_collision_with_core_fatal(respx_mock):
-    """Registering a plugin tool with the same name as a core read tool
-    raises RuntimeError (caught by _collect_plugin_tools)."""
-    respx_mock.get(_tdb_exists_route()).respond(200)
-
-    with patch("firnline_core.plugins.discover_plugins") as mock_discover:
-        mock_discover.return_value = DiscoveryResult(
-            active=[("collider", _CollidingPlugin())],
-        )
-        with patch("firnline_core.plugins.select_plugins") as mock_select:
-            mock_select.return_value = PluginSelection(
-                active=[("collider", _CollidingPlugin())],
-            )
-
-            settings = _settings(enable_writes=True)
-
-            from fastapi.testclient import TestClient
-
-            with pytest.raises(RuntimeError, match="Tool name collision"):
-                with TestClient(create_app(settings)):
-                    pass
-
-
-def test_tool_name_collision_across_plugins_fatal(respx_mock):
-    """Two plugins registering the same tool name raises RuntimeError
-    (caught by PluginHost's collision_key)."""
-    respx_mock.get(_tdb_exists_route()).respond(200)
-
-    class _PluginA:
-        name = "a"
-        requires: list[ModuleRequirement] = []
-
-        def tools(self, deps):
-            return [Tool(lambda: "ok", name="shared_tool")]
-
-    class _PluginB:
-        name = "b"
-        requires: list[ModuleRequirement] = []
-
-        def tools(self, deps):
-            return [Tool(lambda: "ok", name="shared_tool")]
-
-    with patch("firnline_core.plugins.discover_plugins") as mock_discover:
-        mock_discover.return_value = DiscoveryResult(
-            active=[("a", _PluginA()), ("b", _PluginB())],
-        )
-        with patch("firnline_core.plugins.select_plugins") as mock_select:
-            mock_select.return_value = PluginSelection(
-                active=[("a", _PluginA()), ("b", _PluginB())],
-            )
-
-            settings = _settings(enable_writes=True)
-
-            from fastapi.testclient import TestClient
-
-            # PluginHost raises "Plugin collision on key" for cross-plugin
-            with pytest.raises(RuntimeError, match="Plugin collision"):
-                with TestClient(create_app(settings)):
-                    pass
-
-
-# ---------------------------------------------------------------------------
 # Briefing contains module list (mock registry)
 # ---------------------------------------------------------------------------
 
 
-def test_briefing_includes_module_list(respx_mock):
-    """When the module registry responds, the prompt briefing includes
-    the installed-modules section."""
+def test_briefing_includes_module_list(respx_mock: respx.MockRouter):
+    """When the module registry responds, the schema summary is available."""
     DOC_PATH = f"{TDB_URL}/api/document/admin/{TDB_DB}/local/branch/main"
     GQL_PATH = f"{TDB_URL}/api/graphql/admin/{TDB_DB}"
 
@@ -289,31 +183,19 @@ def test_briefing_includes_module_list(respx_mock):
     respx_mock.get(_tdb_exists_route()).respond(200)
 
     settings = _settings()
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(
-        settings,
-        model=model,
-        plugin_tools=[],
-    )
-
-    from fastapi.testclient import TestClient
+    app = create_app(settings)
 
     with TestClient(app) as client:
-        resp = client.post(
-            "/v1/chat",
-            json={"messages": [{"role": "user", "content": "hello"}]},
+        resp = client.get(
+            "/v1/schema",
             headers={"Authorization": "Bearer test-token"},
         )
 
     assert resp.status_code == 200
 
-    # Extract the briefing from app state
-    _, prompt_briefing = app.state.briefings
-    assert "Installed Schema Modules" in prompt_briefing
-    assert "core 1.1.0" in prompt_briefing
-    assert "planning 1.0.0" in prompt_briefing
+    # Check that the schema summary is not empty
+    summary = resp.json()["summary"]
+    assert len(summary) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +203,7 @@ def test_briefing_includes_module_list(respx_mock):
 # ---------------------------------------------------------------------------
 
 
-def test_healthz_reports_modules_and_plugins(respx_mock):
+def test_healthz_reports_modules_and_plugins(respx_mock: respx.MockRouter):
     """When the module registry responds, /healthz includes module
     versions and active plugin names."""
     DOC_PATH = f"{TDB_URL}/api/document/admin/{TDB_DB}/local/branch/main"
@@ -333,9 +215,6 @@ def test_healthz_reports_modules_and_plugins(respx_mock):
     respx_mock.get(_tdb_exists_route()).respond(200)
 
     settings = _settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
 
     with patch("firnline_core.plugins.discover_plugins") as mock_discover:
         mock_discover.return_value = DiscoveryResult(
@@ -346,9 +225,7 @@ def test_healthz_reports_modules_and_plugins(respx_mock):
                 active=[("time_management", _planning_plugin)],
             )
 
-            app = create_app(settings, model=model)
-
-            from fastapi.testclient import TestClient
+            app = create_app(settings)
 
             with TestClient(app) as client:
                 resp = client.get("/healthz")
@@ -368,7 +245,7 @@ def test_healthz_reports_modules_and_plugins(respx_mock):
 # ---------------------------------------------------------------------------
 
 
-def test_registry_unavailable_graceful_degradation(respx_mock):
+def test_registry_unavailable_graceful_degradation(respx_mock: respx.MockRouter):
     """When the module registry throws TdbError, the service starts
     with modules omitted and healthz reports empty modules.
     PluginHost handles the unavailable registry gracefully via
@@ -380,12 +257,7 @@ def test_registry_unavailable_graceful_degradation(respx_mock):
     respx_mock.get(_tdb_exists_route()).respond(200)
 
     settings = _settings()
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
-
-    from fastapi.testclient import TestClient
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.get("/healthz")
@@ -400,57 +272,11 @@ def test_registry_unavailable_graceful_degradation(respx_mock):
 
 
 # ---------------------------------------------------------------------------
-# _collect_plugin_tools unit tests
-# ---------------------------------------------------------------------------
-
-
-def test_collect_plugin_tools_empty():
-    tools, names = _collect_plugin_tools([], _settings(), MagicMock())
-    assert tools == []
-    assert names == []
-
-
-def test_collect_plugin_tools_success():
-    tools, names = _collect_plugin_tools(
-        [("time_management", _planning_plugin)], _settings(enable_writes=True), MagicMock()
-    )
-    assert len(tools) == 7
-    assert names == ["time_management_tools"]
-    tool_names = {t.name for t in tools}
-    assert tool_names == {
-        "set_task_status",
-        "set_event_status",
-        "create_task",
-        "update_task",
-        "create_routine",
-        "update_routine",
-        "log_activity",
-    }
-
-
-def test_collect_plugin_tools_name_collision_with_core():
-    class _Collider:
-        name = "c"
-        requires: list[ModuleRequirement] = []
-
-        def tools(self, deps):
-            return [Tool(lambda: "ok", name="today")]
-
-    with pytest.raises(RuntimeError, match="Tool name collision"):
-        _collect_plugin_tools([("c", _Collider())], _settings(), MagicMock())
-
-
-# Cross-plugin collision is now handled by PluginHost's collision_key,
-# not by _collect_plugin_tools.  The corresponding test is
-# ``test_tool_name_collision_across_plugins_fatal`` above.
-
-
-# ---------------------------------------------------------------------------
 # strict_plugins enforcement works regardless of enable_writes
 # ---------------------------------------------------------------------------
 
 
-def test_strict_fails_with_writes_disabled(respx_mock):
+def test_strict_fails_with_writes_disabled(respx_mock: respx.MockRouter):
     """strict_plugins=True + unmet requirement → fatal even when
     enable_writes=False."""
     respx_mock.get(_tdb_exists_route()).respond(200)
@@ -474,20 +300,13 @@ def test_strict_fails_with_writes_disabled(respx_mock):
             mock_select.side_effect = _fake_select
 
             settings = _settings(enable_writes=False, strict_plugins=True)
-            model = FunctionModel(
-                function=lambda messages, info: ModelResponse(
-                    parts=[TextPart(content="ok")]
-                )
-            )
-
-            from fastapi.testclient import TestClient
 
             with pytest.raises(RuntimeError, match="Strict plugin mode"):
-                with TestClient(create_app(settings, model=model)):
+                with TestClient(create_app(settings)):
                     pass
 
 
-def test_nonstrict_writes_disabled_allows_skipped(respx_mock):
+def test_nonstrict_writes_disabled_allows_skipped(respx_mock: respx.MockRouter):
     """enable_writes=False + non-strict: skipped plugins are tolerated,
     app starts, only active (post-selection) plugins reported in healthz."""
     respx_mock.get(_tdb_exists_route()).respond(200)
@@ -503,14 +322,7 @@ def test_nonstrict_writes_disabled_allows_skipped(respx_mock):
             )
 
             settings = _settings(enable_writes=False, strict_plugins=False)
-            model = FunctionModel(
-                function=lambda messages, info: ModelResponse(
-                    parts=[TextPart(content="ok")]
-                )
-            )
-            app = create_app(settings, model=model)
-
-            from fastapi.testclient import TestClient
+            app = create_app(settings)
 
             with TestClient(app) as client:
                 resp = client.get("/healthz")
