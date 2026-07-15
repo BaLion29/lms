@@ -1,5 +1,5 @@
 [
-  {"@id": "Task", "@inherits": ["Entity", "Remindable", "Source", "Anchored", "TaskSpec"], "@type": "Class",
+  {"@id": "Task", "@inherits": ["Entity", "Source", "Anchored", "TaskSpec"], "@type": "Class",
    "@metadata": {
      "label_field": "name",
      "anchor_field": "due_date",
@@ -12,7 +12,7 @@
    "@documentation": {"@comment": "A todo item with a due date and status. Derives from a source, can be reminded, and has a canonical anchor instant."},
    "due_date": {"@class": "xsd:dateTime", "@type": "Optional"},
    "status": "TaskStatus"},
-  {"@id": "Event", "@inherits": ["Entity", "Remindable", "Source", "Context", "Anchored"], "@type": "Class",
+  {"@id": "Event", "@inherits": ["Entity", "Source", "Context", "Anchored"], "@type": "Class",
    "@metadata": {
      "label_field": "name",
      "anchor_field": "start_datetime",
@@ -45,7 +45,7 @@
   {"@id": "EventStatus", "@type": "Enum",
    "@documentation": {"@comment": "Event lifecycle: open, planned, closed, or cancelled."},
    "@value": ["open", "planned", "closed", "cancelled"]},
-  {"@id": "Routine", "@inherits": ["Entity", "Source", "Remindable", "Triggerable"], "@type": "Class",
+  {"@id": "Routine", "@inherits": ["Entity", "Source", "Triggerable"], "@type": "Class",
    "@metadata": {"label_field": "name"},
    "@documentation": {"@comment": "A named, repeating routine composed of ordered steps. Can be reminded and triggered."},
    "name": "xsd:string",
@@ -57,7 +57,7 @@
    "@documentation": {"@comment": "A single step in a routine, referencing either an ActivitySpec or TaskSpec with an optional cadence in days."},
    "cadence_days": {"@class": "xsd:integer", "@type": "Optional"},
    "name": "xsd:string"},
-  {"@id": "Activity", "@inherits": ["Entity", "Remindable", "Source", "Context", "Anchored", "ActivitySpec"], "@type": "Class",
+  {"@id": "Activity", "@inherits": ["Entity", "Source", "Context", "Anchored", "ActivitySpec"], "@type": "Class",
    "@metadata": {"label_field": "name", "anchor_field": "start_datetime"},
    "@documentation": {"@comment": "A concrete instance of an activity from a routine, with scheduled start/end datetimes."},
    "end_datetime": {"@class": "xsd:dateTime", "@type": "Optional"},

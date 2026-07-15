@@ -136,7 +136,7 @@ async def test_subject_name_used_for_title(monkeypatch):
         route = mock.post("https://gotify.example.com/message").mock(
             return_value=Response(200, json={})
         )
-        result = await channel.deliver({}, {"name": "Walk dog", "@type": "Remindable"}, ctx)
+        result = await channel.deliver({}, {"name": "Walk dog", "@type": "Task"}, ctx)
 
     assert result.ok
     payload = json.loads(route.calls.last.request.content)
@@ -168,11 +168,11 @@ async def test_subject_type_fallback(monkeypatch):
         route = mock.post("https://gotify.example.com/message").mock(
             return_value=Response(200, json={})
         )
-        result = await channel.deliver({}, {"@type": "Remindable"}, ctx)
+        result = await channel.deliver({}, {"@type": "Task"}, ctx)
 
     assert result.ok
     payload = json.loads(route.calls.last.request.content)
-    assert payload["title"] == "Remindable"
+    assert payload["title"] == "Task"
 
 
 async def test_subject_id_fallback(monkeypatch):
@@ -184,11 +184,11 @@ async def test_subject_id_fallback(monkeypatch):
         route = mock.post("https://gotify.example.com/message").mock(
             return_value=Response(200, json={})
         )
-        result = await channel.deliver({}, {"@id": "Remindable/abc123"}, ctx)
+        result = await channel.deliver({}, {"@id": "Task/abc123"}, ctx)
 
     assert result.ok
     payload = json.loads(route.calls.last.request.content)
-    assert payload["title"] == "Remindable/abc123"
+    assert payload["title"] == "Task/abc123"
 
 
 async def test_subject_none_title_fallback(monkeypatch):

@@ -170,11 +170,11 @@ async def test_subject_type_fallback(monkeypatch):
         route = mock.post("https://gotify.example.com/message").mock(
             return_value=Response(200, json={})
         )
-        result = await executor.execute({}, {}, {"@type": "Remindable"}, ctx)
+        result = await executor.execute({}, {}, {"@type": "Task"}, ctx)
 
     assert result.ok
     payload = json.loads(route.calls.last.request.content)
-    assert payload["title"] == "Remindable"
+    assert payload["title"] == "Task"
 
 
 async def test_subject_id_fallback(monkeypatch):
@@ -186,11 +186,11 @@ async def test_subject_id_fallback(monkeypatch):
         route = mock.post("https://gotify.example.com/message").mock(
             return_value=Response(200, json={})
         )
-        result = await executor.execute({}, {}, {"@id": "Remindable/abc123"}, ctx)
+        result = await executor.execute({}, {}, {"@id": "Task/abc123"}, ctx)
 
     assert result.ok
     payload = json.loads(route.calls.last.request.content)
-    assert payload["title"] == "Remindable/abc123"
+    assert payload["title"] == "Task/abc123"
 
 
 async def test_subject_none_title_fallback(monkeypatch):
