@@ -1,6 +1,6 @@
 [project]
 name = "firnline-ext-time-management"
-version = "0.1.0"
+version = "0.2.0"
 description = "Firnline time-management extension — unified Task, Event, Routine, Activity schema module"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }

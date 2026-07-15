@@ -7,8 +7,11 @@ from datetime import datetime, timezone
 from firnline_core.plugins import EntityIndex
 from firnline_ext_time_management.extract import (
     ActivityProposal,
+    AreaProposal,
     EventProposal,
+    GoalProposal,
     PersonProposal,
+    ProjectProposal,
     RoutineProposal,
     RoutineStepSpec,
     TaskProposal,
@@ -42,6 +45,20 @@ class TestTaskProposal:
         assert p.estimated_duration == 30
         assert p.due_date.year == 2026
 
+    def test_project_and_area_default_none(self):
+        p = TaskProposal(name="Buy milk")
+        assert p.project_name is None
+        assert p.area_name is None
+
+    def test_with_project_and_area(self):
+        p = TaskProposal(
+            name="Write report",
+            project_name="Q3 report",
+            area_name="Work",
+        )
+        assert p.project_name == "Q3 report"
+        assert p.area_name == "Work"
+
 
 class TestEventProposal:
     def test_event_with_location(self):
@@ -53,6 +70,20 @@ class TestEventProposal:
         p = EventProposal(name="Meeting")
         assert p.location_name is None
         assert p.start_datetime is None
+
+    def test_project_and_area_default_none(self):
+        p = EventProposal(name="Meeting")
+        assert p.project_name is None
+        assert p.area_name is None
+
+    def test_with_project_and_area(self):
+        p = EventProposal(
+            name="Sprint planning",
+            project_name="Mobile app",
+            area_name="Engineering",
+        )
+        assert p.project_name == "Mobile app"
+        assert p.area_name == "Engineering"
 
 
 class TestPersonProposal:
@@ -140,6 +171,71 @@ class TestActivityProposal:
 
 
 # ---------------------------------------------------------------------------
+# PARA proposal model validation
+# ---------------------------------------------------------------------------
+
+
+class TestProjectProposal:
+    def test_minimal_project(self):
+        p = ProjectProposal(name="Garden redesign")
+        assert p.kind == "project"
+        assert p.name == "Garden redesign"
+        assert p.description is None
+        assert p.target_date is None
+        assert p.area_name is None
+        assert p.goal_name is None
+
+    def test_full_project(self):
+        p = ProjectProposal(
+            name="Garden redesign",
+            description="Redesign the backyard by June",
+            target_date=datetime(2026, 6, 30, tzinfo=UTC),
+            area_name="Home",
+            goal_name="Better outdoor space",
+        )
+        assert p.kind == "project"
+        assert p.description == "Redesign the backyard by June"
+        assert p.target_date.month == 6
+        assert p.area_name == "Home"
+        assert p.goal_name == "Better outdoor space"
+
+
+class TestAreaProposal:
+    def test_minimal_area(self):
+        p = AreaProposal(name="Health")
+        assert p.kind == "area"
+        assert p.name == "Health"
+        assert p.description is None
+
+    def test_area_with_description(self):
+        p = AreaProposal(name="Finances", description="Managing budgets and investments")
+        assert p.kind == "area"
+        assert p.description == "Managing budgets and investments"
+
+
+class TestGoalProposal:
+    def test_minimal_goal(self):
+        p = GoalProposal(name="Run a marathon")
+        assert p.kind == "goal"
+        assert p.name == "Run a marathon"
+        assert p.description is None
+        assert p.target_date is None
+        assert p.success_criteria is None
+
+    def test_full_goal(self):
+        p = GoalProposal(
+            name="Save for house",
+            description="Save 50k for a down-payment",
+            target_date=datetime(2027, 12, 31, tzinfo=UTC),
+            success_criteria="50k in savings account",
+        )
+        assert p.kind == "goal"
+        assert p.description == "Save 50k for a down-payment"
+        assert p.target_date.year == 2027
+        assert p.success_criteria == "50k in savings account"
+
+
+# ---------------------------------------------------------------------------
 # Prompt snippet
 # ---------------------------------------------------------------------------
 
@@ -158,6 +254,14 @@ class TestPromptSnippet:
         assert "Routine" in snippet
         assert "Activity" in snippet
 
+    def test_snippet_mentions_para_semantics(self):
+        snippet = self.plugin.prompt_snippet()
+        assert "Project" in snippet
+        assert "Area" in snippet
+        assert "Goal" in snippet
+        assert "project_name" in snippet
+        assert "area_name" in snippet
+
 
 # ---------------------------------------------------------------------------
 # Plugin metadata
@@ -172,34 +276,44 @@ class TestPluginMetadata:
         assert self.plugin.name == "time_management_extractor"
 
     def test_produces(self):
-        assert self.plugin.produces == ["Task", "Event", "Person", "Location", "Routine", "Activity"]
+        assert self.plugin.produces == ["Task", "Event", "Person", "Location", "Routine", "Activity", "Project", "Area", "Goal"]
 
     def test_requires(self):
         reqs = {r.name: r.range for r in self.plugin.requires}
         assert reqs == {
-            "time_management": ">=0.1.0 <0.2.0",
+            "time_management": ">=0.2.0 <0.3.0",
             "people": ">=0.1.0 <0.2.0",
             "places": ">=0.1.0 <0.2.0",
         }
 
     def test_proposal_models_count(self):
         models = self.plugin.proposal_models()
-        assert len(models) == 5
+        assert len(models) == 8
         names = {m.__name__ for m in models}
-        assert names == {"TaskProposal", "EventProposal", "PersonProposal", "RoutineProposal", "ActivityProposal"}
+        assert names == {
+            "TaskProposal", "EventProposal", "PersonProposal",
+            "RoutineProposal", "ActivityProposal",
+            "ProjectProposal", "AreaProposal", "GoalProposal",
+        }
 
-    def test_linking_context_includes_routines(self):
+    def test_linking_context_includes_all_entity_types(self):
         import asyncio
 
         index = EntityIndex()
         index.register("Person", "Alice", "Person/alice")
         index.register("Location", "Office", "Location/office")
         index.register("Routine", "Morning routine", "Routine/morning_routine")
+        index.register("Project", "Garden redesign", "Project/garden_redesign")
+        index.register("Area", "Health", "Area/health")
+        index.register("Goal", "Run marathon", "Goal/run_marathon")
 
         result = asyncio.run(self.plugin.linking_context(None, index=index, branch=""))
         assert "Person|Person/alice|Alice" in result
         assert "Location|Location/office|Office" in result
         assert "Routine|Routine/morning_routine|Morning routine" in result
+        assert "Project|Project/garden_redesign|Garden redesign" in result
+        assert "Area|Area/health|Health" in result
+        assert "Goal|Goal/run_marathon|Run marathon" in result
 
     def test_linking_context_empty_index(self):
         import asyncio
@@ -496,3 +610,249 @@ class TestBuildDocuments:
         docs = await self.plugin.build_documents(proposal, ctx)
         doc = docs[0]
         assert "anchor_at" not in doc
+
+    # ── Project ───────────────────────────────────────────────────────
+
+    async def test_project_proposal_minimal(self):
+        ctx = _FakeBuildContext()
+        proposal = ProjectProposal(name="Garden redesign")
+        docs = await self.plugin.build_documents(proposal, ctx)
+        assert len(docs) == 1
+        doc = docs[0]
+        assert doc["@type"] == "Project"
+        assert doc["name"] == "Garden redesign"
+        assert doc["status"] == "active"
+        assert doc["created_at"] == "2026-07-07T12:00:00Z"
+        assert doc["derived_from"] == ["InboxNote/test123"]
+        assert doc["provenance"]["agent"] == "ingestd"
+
+    async def test_project_proposal_with_target_date(self):
+        ctx = _FakeBuildContext()
+        target = datetime(2026, 6, 30, tzinfo=UTC)
+        proposal = ProjectProposal(
+            name="Redesign",
+            description="Redo the backyard",
+            target_date=target,
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc["description"] == "Redo the backyard"
+        assert doc["target_date"] == "2026-06-30T00:00:00Z"
+
+    async def test_project_proposal_with_area_and_goal_context(self):
+        """Project area_name and goal_name resolve to contexts via ensure_entity."""
+        ctx = _FakeBuildContext(ensure_entity_returns="Area/home")
+        proposal = ProjectProposal(
+            name="Garden redesign",
+            area_name="Home",
+            goal_name="Better outdoor space",
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert "contexts" in doc
+        # The default behaviour of _FakeBuildContext returns same IRI for all calls
+        # Both area and goal resolve to the same IRI
+        assert len(doc["contexts"]) == 2
+        assert "Area/home" in doc["contexts"]
+
+    async def test_project_proposal_context_not_found(self):
+        """If area_name and goal_name don't match, contexts stays empty."""
+        ctx = _FakeBuildContext(ensure_entity_returns=_SENTINEL_NOT_FOUND)
+        proposal = ProjectProposal(
+            name="Garden redesign",
+            area_name="Bogus",
+            goal_name="Nonsense",
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc.get("contexts", []) == []
+
+    # ── Area ──────────────────────────────────────────────────────────
+
+    async def test_area_proposal_minimal(self):
+        ctx = _FakeBuildContext()
+        proposal = AreaProposal(name="Health")
+        docs = await self.plugin.build_documents(proposal, ctx)
+        assert docs == []  # ensure_entity handles creation, returns []
+        assert len(ctx.ensure_entity_calls) == 1
+        assert ctx.ensure_entity_calls[0][0] == "Area"
+        assert ctx.ensure_entity_calls[0][1] == "Health"
+        # Factory creates a valid Area document
+        factory = ctx.ensure_entity_calls[0][2]
+        factory_doc = factory()
+        assert factory_doc["@type"] == "Area"
+        assert factory_doc["name"] == "Health"
+
+    async def test_area_proposal_with_description(self):
+        ctx = _FakeBuildContext()
+        proposal = AreaProposal(name="Finances", description="Budget and investments")
+        docs = await self.plugin.build_documents(proposal, ctx)
+        assert docs == []
+        factory_doc = ctx.ensure_entity_calls[0][2]()
+        assert factory_doc["description"] == "Budget and investments"
+
+    async def test_area_proposal_already_exists_is_reused(self):
+        """When an Area already exists, ensure_entity returns its IRI and factory is NOT called."""
+        ctx = _FakeBuildContext(ensure_entity_returns="Area/health")
+        proposal = AreaProposal(name="Health")
+        docs = await self.plugin.build_documents(proposal, ctx)
+        assert docs == []
+        assert len(ctx.ensure_entity_calls) == 1
+        assert ctx.ensure_entity_calls[0][0] == "Area"
+        assert ctx.ensure_entity_calls[0][1] == "Health"
+        # The factory should NOT be called since the entity already exists
+        factory = ctx.ensure_entity_calls[0][2]
+
+    # ── Goal ──────────────────────────────────────────────────────────
+
+    async def test_goal_proposal_minimal(self):
+        ctx = _FakeBuildContext()
+        proposal = GoalProposal(name="Run a marathon")
+        docs = await self.plugin.build_documents(proposal, ctx)
+        assert len(docs) == 1
+        doc = docs[0]
+        assert doc["@type"] == "Goal"
+        assert doc["name"] == "Run a marathon"
+        assert doc["status"] == "active"
+        assert doc["created_at"] == "2026-07-07T12:00:00Z"
+        assert doc["derived_from"] == ["InboxNote/test123"]
+
+    async def test_goal_proposal_full(self):
+        ctx = _FakeBuildContext()
+        target = datetime(2027, 12, 31, tzinfo=UTC)
+        proposal = GoalProposal(
+            name="Save for house",
+            description="Down-payment savings",
+            target_date=target,
+            success_criteria="50k in account",
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc["description"] == "Down-payment savings"
+        assert doc["target_date"] == "2027-12-31T00:00:00Z"
+        assert doc["success_criteria"] == "50k in account"
+        assert doc["status"] == "active"
+
+    # ── Task context wiring (project / area) ──────────────────────────
+
+    async def test_task_with_project_context_link(self):
+        """Task with project_name resolves the Project IRI into contexts."""
+        ctx = _FakeBuildContext(ensure_entity_returns="Project/garden")
+        proposal = TaskProposal(
+            name="Buy soil",
+            project_name="Garden redesign",
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc["contexts"] == ["Project/garden"]
+        assert len(ctx.ensure_entity_calls) == 1
+        assert ctx.ensure_entity_calls[0][0] == "Project"
+        assert ctx.ensure_entity_calls[0][1] == "Garden redesign"
+        # Factory returns None → no auto-creation
+        factory = ctx.ensure_entity_calls[0][2]
+        assert factory() is None
+
+    async def test_task_with_area_context_link(self):
+        """Task with area_name resolves the Area IRI into contexts."""
+        ctx = _FakeBuildContext(ensure_entity_returns="Area/home")
+        proposal = TaskProposal(
+            name="Fix sink",
+            area_name="Home",
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc["contexts"] == ["Area/home"]
+
+    async def test_task_with_both_project_and_area_context(self):
+        """Task with both project_name and area_name resolves both IRIs."""
+        # Use a call-counter approach: first call returns Project, second returns Area
+        class _MultiReturnCtx(_FakeBuildContext):
+            def __init__(self):
+                super().__init__()
+                self._call_count = 0
+
+            async def ensure_entity(self, type_name: str, name: str, factory):
+                self._call_count += 1
+                self.ensure_entity_calls.append((type_name, name, factory))
+                if self._call_count == 1:
+                    return "Project/garden"
+                return "Area/home"
+
+        ctx = _MultiReturnCtx()
+        proposal = TaskProposal(
+            name="Buy soil",
+            project_name="Garden redesign",
+            area_name="Home",
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert "Project/garden" in doc["contexts"]
+        assert "Area/home" in doc["contexts"]
+        assert len(doc["contexts"]) == 2
+
+    async def test_task_context_not_found_no_contexts_set(self):
+        """If project_name doesn't match anything, no context is added."""
+        ctx = _FakeBuildContext(ensure_entity_returns=_SENTINEL_NOT_FOUND)
+        proposal = TaskProposal(name="Unknown task", project_name="Bogus")
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc.get("contexts", []) == []
+
+    async def test_task_no_context_hint_keeps_default_empty(self):
+        """Task without project_name or area_name has empty contexts list."""
+        ctx = _FakeBuildContext()
+        proposal = TaskProposal(name="Simple task")
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc.get("contexts", []) == []
+
+    # ── Event context wiring (project / area) ─────────────────────────
+
+    async def test_event_with_project_context_link(self):
+        """Event with project_name resolves the Project IRI into contexts."""
+        ctx = _FakeBuildContext(ensure_entity_returns="Project/mobile_app")
+        proposal = EventProposal(
+            name="Sprint review",
+            project_name="Mobile app",
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert "Project/mobile_app" in doc["contexts"]
+
+    async def test_event_with_area_context_link(self):
+        """Event with area_name resolves the Area IRI into contexts."""
+        ctx = _FakeBuildContext(ensure_entity_returns="Area/engineering")
+        proposal = EventProposal(
+            name="Standup",
+            area_name="Engineering",
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert "Area/engineering" in doc["contexts"]
+
+    # ── Project context wiring (area / goal) ──────────────────────────
+
+    async def test_project_with_area_context(self):
+        """Project with area_name resolves Area IRI into contexts."""
+        ctx = _FakeBuildContext(ensure_entity_returns="Area/home")
+        proposal = ProjectProposal(
+            name="Garden redesign",
+            area_name="Home",
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc["contexts"] == ["Area/home"]
+
+    async def test_project_with_goal_context(self):
+        """Project with goal_name resolves Goal IRI into contexts."""
+        ctx = _FakeBuildContext(ensure_entity_returns="Goal/outdoor_space")
+        proposal = ProjectProposal(
+            name="Garden redesign",
+            goal_name="Better outdoor space",
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc["contexts"] == ["Goal/outdoor_space"]
+
+    # ── Goal has no status in minimal build ───────────────────────────
+    # (already covered by test_goal_proposal_minimal: status == "active")

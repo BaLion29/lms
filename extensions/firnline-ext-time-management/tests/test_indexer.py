@@ -14,11 +14,11 @@ class TestIndexerPluginMetadata:
 
     def test_requires(self):
         reqs = {r.name: r.range for r in self.plugin.requires}
-        assert reqs == {"time_management": ">=0.1.0 <0.2.0"}
+        assert reqs == {"time_management": ">=0.2.0 <0.3.0"}
 
     def test_indexed_classes(self):
         classes = self.plugin.indexed_classes()
-        assert classes == ["Task", "Event", "Routine", "Activity"]
+        assert classes == ["Task", "Event", "Routine", "Activity", "Project", "Area", "Goal"]
 
 
 class TestEntityText:
@@ -62,6 +62,41 @@ class TestEntityText:
         }
         assert self.plugin.entity_text(doc) == "Run — 5k"
 
+    def test_project_with_description(self):
+        doc = {"name": "Website redesign", "description": "Full overhaul"}
+        assert self.plugin.entity_text(doc) == "Website redesign — Full overhaul"
+
+    def test_project_without_description(self):
+        doc = {"name": "Website redesign"}
+        assert self.plugin.entity_text(doc) == "Website redesign"
+
+    def test_area_with_description(self):
+        doc = {"name": "Health", "description": "Fitness and well-being"}
+        assert self.plugin.entity_text(doc) == "Health — Fitness and well-being"
+
+    def test_area_without_description(self):
+        doc = {"name": "Health"}
+        assert self.plugin.entity_text(doc) == "Health"
+
+    def test_goal_with_description_and_success_criteria(self):
+        doc = {
+            "name": "Learn Spanish",
+            "description": "Reach conversational fluency",
+            "success_criteria": "Hold a 15-minute conversation with a native speaker",
+        }
+        assert (
+            self.plugin.entity_text(doc)
+            == "Learn Spanish — Reach conversational fluency — Hold a 15-minute conversation with a native speaker"
+        )
+
+    def test_goal_without_optional_fields(self):
+        doc = {"name": "Learn Spanish"}
+        assert self.plugin.entity_text(doc) == "Learn Spanish"
+
+    def test_goal_with_success_criteria_only(self):
+        doc = {"name": "Learn Spanish", "success_criteria": "Hold a conversation"}
+        assert self.plugin.entity_text(doc) == "Learn Spanish — Hold a conversation"
+
 
 class TestEntityName:
     def setup_method(self):
@@ -75,6 +110,15 @@ class TestEntityName:
 
     def test_routine_name(self):
         assert self.plugin.entity_name({"name": "Morning routine"}) == "Morning routine"
+
+    def test_project_name(self):
+        assert self.plugin.entity_name({"name": "Website redesign"}) == "Website redesign"
+
+    def test_area_name(self):
+        assert self.plugin.entity_name({"name": "Health"}) == "Health"
+
+    def test_goal_name(self):
+        assert self.plugin.entity_name({"name": "Learn Spanish"}) == "Learn Spanish"
 
 
 class TestEntityAliases:
@@ -92,6 +136,15 @@ class TestEntityAliases:
         aliases = self.plugin.entity_aliases({"name": "Morning yoga"})
         assert len(aliases) == 1
         assert aliases[0] == "Morning yoga"
+
+    def test_project_aliases(self):
+        assert self.plugin.entity_aliases({"name": "Website redesign"}) == ["Website redesign"]
+
+    def test_area_aliases(self):
+        assert self.plugin.entity_aliases({"name": "Health"}) == ["Health"]
+
+    def test_goal_aliases(self):
+        assert self.plugin.entity_aliases({"name": "Learn Spanish"}) == ["Learn Spanish"]
 
 
 class TestModuleLevelPlugin:
