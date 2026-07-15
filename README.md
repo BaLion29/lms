@@ -12,9 +12,10 @@ TerminusDB graph database — the single source of truth.
 ## Quickstart
 
 ```bash
-cp .env.example .env && vim .env      # set TDB_URL + secrets
-docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-docker compose up -d
+git clone https://github.com/davidsouther/firnline.git
+cd firnline
+cp .env.example .env && vim .env      # set the 4 required values
+docker compose up -d                   # bootstrap auto-runs (idempotent), then all services
 ```
 
 The stack starts on port 8080 (apid — unified API: captured, queryd, indexed, mcpd)
@@ -45,6 +46,10 @@ curl -s http://localhost:8080/v1/tools \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Bring your own TerminusDB or LLM?  See [docs/getting-started.md](docs/getting-started.md) —
+instructions for removing the bundled TerminusDB block and for running a
+LiteLLM proxy inside Docker (commented-out block in compose.yaml).
+
 Full guide: [docs/getting-started.md](docs/getting-started.md).
 
 ## Repository layout
@@ -67,8 +72,7 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `schema/modules/triggers/` | Kernel schema module (abstract Trigger and concrete trigger types) |
 | `schema/modules/capture/` | Kernel schema module (Captured) |
 | `docker/` | Entrypoint script for extension overlay management |
-| `compose.yaml` | Docker Compose deployment (external TerminusDB) |
-| `compose.bundled-tdb.yaml` | Overlay adding a bundled TerminusDB v12 container |
+| `compose.yaml` | Docker Compose deployment (bundled TerminusDB included, removable) |
 
 ## Documentation
 

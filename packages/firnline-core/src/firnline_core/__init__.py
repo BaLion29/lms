@@ -89,7 +89,7 @@ from firnline_core.toolspec import (
     ToolSpec,
 )
 from firnline_core.semver import Range, RangeError, Version, VersionError
-from firnline_core.settings import TdbSettings
+from firnline_core.settings import FirnlineBaseSettings, TdbSettings
 from firnline_core.repository import Repository, TransitionError as RepositoryTransitionError
 from firnline_core.tdb import (
     ChangeEvent,
@@ -148,6 +148,7 @@ __all__ = [
     "Repository",
     "RepositoryTransitionError",
     # settings
+    "FirnlineBaseSettings",
     "TdbSettings",
     # semver
     "Range",

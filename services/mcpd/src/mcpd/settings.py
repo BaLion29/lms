@@ -1,9 +1,10 @@
 """Application settings loaded from environment variables prefixed with MCPD_."""
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from firnline_core.settings import FirnlineBaseSettings
+from pydantic_settings import SettingsConfigDict
 
 
-class McpdSettings(BaseSettings):
+class McpdSettings(FirnlineBaseSettings):
     """MCP daemon settings.
 
     All fields can be set via environment variables with the ``MCPD_`` prefix

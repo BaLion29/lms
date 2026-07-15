@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import functools
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from firnline_core.settings import FirnlineBaseSettings
+from pydantic_settings import SettingsConfigDict
 
 
-class Settings(BaseSettings):
+class Settings(FirnlineBaseSettings):
     """Application settings loaded from environment variables prefixed with WEBUI_."""
 
     model_config = SettingsConfigDict(env_prefix="WEBUI_")

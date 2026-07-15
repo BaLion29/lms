@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`firnline-ext-time-management` 0.1.0 merges planning + routines.** The
+- **`firnline-ext-time-management` 0.2.0 merges planning + routines.** The
   `firnline-ext-planning` and `firnline-ext-routines` extensions are combined
   into a single `time_management` schema module (9 classes: Task, TaskSpec,
   Event, TaskStatus, EventStatus, Routine, RoutineStep, Activity, ActivitySpec).
