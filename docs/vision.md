@@ -40,7 +40,7 @@ its **commit graph** gives every change an author, a message, and a way back.
 | **Everything is remindable** | Reminders are an extension concern, not kernel. The triggers module provides `Triggerable` (a mixin for things that own a trigger) and an `Anchored` pure role marker for temporal anchoring. Concrete classes implementing `Anchored` declare a class-level `@metadata.anchor_field` naming an `xsd:dateTime` field. A rich `Trigger` model (schedule/rrule, relative offsets over Anchored entities, event-based triggers over the kernel change feed, boolean composition) drives when they fire. If an anchor's `anchor_field` is unset, relative triggers are **dormant** — evaluators skip them explicitly (triggerd logs `trigger_dormant`). `triggerd` materialises `TriggerFiring` records; `effectd` executes the nag policy (renotify, expire, snooze) and delivers via notification channels. |
 | **Multiple contexts, no hierarchies** | The `Context` marker lets a Task be tagged with `Person`, `Location`, `Event`, or custom contexts — as many as needed. |
 | **Processing pipeline** | Captured documents flow through explicit statuses (`new → transcribed → processed / failed / archived`), spawning core entities along the way. Statuses *are* the queue; the database is the only integration point. Capture is a kernel schema module (`schema/modules/capture`) — the capture raison d'être ships with core. |
-| **Modular by design** | The schema is split into versioned **modules** (core, capture, triggers, time_management, people, …) composed at build time; services load **plugins** via Python entry points. New domains = new module + plugins, no core changes. |
+| **Modular by design** | The schema is split into versioned **modules** (core, capture, triggers, time_management, address_book, …) composed at build time; services load **plugins** via Python entry points. New domains = new module + plugins, no core changes. |
 | **Open to contributors** | A third party can ship one installable package containing a schema module, an extractor plugin, and query tools — and the whole vertical (capture → extraction → storage → query) works. |
 
 ## What This System Is NOT
@@ -92,9 +92,11 @@ Four abstract markers structure everything:
 │   Activity  ── Source+Context+ActivitySpec · routine→Routine       │
 │   Reminder  ── refer_to · trigger→Trigger (optional, extension)   │
 │                                                                    │
-│  people:                                                           │
-│   Person    ── Source+Context · Contact (@subdocument, inline)     │
-│   Location  ── Context · aliases · coordinates                     │
+│  address_book:                                                     │
+│   Person         ── Source+Context · Contact (@subdocument, inline)│
+│   Location       ── Context · aliases · coordinates                │
+│   Organization   ── Context · employees                            │
+│   Affiliation    ── @subdocument · org→Organization · role         │
 └────────────────────────────────────────────────────────────────────┘
 ```
 

@@ -1,7 +1,7 @@
 {
   "name": "capture",
   "version": "0.1.0",
-  "depends_on": [{"name": "core", "range": ">=0.1.0 <0.2.0"}],
+  "depends_on": [{"name": "core", "range": ">=0.2.0 <0.3.0"}],
   "models_target": "firnline_core.generated.capture",
   "models_import": "firnline_core.models",
   "exports": ["Captured", "CapturedStatus"],

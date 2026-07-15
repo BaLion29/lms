@@ -108,7 +108,7 @@ class TestCheckRequirements:
         ]
         reqs = [
             ModuleRequirement(name="planning", range=">=2.0.0"),
-            ModuleRequirement(name="people", range=">=1.0.0"),
+            ModuleRequirement(name="demo", range=">=1.0.0"),
             ModuleRequirement(name="broken", range="!!"),
         ]
         violations = await check_requirements(tdb, reqs)

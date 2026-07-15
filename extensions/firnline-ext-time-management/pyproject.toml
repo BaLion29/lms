@@ -9,8 +9,7 @@ requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [
     "firnline-core",
-    "firnline-ext-people",
-    "firnline-ext-places",
+    "firnline-ext-address-book",
     "structlog",
 ]
 
@@ -28,8 +27,7 @@ time_management_indexer = "firnline_ext_time_management.indexer:plugin"
 
 [tool.uv.sources]
 firnline-core = { workspace = true }
-firnline-ext-people = { workspace = true }
-firnline-ext-places = { workspace = true }
+firnline-ext-address-book = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

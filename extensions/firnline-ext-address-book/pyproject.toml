@@ -1,0 +1,50 @@
+[project]
+name = "firnline-ext-address-book"
+version = "0.2.0"
+description = "Firnline address-book extension — Person, Contact, Location, Organization, Affiliation schema module and entity linking extractors"
+authors = [
+    { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
+]
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "firnline-core",
+    "httpx",
+    "pydantic-settings",
+]
+
+[project.entry-points."firnline.schema_modules"]
+address_book = "firnline_ext_address_book"
+
+[project.entry-points."firnline.ingestd.extractors"]
+address_book_linking = "firnline_ext_address_book.extract:plugin"
+
+[project.entry-points."firnline.indexed.indexers"]
+address_book_indexer = "firnline_ext_address_book.indexer:plugin"
+
+[project.entry-points."firnline.effectd.executors"]
+address_book_geocoder = "firnline_ext_address_book.enrich:plugin"
+
+[project.entry-points."firnline.queryd.tools"]
+address_book_tools = "firnline_ext_address_book.tools:plugin"
+
+[tool.uv.sources]
+firnline-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/firnline_ext_address_book"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "respx",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
