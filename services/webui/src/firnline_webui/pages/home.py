@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import reflex as rx
 
-from firnline_webui.state.chat import HomeChatState
 from firnline_webui.state.health import HealthState
 from firnline_webui.state.modules import ModulesState
 from firnline_webui.ui.cards import chip, info_row, stat_badge, status_card
@@ -100,44 +99,6 @@ def home_page() -> rx.Component:
                 ),
                 columns=rx.breakpoints(initial="1", md="2", lg="4"),
                 spacing="4",
-                width="100%",
-            ),
-            # Quick chat card
-            rx.card(
-                rx.hstack(
-                    rx.icon(tag="message_circle", size=18, color=rx.color("accent", 11)),
-                    rx.vstack(
-                        rx.heading("Ask Firnline", size="4"),
-                        rx.text(
-                            "Chat with your data using AI.",
-                            size="2",
-                            color_scheme="gray",
-                        ),
-                        spacing="1",
-                    ),
-                    rx.spacer(),
-                    rx.form(
-                        rx.hstack(
-                            rx.input(
-                                value=HomeChatState.home_prompt,
-                                on_change=HomeChatState.set_home_prompt,
-                                placeholder="Ask a question…",
-                                size="2",
-                                width="240px",
-                            ),
-                            rx.button("Ask", size="2", color_scheme="cyan", type="submit"),
-                            spacing="2",
-                            align="center",
-                        ),
-                        on_submit=HomeChatState.go,
-                    ),
-                    spacing="3",
-                    align="center",
-                    width="100%",
-                ),
-                background=rx.color("accent", 2),
-                border=f"1px solid {rx.color('accent', 5)}",
-                size="2",
                 width="100%",
             ),
             # Quick capture card

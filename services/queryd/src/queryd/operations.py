@@ -1,7 +1,7 @@
 """Transport-neutral async operations for queryd.
 
 Plain async functions with explicit dependencies (no RunContext).  Used by
-both the pydantic-ai tools (thin wrappers) and the REST endpoints.
+REST endpoints and tool invocation paths.
 """
 
 from __future__ import annotations

@@ -39,13 +39,13 @@
 │  schema graph: composed from modules (build artifact)                   │
 │  commit graph: audit trail; branches = staging / review boundary        │
 └────────┬──────────────────────────┬────────────────────────────────────┘
-         │ poll (new/transcribed)   │ GraphQL (read) + tools
-         ▼                          ▼
-      INGESTD                    QUERYD ◄── POST /v1/chat ── FRONTEND
-      poll → extract → link      FastAPI + Pydantic AI
-      → insert → flip status     read tools + guarded writes
-      per-item commit            LLM via LiteLLM
-      LLM via LiteLLM
+          │ poll (new/transcribed)   │ GraphQL / find* / tools
+          ▼                          ▼
+       INGESTD                    QUERYD ◄── mcpd (MCP server)
+       poll → extract → link      GraphQL read proxy
+       → insert → flip status     document lookup, find entity|class|field
+       per-item commit            schema introspection
+       LLM via LiteLLM            write-tool endpoints (guarded)
          │
          ▼
        TRIGGERD
@@ -68,7 +68,7 @@
 | **captured** | Ingestion API — accepts notes and file uploads; dispatches to pluggable handler plugins. | 8088 |
 | **ingestd** | Polling worker — picks up Captured documents, runs extractor plugins via LLM, writes typed documents. | — |
 | **queryd** | Conversational agent API — read tools, GraphQL, structured API endpoints, and flag-gated write-tool plugins. | 8087 |
-| **mcpd** | MCP server — exposes firnline to external AI agents via Model Context Protocol (streamable HTTP). Tools: graphql_query, get_document, find_entity/class/field, get_schema, list_modules, capture. | 8090 |
+| **mcpd** | MCP server — exposes firnline to external AI agents via Model Context Protocol (streamable HTTP). Tools: graphql_query, get_document, find_entity/class/field, get_schema, list_modules, capture, create_document. | 8090 |
 | **indexed** | Precision grounding service — mirrors TDB documents + schema into a hybrid vector+lexical index and serves precise-lookup endpoints to ingestd and queryd. | 8089 |
 | **triggerd** | Polling worker — evaluates Trigger documents, materializes TriggerFiring records. | — |
 | **effectd** | Effect delivery daemon — plans `ActionExecution` records, executes via `ActionExecutor` plugins (webhook, notify, etc.), runs legacy notification loop with nag policy (renotify, expire, snooze wake-up). See [docs/actions.md](actions.md) for the action lifecycle. | — |
@@ -85,10 +85,13 @@ the compose stack.
 2. **Ingest** — `ingestd` polls for Captured documents, sends text to LLM with typed output schemas (extractor
    plugins), links known entities (Person, Location), materializes documents
    in one commit per item, flips status.
-3. **Query** — `queryd` serves `POST /v1/chat` with full conversation history
-   each turn. The agent has read tools (`graphql_query`, `get_document`,
-   `get_schema_details`, `today`) and, when `ENABLE_WRITES=true`, registered
-   write-tool plugins.
+3. **Query** — `queryd` serves GraphQL read queries (`POST /v1/graphql`),
+    document lookup (`GET /v1/documents/{iri}`), semantic entity/class/field
+    search (`/v1/find/*`), schema introspection (`/v1/schema`, `/v1/modules`),
+    and, when `QUERYD_ENABLE_WRITES=true`, registered write-tool endpoints
+    (`GET /v1/tools`, `POST /v1/tools/{name}`). External AI agents reach
+    queryd through mcpd, which wraps these endpoints as MCP tools (see
+    [mcpd](mcpd.md)).
 4. **Trigger** — `triggerd` polls for Trigger documents, runs evaluator plugins
    to compute occurrence instants within each cycle's lookback window, and
    materializes `TriggerFiring` records with `status=pending`.  Firing
@@ -104,7 +107,20 @@ the compose stack.
    `ingestd` consults it for entity linking beyond casefold-exact match;
    `queryd` uses `find_entity`/`find_class`/`find_field` tools to ground the
    agent before GraphQL queries.  If `indexed` is unavailable, both consumers
-   degrade gracefully to today's behaviour.
+    degrade gracefully to today's behaviour.
+
+### Direct Structured Ingestion
+
+When the caller already knows the exact field values for a document, the full
+capture → ingest pipeline is unnecessary — there is no free text to
+disambiguate.  A shortcut path is available: ``POST
+/v1/documents/{class_name}`` on **queryd** accepts a plain JSON object body,
+validates it against the TerminusDB schema, and writes it via
+``Repository.create()`` (design law L6: every entity write goes through this
+layer).  External AI agents access this path through **mcpd**'s
+``create_document`` tool.  Provenance is recorded via the ``X-Firnline-Agent``
+header (default ``service:queryd`` when not present; mcpd sets ``ext:mcp`` so
+external-agent writes are correctly attributed).
 
 ## Schema Module System
 
@@ -238,7 +254,7 @@ firnline/
 ├── services/
 │   ├── captured/               # capture ingress (FastAPI)
 │   ├── ingestd/                # AI ingestion polling worker
-│   ├── queryd/                 # conversational agent (FastAPI)
+│   ├── queryd/                 # GraphQL read proxy + write-tool endpoints (FastAPI)
 │   ├── mcpd/                   # MCP server for external agents
 │   ├── triggerd/               # trigger evaluation polling worker
 │   ├── effectd/                # effect delivery daemon (nag policy + channels)

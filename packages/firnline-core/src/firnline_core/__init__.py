@@ -77,11 +77,16 @@ from firnline_core.plugins import (
     PluginHost,
     PluginSelection,
     ToolPlugin,
+    ToolSpecPlugin,
     TriggerEvaluator,
     check_requirements,
     discover_plugins,
     select_plugins,
     validate_plugin,
+)
+from firnline_core.toolspec import (
+    ToolContext,
+    ToolSpec,
 )
 from firnline_core.semver import Range, RangeError, Version, VersionError
 from firnline_core.settings import TdbSettings
@@ -180,6 +185,7 @@ __all__ = [
     "PluginHost",
     "PluginSelection",
     "ToolPlugin",
+    "ToolSpecPlugin",
     "TriggerEvaluator",
     "check_requirements",
     "discover_plugins",
@@ -198,6 +204,9 @@ __all__ = [
     "ToolTraceEntry",
     "now_utc_str",
     "traced",
+    # toolspec
+    "ToolContext",
+    "ToolSpec",
     # durations
     "parse_duration",
     "parse_iso_datetime",

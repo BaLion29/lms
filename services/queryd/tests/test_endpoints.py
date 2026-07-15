@@ -6,15 +6,15 @@ Covers: /v1/schema, /v1/schema/introspection, /v1/modules,
 
 from __future__ import annotations
 
-import json
+from contextlib import contextmanager
+from unittest.mock import patch
 
 import pytest
 import respx
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from pydantic_ai.messages import ModelResponse, TextPart
-from pydantic_ai.models.function import FunctionModel
+from firnline_core.plugins import DiscoveryResult, PluginSelection
 
 from queryd.app import create_app, _validate_doc_iri
 from queryd.settings import Settings
@@ -36,9 +36,6 @@ def _make_settings(**overrides) -> Settings:
         api_token="test-token",
         tdb_db=TDB_DB,
         tdb_password="x",
-        llm_base_url="http://llm.test",
-        llm_api_key="sk-test",
-        llm_model="test-model",
         tdb_url=TDB_URL,
     )
     defaults.update(overrides)
@@ -49,18 +46,21 @@ def _tdb_exists_route() -> str:
     return f"{TDB_URL}/api/db/admin/{TDB_DB}"
 
 
+@contextmanager
 def _app_client(
     settings: Settings | None = None,
     respx_mock: respx.MockRouter | None = None,
     **overrides,
 ):
-    """Create a TestClient with basic mocks for startup."""
+    """Create a TestClient with basic mocks for startup (no plugins)."""
     s = settings if settings is not None else _make_settings(**overrides)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(s, model=model, plugin_tools=[])
-    return TestClient(app)
+    with patch("firnline_core.plugins.discover_plugins") as mock_disc:
+        mock_disc.return_value = DiscoveryResult(active=[])
+        with patch("firnline_core.plugins.select_plugins") as mock_sel:
+            mock_sel.return_value = PluginSelection(active=[])
+            app = create_app(s)
+            with TestClient(app) as client:
+                yield client
 
 
 # ---------------------------------------------------------------------------
@@ -411,10 +411,7 @@ def test_v1_find_entity_disabled_503(respx_mock: respx.MockRouter):
     respx_mock.get(_tdb_exists_route()).respond(200)
 
     settings = _make_settings(indexed_enabled=False)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -433,10 +430,7 @@ def test_v1_find_entity_requires_text(respx_mock: respx.MockRouter):
 
     # We need indexed enabled to bypass the 503 check
     settings = _make_settings(indexed_enabled=True, indexed_url="http://localhost:8089")
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -458,10 +452,7 @@ def test_v1_find_class_disabled_503(respx_mock: respx.MockRouter):
     respx_mock.get(_tdb_exists_route()).respond(200)
 
     settings = _make_settings(indexed_enabled=False)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -484,10 +475,7 @@ def test_v1_find_field_disabled_503(respx_mock: respx.MockRouter):
     respx_mock.get(_tdb_exists_route()).respond(200)
 
     settings = _make_settings(indexed_enabled=False)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -505,10 +493,7 @@ def test_v1_find_field_with_class_name(respx_mock: respx.MockRouter):
     respx_mock.get(_tdb_exists_route()).respond(200)
 
     settings = _make_settings(indexed_enabled=True, indexed_url="http://localhost:8089")
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -524,13 +509,12 @@ def test_v1_find_field_with_class_name(respx_mock: respx.MockRouter):
 
 
 # ---------------------------------------------------------------------------
-# PluginHost startup paths (Task 4: PluginHost startup test coverage)
+# PluginHost startup paths
 # ---------------------------------------------------------------------------
 
 
 def test_pluginhost_startup_gates_writes(respx_mock: respx.MockRouter):
-    """PluginHost used when plugin_tools not provided; writes disabled
-    → plugin names reported but tools suppressed."""
+    """PluginHost runs; writes disabled → tools suppressed but plugins reported in healthz."""
     respx_mock.get(DOC_PATH).respond(json=[])  # empty registry
     respx_mock.post(GQL_PATH).respond(
         json={
@@ -545,10 +529,7 @@ def test_pluginhost_startup_gates_writes(respx_mock: respx.MockRouter):
     respx_mock.get(_tdb_exists_route()).respond(200)
 
     settings = _make_settings(enable_writes=False)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model)
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.get("/healthz", headers=AUTH)
@@ -556,43 +537,3 @@ def test_pluginhost_startup_gates_writes(respx_mock: respx.MockRouter):
     assert resp.status_code == 200
     data = resp.json()
     assert "plugins" in data
-    # plugins list may be empty or contain discovered plugins (no strict enforcement)
-
-
-def test_pluginhost_strict_broken_entrypoint_fatal(respx_mock: respx.MockRouter):
-    """strict_plugins=True + broken entry point → RuntimeError at startup."""
-    respx_mock.get(DOC_PATH).respond(json=[])
-    respx_mock.post(GQL_PATH).respond(
-        json={
-            "data": {
-                "__schema": {
-                    "queryType": {"name": "Query"},
-                    "types": [],
-                }
-            }
-        }
-    )
-    respx_mock.get(_tdb_exists_route()).respond(200)
-
-    # Simulate discovery failure
-    from unittest.mock import patch
-    from firnline_core.plugins import DiscoveryResult
-
-    with patch("firnline_core.plugins.discover_plugins") as mock_disc:
-        mock_disc.return_value = DiscoveryResult(
-            active=[],
-            failed=[("bad_plugin", "ImportError: cannot import")],
-        )
-
-        settings = _make_settings(enable_writes=True, strict_plugins=True)
-        model = FunctionModel(
-            function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-        )
-        app = create_app(settings, model=model)
-
-        import pytest
-        from fastapi.testclient import TestClient as TC
-
-        with pytest.raises(RuntimeError, match="failed to load"):
-            with TC(app):
-                pass

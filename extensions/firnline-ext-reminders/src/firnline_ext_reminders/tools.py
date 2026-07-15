@@ -12,11 +12,13 @@ from typing import Any
 
 import structlog
 
+from pydantic import BaseModel, Field
 from pydantic_ai import RunContext, Tool
 
 from firnline_core.plugins import ModuleRequirement
 from firnline_core.repository import Repository
 from firnline_core.tooling import traced
+from firnline_core.toolspec import ToolContext, ToolSpec
 
 from firnline_ext_reminders.models import Reminder
 
@@ -61,20 +63,33 @@ def _get_repo(ctx: RunContext[Any]) -> Repository:
 
 
 # ---------------------------------------------------------------------------
-# Tool function
+# Args model for ToolSpec
 # ---------------------------------------------------------------------------
 
 
-@traced
-async def create_reminder(
-    ctx: RunContext[Any],
+class CreateReminderArgs(BaseModel):
+    """Create a new Reminder, optionally linked to a Remindable entity."""
+
+    name: str = Field(description="The name/short text of the Reminder")
+    description: str | None = Field(default=None, description="Optional longer description")
+    refers_to_iri: str | None = Field(default=None, description="Optional IRI of a Remindable entity to link to")
+
+
+# ---------------------------------------------------------------------------
+# Core business logic (_do_ function — no RunContext, no @traced)
+# ---------------------------------------------------------------------------
+
+
+async def _do_create_reminder(
     name: str,
     description: str | None = None,
     refers_to_iri: str | None = None,
+    *,
+    tdb: Any,
+    branch: str,
 ) -> dict[str, object]:
-    """Create a new Reminder, optionally linked to a Remindable entity."""
-    repo = _get_repo(ctx)
-    branch = ctx.deps.settings.tdb_branch
+    """Create a new Reminder (core logic), optionally linked to a Remindable entity."""
+    repo = Repository(tdb) if not isinstance(tdb, Repository) else tdb
     refers_to: str | None = None
 
     if refers_to_iri is not None:
@@ -120,6 +135,38 @@ async def create_reminder(
 
 
 # ---------------------------------------------------------------------------
+# Legacy pydantic-ai tool wrapper (@traced, RunContext — keep unchanged)
+# ---------------------------------------------------------------------------
+
+
+@traced
+async def create_reminder(
+    ctx: RunContext[Any],
+    name: str,
+    description: str | None = None,
+    refers_to_iri: str | None = None,
+) -> dict[str, object]:
+    """Create a new Reminder, optionally linked to a Remindable entity."""
+    return await _do_create_reminder(
+        name, description, refers_to_iri,
+        tdb=ctx.deps.tdb,
+        branch=ctx.deps.settings.tdb_branch,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ToolSpec handler
+# ---------------------------------------------------------------------------
+
+
+async def _handle_create_reminder(args: CreateReminderArgs, ctx: ToolContext) -> dict[str, object]:
+    return await _do_create_reminder(
+        args.name, args.description, args.refers_to_iri,
+        tdb=ctx.tdb, branch=ctx.branch,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Plugin class
 # ---------------------------------------------------------------------------
 
@@ -133,6 +180,17 @@ class ReminderToolsPlugin:
     def tools(self, deps: Any) -> list[Tool]:
         """Return pydantic-ai Tool objects for reminder write operations."""
         return [Tool(create_reminder)]
+
+    def tool_specs(self) -> list[ToolSpec]:
+        """Return framework-neutral ToolSpec objects for reminder write operations."""
+        return [
+            ToolSpec(
+                name="create_reminder",
+                description=create_reminder.__doc__ or "Create a new Reminder.",
+                args_model=CreateReminderArgs,
+                handler=_handle_create_reminder,
+            ),
+        ]
 
 
 plugin = ReminderToolsPlugin()

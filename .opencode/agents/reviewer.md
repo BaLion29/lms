@@ -1,7 +1,7 @@
 ---
 description: Read-only code review. Use after coder finishes a task: checks correctness, edge cases, security, project conventions. Returns a short verdict plus concrete issues.
 mode: subagent
-model: litellm/deep-reasoning
+model: litellm/reasoning
 temperature: 0.1
 ---
 

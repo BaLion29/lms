@@ -10,7 +10,7 @@ presents firnline's capabilities as MCP tools and resources.
 ```
 External AI agent ─► mcpd (streamable HTTP, :8090)
                         │
-                        ├─► queryd (:8087) — GraphQL, schema, find_*, documents
+                        ├─► queryd (:8087) — GraphQL, schema, find_*, documents, write tools
                         └─► captured (:8088) — capture note
 ```
 
@@ -44,6 +44,23 @@ All environment variables are prefixed with `MCPD_`:
 | `get_schema` | Rendered schema summary | queryd `GET /v1/schema` |
 | `list_modules` | List installed schema modules | queryd `GET /v1/modules` |
 | `capture` | Submit a text note | captured `POST /v1/capture/note` |
+| (dynamic) | Write tools registered at startup from queryd | queryd `GET /v1/tools` → `POST /v1/tools/{name}` |
+
+### Dynamic write tools
+
+At startup, mcpd calls `GET /v1/tools` on queryd. If `QUERYD_ENABLE_WRITES=true`
+on queryd, queryd returns a list of write-tool specs (name, description,
+input_schema) sourced from extension plugins implementing the
+`firnline.queryd.tools` entry-point group. mcpd registers each one as a
+dynamically-named MCP tool (gated by `MCPD_ENABLE_QUERYD_TOOLS`, default `true`).
+
+When `QUERYD_ENABLE_WRITES=false`, `/v1/tools` returns an empty list and no
+dynamic write tools appear in the MCP tool list.
+
+Write tools are invoked via `POST /v1/tools/{name}` with the arguments
+specified in each tool's `input_schema`. The tool implementation in the
+extension plugin executes the write against TerminusDB and returns a result.
+All calls are bearer-authed with the queryd token.
 
 All tools require bearer authentication — tokens are forwarded to the
 backend service. Errors are translated to MCP error responses.

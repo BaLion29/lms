@@ -245,6 +245,11 @@ class ExtractorPlugin(Protocol):
 class ToolPlugin(Protocol):
     """Protocol for queryd write-tool plugins.
 
+    .. deprecated::
+        Use :class:`ToolSpecPlugin` for new plugins; ``ToolPlugin`` is
+        kept for backward compatibility and will be removed in a future
+        release.  The canonical interface is :meth:`ToolSpecPlugin.tool_specs`.
+
     Duck-typing note: same ``@runtime_checkable`` caveat as above.
     """
 
@@ -255,6 +260,39 @@ class ToolPlugin(Protocol):
         """Return a list of pydantic-ai ``Tool`` objects.
 
         Typed as ``list[Any]`` to avoid a pydantic-ai dependency in firnline-core.
+        """
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Tool-spec protocol — framework-neutral tool contract
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class ToolSpecPlugin(Protocol):
+    """Protocol for queryd tool plugins exposing framework-neutral :class:`~firnline_core.toolspec.ToolSpec` objects.
+
+    This is the **canonical** interface for write-tool plugins.
+    Unlike :class:`ToolPlugin` (which returns pydantic-ai ``Tool`` objects
+    and carries a pydantic-ai dependency), :class:`ToolSpecPlugin` is
+    framework-neutral so tools can be exposed over REST, MCP, or other
+    transports.
+
+    Discovery note: ``ToolSpecPlugin`` is a separate protocol from
+    ``ToolPlugin`` — plugins may implement either (or both).
+    ``PluginHost`` validates against whatever protocol the service
+    passes to it, so no existing plugin is broken by the new protocol.
+    """
+
+    name: str
+    requires: list[ModuleRequirement]
+
+    def tool_specs(self) -> list[Any]:
+        """Return a list of :class:`~firnline_core.toolspec.ToolSpec` objects.
+
+        Typed as ``list[Any]`` to avoid a pydantic-ai dependency in
+        firnline-core.
         """
         ...
 
