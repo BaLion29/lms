@@ -11,6 +11,8 @@ def json_detail_drawer(
     iri_var: rx.Var[str],
     on_close,
     open_var: rx.Var[bool] | None = None,
+    references: rx.Var[list[dict]] | None = None,
+    on_navigate=None,
 ) -> rx.Component:
     """A dialog showing pretty-printed JSON of a document.
 
@@ -20,8 +22,69 @@ def json_detail_drawer(
         iri_var: Var pointing to the document IRI (for display).
         on_close: Event handler to close the dialog.
         open_var: Optional controlled-open var (defaults to doc_var != None).
+        references: Optional Var of ``[{prop, target, target_label}, …]``.
+            When provided together with *on_navigate*, a "References" section
+            with clickable link buttons is rendered between the IRI and raw
+            JSON blocks.  If *on_navigate* is ``None`` the references section
+            is suppressed entirely to avoid runtime errors.
+        on_navigate: Optional event handler called with the target IRI when a
+            reference link is clicked.  Required for the references section to
+            appear.
     """
     is_open: rx.Var = rx.Var.create(doc_var.to(bool) if open_var is None else open_var)
+
+    # Build references section only when both references and on_navigate are provided.
+    # We must avoid compiling rx.foreach with a null iterable, so we build
+    # the section conditionally at Python time.
+    if references is not None and on_navigate is not None:
+        refs_section: rx.Component = rx.cond(
+            references.length() > 0,  # type: ignore[union-attr]
+            rx.vstack(
+                rx.text("References", size="1", color_scheme="gray", weight="medium"),
+                rx.box(
+                    rx.foreach(
+                        references,  # type: ignore[arg-type]
+                        lambda ref: rx.button(
+                            rx.hstack(
+                                rx.icon(tag="link", size=12, color=rx.color("accent", 9)),
+                                rx.text(
+                                    ref["target_label"].to(str),
+                                    size="1",
+                                    font_family="mono",
+                                ),
+                                rx.badge(
+                                    ref["prop"].to(str),
+                                    size="1",
+                                    variant="surface",
+                                    color_scheme="gray",
+                                ),
+                                spacing="2",
+                                align="center",
+                            ),
+                            variant="ghost",
+                            size="1",
+                            on_click=on_navigate(ref["target"].to(str)),
+                            width="100%",
+                            justify="start",
+                            cursor="pointer",
+                        ),
+                    ),
+                    background=rx.color("gray", 2),
+                    border=f"1px solid {rx.color('gray', 4)}",
+                    border_radius="6px",
+                    padding="6px",
+                    max_height="180px",
+                    overflow="auto",
+                    width="100%",
+                ),
+                spacing="1",
+                width="100%",
+                margin_bottom="12px",
+            ),
+        )
+    else:
+        refs_section = rx.fragment()
+
     return rx.dialog.root(
         rx.dialog.content(
             rx.dialog.title(
@@ -89,6 +152,8 @@ def json_detail_drawer(
                     margin_bottom="12px",
                 ),
             ),
+            # References section (only when references Var is provided)
+            refs_section,
             # Pretty JSON
             rx.text("Raw Document", size="1", color_scheme="gray", weight="medium"),
             rx.box(

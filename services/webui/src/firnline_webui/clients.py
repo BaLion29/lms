@@ -305,9 +305,17 @@ class TdbBrowser:
         """Fetch SchemaModule documents."""
         return await self._call(self._tdb.get_documents("SchemaModule", branch=self._branch))
 
-    async def get_documents(self, type_: str) -> list[dict[str, Any]]:
-        """Fetch all documents of *type_*."""
-        return await self._call(self._tdb.get_documents(type_, branch=self._branch))
+    async def get_documents(
+        self, type_: str, *, skip: int | None = None, count: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Fetch documents of *type_*, optionally paginated."""
+        return await self._call(
+            self._tdb.get_documents(type_, branch=self._branch, skip=skip, count=count)
+        )
+
+    async def count_documents(self, type_: str) -> int:
+        """Return total document count for *type_*."""
+        return await self._call(self._tdb.count_documents(type_, branch=self._branch))
 
     async def get_document(self, iri: str) -> dict[str, Any]:
         """Fetch a single document by IRI."""

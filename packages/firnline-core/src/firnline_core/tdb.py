@@ -169,19 +169,104 @@ class TdbClient:
     # ------------------------------------------------------------------
 
     async def get_documents(
-        self, type_: str, branch: str = "main"
+        self,
+        type_: str,
+        branch: str = "main",
+        *,
+        skip: int | None = None,
+        count: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch all documents of *type_* from *branch*."""
+        """Fetch documents of *type_* from *branch*.
+
+        Optional *skip* and *count* are forwarded as query params for
+        server-side pagination (the TerminusDB document API accepts
+        ``skip`` and ``count`` as query parameters).
+        """
+        params: dict[str, str] = {
+            "graph_type": "instance",
+            "type": type_,
+            "as_list": "true",
+        }
+        if skip is not None:
+            params["skip"] = str(skip)
+        if count is not None:
+            params["count"] = str(count)
+        response = await self._client.get(
+            self._doc_path(branch),
+            params=params,
+        )
+        await self._raise_on_error(response)
+        return response.json()  # type: ignore[no-any-return]
+
+    async def count_documents(
+        self, type_: str, branch: str = "main"
+    ) -> int:
+        """Return the total number of *type_* documents on *branch*.
+
+        Strategy (option a): uses ``GET /api/document`` with
+        ``count=true``, which instructs TerminusDB to return only a
+        numeric count instead of the full document bodies.  This is
+        the most efficient approach as it avoids transferring any
+        document content over the network.
+
+        Falls back gracefully: if the response is not a plain integer
+        (e.g. a JSON object wrapping the count or a list from a
+        server that doesn't support ``count=true``), the method
+        interprets the response accordingly and, as a last resort,
+        uses ``len()`` on a list result.
+        """
         response = await self._client.get(
             self._doc_path(branch),
             params={
                 "graph_type": "instance",
                 "type": type_,
-                "as_list": "true",
+                "count": "true",
             },
         )
         await self._raise_on_error(response)
-        return response.json()  # type: ignore[no-any-return]
+
+        # TerminusDB returns a bare integer when count=true is supported.
+        try:
+            # httpx may parse JSON numbers directly; text fallback handles
+            # when the body is literally "42" (not all versions of
+            # TerminusDB JSON-encode the count).
+            body = response.text.strip()
+            return int(body)
+        except (ValueError, TypeError):
+            pass
+
+        # Some versions wrap the count in a JSON object.
+        try:
+            data = response.json()
+        except ValueError:
+            raise TdbError(
+                response.status_code,
+                f"count_documents: unexpected non-integer response: {response.text[:200]}",
+            )
+
+        if isinstance(data, str):
+            try:
+                return int(data.strip())
+            except ValueError:
+                pass
+
+        if isinstance(data, dict):
+            for key in ("count", "total", "@value"):
+                if key in data:
+                    raw = data[key]
+                    if isinstance(raw, int):
+                        return raw
+                    if isinstance(raw, str):
+                        return int(raw.strip())
+
+        # Last resort: the server returned a list (as_list or similar fallback).
+        if isinstance(data, list):
+            return len(data)
+
+        raise TdbError(
+            response.status_code,
+            f"count_documents: cannot extract count from response: {data}",
+        )
 
     async def get_document(self, iri: str, branch: str = "main") -> dict[str, Any]:
         """Fetch a single document by *iri* (short or full) from *branch*.

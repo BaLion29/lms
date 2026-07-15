@@ -26,7 +26,9 @@ from firnline_webui.state.automations import AutomationsState
 from firnline_webui.state.browse import BrowseClassState, BrowseState
 from firnline_webui.state.calendar import CalendarState
 from firnline_webui.state.capture import CaptureState
+from firnline_webui.state.graph import GraphState
 from firnline_webui.state.health import HealthState
+from firnline_webui.state.relationships import RelationshipsState
 from firnline_webui.state.inbox import InboxState
 from firnline_webui.state.modules import ModulesState
 
