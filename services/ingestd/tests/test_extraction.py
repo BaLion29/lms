@@ -31,7 +31,6 @@ from firnline_ext_time_management.extract import (
     TaskProposal,
     TimeManagementPlugin,
 )
-from firnline_ext_reminders.extract import ReminderProposal, ReminderExtractPlugin
 from firnline_ext_address_book.extract import AddressBookLinkingPlugin
 
 UTC = timezone.utc
@@ -43,7 +42,6 @@ _EXTRACTION_CTX = build_extraction_context([_PLANNING_PLUGIN])
 # Full ensemble context for integration tests (all three plugins)
 _FULL_ENSEMBLE_CTX = build_extraction_context([
     TimeManagementPlugin(),
-    ReminderExtractPlugin(),
     AddressBookLinkingPlugin(),
 ])
 
@@ -533,12 +531,12 @@ async def test_empty_response_retried_raises_extraction_error():
 
 def test_parse_extraction_flat_list_fallback():
     """parse_extraction wraps a bare JSON array into ExtractionResult."""
-    raw = '[{"kind":"task","name":"X"},{"kind":"reminder","name":"Y"}]'
+    raw = '[{"kind":"task","name":"X"},{"kind":"activity","name":"Y"}]'
     result = parse_extraction(raw, kind_to_model=_FULL_KIND_MAP)
     assert len(result.proposals) == 2
     assert result.proposals[0].kind == "task"
     assert result.proposals[0].name == "X"
-    assert result.proposals[1].kind == "reminder"
+    assert result.proposals[1].kind == "activity"
     assert result.proposals[1].name == "Y"
     assert result.confidence == 0.7
 
@@ -548,7 +546,7 @@ def test_parse_extraction_flat_list_fallback():
 # ---------------------------------------------------------------------------
 
 
-def test_composed_prompt_covers_all_six_kinds():
+def test_composed_prompt_covers_all_five_kinds():
     """The system prompt built by the kernel contains two ```json fences:
     one instructional example in the core rules prose, and one actual
     schema fence with a union schema covering all proposal kinds."""
@@ -564,7 +562,7 @@ def test_composed_prompt_covers_all_six_kinds():
     # The schema fence uses ```json\\n (not ```json space as in the prose example)
     assert "```json\n" in prompt
     assert "\n```" in prompt
-    # Union schema lists base kinds (time_management: 5 + reminders: 1 + address_book: 3)
+    # Union schema lists base kinds (time_management: 8 + address_book: 3)
     assert '"kind": "task"' in prompt
     assert '"kind": "event"' in prompt
     assert '"kind": "routine"' in prompt
@@ -572,7 +570,6 @@ def test_composed_prompt_covers_all_six_kinds():
     assert '"kind": "project"' in prompt
     assert '"kind": "area"' in prompt
     assert '"kind": "goal"' in prompt
-    assert '"kind": "reminder"' in prompt
     assert '"kind": "ab_person"' in prompt
     assert '"kind": "ab_location"' in prompt
     assert '"kind": "ab_organization"' in prompt
@@ -585,40 +582,37 @@ def test_composed_prompt_covers_all_six_kinds():
     assert "reasoning" in prompt
     assert "confidence" in prompt
 
-    # Kind map has all kinds from all three plugins
+    # Kind map has all kinds from both plugins
     expected = {"task", "event", "person", "routine", "activity", "project", "area", "goal",
-                "reminder", "ab_person", "ab_location", "ab_organization"}
+                "ab_person", "ab_location", "ab_organization"}
     assert set(_FULL_KIND_MAP.keys()) == expected
 
 
-def test_mixed_batch_parse_all_six_kinds():
-    """A JSON batch with all six kinds is correctly dispatched to the right models."""
+def test_mixed_batch_parse_all_five_kinds():
+    """A JSON batch with all five kinds is correctly dispatched to the right models."""
     raw = """{
   "proposals": [
     {"kind": "task", "name": "Buy milk"},
     {"kind": "event", "name": "Meeting", "location_name": "Office"},
     {"kind": "person", "name": "Bob Smith", "email": "bob@example.com"},
     {"kind": "routine", "name": "Morning routine", "steps": [{"name": "Stretch", "step_type": "activity"}]},
-    {"kind": "activity", "name": "Yoga session"},
-    {"kind": "reminder", "name": "Call doctor"}
+    {"kind": "activity", "name": "Yoga session"}
   ],
   "reasoning": "test",
   "confidence": 0.95
 }"""
     result = parse_extraction(raw, kind_to_model=_FULL_KIND_MAP)
-    assert len(result.proposals) == 6
+    assert len(result.proposals) == 5
     assert isinstance(result.proposals[0], TaskProposal)
     assert isinstance(result.proposals[1], EventProposal)
     assert isinstance(result.proposals[2], PersonProposal)
     assert isinstance(result.proposals[3], RoutineProposal)
     assert isinstance(result.proposals[4], ActivityProposal)
-    assert isinstance(result.proposals[5], ReminderProposal)
     assert result.proposals[0].name == "Buy milk"
     assert result.proposals[1].name == "Meeting"
     assert result.proposals[2].name == "Bob Smith"
     assert result.proposals[3].name == "Morning routine"
     assert result.proposals[4].name == "Yoga session"
-    assert result.proposals[5].name == "Call doctor"
 
 
 # ---------------------------------------------------------------------------

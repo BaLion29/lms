@@ -17,7 +17,6 @@ members = [
     "firnline-ext-address-book",
     "firnline-ext-decisions",
     "firnline-ext-gotify",
-    "firnline-ext-reminders",
     "firnline-ext-time-management",
     "firnline-ext-webhook",
     "firnline-schema",
@@ -578,39 +577,6 @@ dev = [
 ]
 
 [[package]]
-name = "firnline-ext-reminders"
-version = "0.1.0"
-source = { editable = "extensions/firnline-ext-reminders" }
-dependencies = [
-    { name = "firnline-core" },
-    { name = "pydantic-ai-slim" },
-    { name = "structlog" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "respx" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "firnline-core", editable = "packages/firnline-core" },
-    { name = "pydantic-ai-slim" },
-    { name = "structlog" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "respx" },
-    { name = "ruff" },
-]
-
-[[package]]
 name = "firnline-ext-time-management"
 version = "0.1.0"
 source = { editable = "extensions/firnline-ext-time-management" }
@@ -970,7 +936,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "firnline-ext-address-book" },
-    { name = "firnline-ext-reminders" },
     { name = "firnline-ext-time-management" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -991,7 +956,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "firnline-ext-address-book", editable = "extensions/firnline-ext-address-book" },
-    { name = "firnline-ext-reminders", editable = "extensions/firnline-ext-reminders" },
     { name = "firnline-ext-time-management", editable = "extensions/firnline-ext-time-management" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1569,7 +1533,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "firnline-ext-address-book" },
-    { name = "firnline-ext-reminders" },
     { name = "firnline-ext-time-management" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1592,7 +1555,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "firnline-ext-address-book", editable = "extensions/firnline-ext-address-book" },
-    { name = "firnline-ext-reminders", editable = "extensions/firnline-ext-reminders" },
     { name = "firnline-ext-time-management", editable = "extensions/firnline-ext-time-management" },
     { name = "pytest" },
     { name = "pytest-asyncio" },

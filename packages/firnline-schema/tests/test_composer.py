@@ -647,11 +647,6 @@ def test_time_management_resolves_transitive_deps() -> None:
             path=_EXT_DIR / "firnline-ext-time-management" / "src" / "firnline_ext_time_management",
             origin="pkg:test-time-management",
         ),
-        "reminders": ModuleSource(
-            name="reminders",
-            path=_EXT_DIR / "firnline-ext-reminders" / "src" / "firnline_ext_reminders" / "reminders_module",
-            origin="pkg:test-reminders",
-        ),
     }
 
     try:
@@ -663,7 +658,6 @@ def test_time_management_resolves_transitive_deps() -> None:
     assert "triggers" in names
     assert "time_management" in names
     assert "address_book" in names
-    assert "reminders" in names
 
 
 # ---------------------------------------------------------------------------

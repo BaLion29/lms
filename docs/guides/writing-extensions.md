@@ -66,7 +66,7 @@ time_management_tools = "firnline_ext_time_management.tools:plugin"
 inbox_note = "captured.handlers:captured_note_handler"
 
 [project.entry-points."firnline.triggerd.evaluators"]
-oneshot = "firnline_ext_reminders.evaluators:oneshot_plugin"
+oneshot = "firnline_ext_time_management.evaluators:oneshot_plugin"
 
 [project.entry-points."firnline.notifyd.channels"]
 gotify = "firnline_ext_gotify.channel:plugin"

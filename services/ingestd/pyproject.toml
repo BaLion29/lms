@@ -19,7 +19,6 @@ dependencies = [
 [tool.uv.sources]
 firnline-core = { workspace = true }
 firnline-ext-time-management = { workspace = true }
-firnline-ext-reminders = { workspace = true }
 firnline-ext-address-book = { workspace = true }
 
 [project.entry-points."firnline.ingestd.sources"]
@@ -39,7 +38,6 @@ packages = ["src/ingestd"]
 [dependency-groups]
 dev = [
     "firnline-ext-time-management",
-    "firnline-ext-reminders",
     "firnline-ext-address-book",
     "pytest",
     "pytest-asyncio",

@@ -24,7 +24,6 @@ from firnline_core.plugins import (
 from firnline_core.toolspec import ToolContext, ToolSpec
 
 from firnline_ext_time_management.tools import plugin as _planning_plugin
-from firnline_ext_reminders.tools import plugin as _reminders_plugin
 
 from queryd.app import create_app
 from queryd.settings import Settings
@@ -138,11 +137,10 @@ def _app_with_tool_specs(
 # ---------------------------------------------------------------------------
 
 
-def test_get_tools_lists_all_eight_tools(respx_mock: respx.MockRouter):
-    """With writes enabled, GET /v1/tools returns 8 tools sorted by name."""
+def test_get_tools_lists_all_seven_tools(respx_mock: respx.MockRouter):
+    """With writes enabled, GET /v1/tools returns 7 tools sorted by name."""
     plugins = [
         ("time_management", _planning_plugin),
-        ("reminders", _reminders_plugin),
     ]
     with _app_with_plugins(respx_mock, plugins) as client:
         resp = client.get("/v1/tools", headers=AUTH)
@@ -150,10 +148,9 @@ def test_get_tools_lists_all_eight_tools(respx_mock: respx.MockRouter):
     assert resp.status_code == 200
     data = resp.json()
     tools = data["tools"]
-    assert len(tools) == 8
+    assert len(tools) == 7
     names = [t["name"] for t in tools]
     assert names == sorted(names)  # sorted by name
-    assert "create_reminder" in names
     assert "create_task" in names
     assert "set_task_status" in names
     assert "log_activity" in names
@@ -491,7 +488,6 @@ def test_healthz_reports_write_tools(respx_mock: respx.MockRouter):
     """GET /healthz includes write_tools list when writes are enabled."""
     plugins = [
         ("time_management", _planning_plugin),
-        ("reminders", _reminders_plugin),
     ]
     respx_mock.get(DOC_PATH).respond(
         json=[
@@ -515,9 +511,8 @@ def test_healthz_reports_write_tools(respx_mock: respx.MockRouter):
     assert resp.status_code == 200
     data = resp.json()
     assert "write_tools" in data
-    assert len(data["write_tools"]) == 8
+    assert len(data["write_tools"]) == 7
     assert "create_task" in data["write_tools"]
-    assert "create_reminder" in data["write_tools"]
 
 
 def test_healthz_write_tools_empty_when_disabled(respx_mock: respx.MockRouter):

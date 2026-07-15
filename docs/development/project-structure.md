@@ -61,7 +61,6 @@ reference implementations for third-party extension authors.
 |---|---|
 | `firnline-ext-time-management` | Schema module (`time_management`: Task, Event, Routine, Activity, etc.), extractor plugin, queryd tools (`create_routine`, `update_routine`, `log_activity`) |
 | `firnline-ext-address-book` | Schema module (`address_book`: Person, Location, Organization), extractor plugin, indexer plugin, geocoder |
-| `firnline-ext-reminders` | Schema module (`reminders`), extractor plugin, queryd tools |
 | `firnline-ext-gotify` | Gotify notification channel (legacy) and native `ActionExecutor` |
 | `firnline-ext-webhook` | Reference `ActionExecutor` that calls arbitrary HTTP endpoints |
 | `firnline-ext-decisions` | Decision/pro-con tracking domain |
