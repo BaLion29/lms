@@ -68,5 +68,47 @@
    "description": {"@class": "xsd:string", "@type": "Optional"},
    "estimated_duration": {"@class": "xsd:integer", "@type": "Optional"},
    "name": "xsd:string",
-   "priority": {"@class": "xsd:integer", "@type": "Optional"}}
+    "priority": {"@class": "xsd:integer", "@type": "Optional"}},
+   {"@id": "Area", "@inherits": ["Entity", "Context"], "@type": "Class",
+    "@key": {"@type": "Lexical", "@fields": ["name"]},
+    "@metadata": {"label_field": "name"},
+    "@documentation": {"@comment": "PARA Area: ongoing responsibility with a standard to maintain; no end date. Retire via archived_at."},
+    "name": "xsd:string",
+    "description": {"@class": "xsd:string", "@type": "Optional"}},
+   {"@id": "Project", "@inherits": ["Entity", "Context", "Source", "Anchored"], "@type": "Class",
+    "@metadata": {
+      "label_field": "name",
+      "anchor_field": "target_date",
+      "transitions": {
+        "active": ["on_hold", "completed"],
+        "on_hold": ["active"],
+        "completed": []
+      }
+    },
+    "@documentation": {"@comment": "PARA Project: bounded outcome with a target date. Belongs to an Area and serves Goals via contexts. Archive via archived_at."},
+    "name": "xsd:string",
+    "description": {"@class": "xsd:string", "@type": "Optional"},
+    "target_date": {"@class": "xsd:dateTime", "@type": "Optional"},
+    "status": "ProjectStatus"},
+   {"@id": "ProjectStatus", "@type": "Enum",
+    "@documentation": {"@comment": "Project lifecycle: active, on_hold, or completed."},
+    "@value": ["active", "on_hold", "completed"]},
+   {"@id": "Goal", "@inherits": ["Entity", "Context", "Anchored"], "@type": "Class",
+    "@metadata": {
+      "label_field": "name",
+      "anchor_field": "target_date",
+      "transitions": {
+        "active": ["achieved", "abandoned"],
+        "abandoned": ["active"]
+      }
+    },
+    "@documentation": {"@comment": "Desired measurable world-state with a target date; justifies Projects (attached via their contexts). Not schedulable, only approachable."},
+    "name": "xsd:string",
+    "description": {"@class": "xsd:string", "@type": "Optional"},
+    "success_criteria": {"@class": "xsd:string", "@type": "Optional"},
+    "target_date": {"@class": "xsd:dateTime", "@type": "Optional"},
+    "status": "GoalStatus"},
+   {"@id": "GoalStatus", "@type": "Enum",
+    "@documentation": {"@comment": "Goal lifecycle: active, achieved, or abandoned."},
+    "@value": ["active", "achieved", "abandoned"]}
 ]

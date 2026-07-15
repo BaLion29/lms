@@ -22,7 +22,12 @@ from firnline_core.tooling import traced
 from firnline_ext_time_management.models import (
     Activity,
     ActivitySpec,
+    Area,
     EventStatus,
+    Goal,
+    GoalStatus,
+    Project,
+    ProjectStatus,
     Routine,
     RoutineStep,
     Task,
@@ -54,6 +59,21 @@ _EVENT_TRANSITIONS = {
         "planned": ["open", "closed", "cancelled"],
         "closed": ["open"],
         "cancelled": ["open"],
+    },
+}
+
+_PROJECT_TRANSITIONS = {
+    "Project": {
+        "active": ["on_hold", "completed"],
+        "on_hold": ["active"],
+        "completed": [],
+    },
+}
+
+_GOAL_TRANSITIONS = {
+    "Goal": {
+        "active": ["achieved", "abandoned"],
+        "abandoned": ["active"],
     },
 }
 
@@ -402,6 +422,386 @@ async def update_routine(
 
 
 # ---------------------------------------------------------------------------
+# Tool functions — Project
+# ---------------------------------------------------------------------------
+
+
+@traced
+async def create_project(
+    ctx: RunContext[Any],
+    name: str,
+    description: str | None = None,
+    target_date: str | None = None,
+) -> dict[str, object]:
+    """Create a new Project document with status=active.
+
+    In PARA, a Project is a series of Tasks linked to a desired Outcome.
+    Link Tasks to the Project via ``assign_contexts``.
+    """
+    repo = _get_repo(ctx, _PROJECT_TRANSITIONS)
+    branch = ctx.deps.settings.tdb_branch
+
+    now = datetime.now(_UTC)
+    prov = Provenance(agent=_AGENT, at=now, method="tool_call")
+    project = Project(
+        name=name,
+        description=description,
+        target_date=target_date,
+        status=ProjectStatus.ACTIVE,
+        created_at=now,
+        updated_at=now,
+        provenance=prov,
+    ).to_tdb()
+
+    log.info("queryd: create_project", doc=project)
+
+    try:
+        iri = await repo.create(
+            project,
+            agent=_AGENT,
+            method="tool_call",
+            branch=branch,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+
+    return {"ok": True, "iri": iri}
+
+
+@traced
+async def update_project(
+    ctx: RunContext[Any],
+    project_iri: str,
+    name: str | None = None,
+    description: str | None = None,
+    target_date: str | None = None,
+) -> dict[str, object]:
+    """Update fields of an existing Project.
+
+    Only the provided (non-None) fields are changed; ``updated_at`` is
+    always bumped to now.  Status changes must go through
+    ``set_project_status``.
+    """
+    repo = _get_repo(ctx, _PROJECT_TRANSITIONS)
+    branch = ctx.deps.settings.tdb_branch
+
+    try:
+        doc = await repo.get_document(project_iri, branch=branch)
+    except Exception as exc:
+        return {"ok": False, "error": f"document not found: {project_iri}: {exc}"}
+
+    if doc.get("@type") != "Project":
+        return {"ok": False, "error": f"{project_iri} is not a Project (type={doc.get('@type')})"}
+
+    if name is not None:
+        doc["name"] = name
+    if description is not None:
+        doc["description"] = description
+    if target_date is not None:
+        doc["target_date"] = target_date
+
+    doc["updated_at"] = _format_datetime(datetime.now(_UTC))
+
+    log.info("queryd: update_project", iri=project_iri, doc=doc)
+
+    try:
+        await repo.tdb.insert_documents([doc], branch=branch, message=f"queryd: update {project_iri}")
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+
+    return {"ok": True, "iri": project_iri}
+
+
+@traced
+async def set_project_status(
+    ctx: RunContext[Any],
+    project_iri: str,
+    status: Literal["active", "on_hold", "completed"],
+) -> dict[str, object]:
+    """Set the status of a Project document.
+
+    Active projects can be put on-hold or completed.  On-hold projects
+    can be re-activated.  Completed projects are terminal.
+    """
+    repo = _get_repo(ctx, _PROJECT_TRANSITIONS)
+    branch = ctx.deps.settings.tdb_branch
+
+    try:
+        doc = await repo.get_document(project_iri, branch=branch)
+    except Exception as exc:
+        return {"ok": False, "error": f"document not found: {project_iri}: {exc}"}
+
+    if doc.get("@type") != "Project":
+        return {"ok": False, "error": f"{project_iri} is not a Project (type={doc.get('@type')})"}
+
+    current = doc.get("status", "?")
+    log.info("queryd: set_project_status", iri=project_iri, from_status=current, to_status=status)
+
+    if current == "completed":
+        return {"ok": False, "error": f"Cannot transition from terminal status 'completed' on {project_iri}"}
+
+    try:
+        await repo.transition(
+            project_iri,
+            "status",
+            current,
+            status,
+            agent=_AGENT,
+            branch=branch,
+        )
+    except RepoTransitionError as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+
+    return {"ok": True, "iri": project_iri}
+
+
+# ---------------------------------------------------------------------------
+# Tool functions — Goal
+# ---------------------------------------------------------------------------
+
+
+@traced
+async def create_goal(
+    ctx: RunContext[Any],
+    name: str,
+    description: str | None = None,
+    success_criteria: str | None = None,
+    target_date: str | None = None,
+) -> dict[str, object]:
+    """Create a new Goal document with status=active.
+
+    In PARA, a Goal is an aspirational Outcome.  Use ``assign_contexts``
+    to link a Project to a Goal, or a Goal to an Area.
+    """
+    repo = _get_repo(ctx, _GOAL_TRANSITIONS)
+    branch = ctx.deps.settings.tdb_branch
+
+    now = datetime.now(_UTC)
+    prov = Provenance(agent=_AGENT, at=now, method="tool_call")
+    goal = Goal(
+        name=name,
+        description=description,
+        success_criteria=success_criteria,
+        target_date=target_date,
+        status=GoalStatus.ACTIVE,
+        created_at=now,
+        updated_at=now,
+        provenance=prov,
+    ).to_tdb()
+
+    log.info("queryd: create_goal", doc=goal)
+
+    try:
+        iri = await repo.create(
+            goal,
+            agent=_AGENT,
+            method="tool_call",
+            branch=branch,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+
+    return {"ok": True, "iri": iri}
+
+
+@traced
+async def set_goal_status(
+    ctx: RunContext[Any],
+    goal_iri: str,
+    status: Literal["active", "achieved", "abandoned"],
+) -> dict[str, object]:
+    """Set the status of a Goal document.
+
+    Active goals can be marked achieved or abandoned.  Abandoned goals
+    can be re-activated.  Achieved goals are terminal.
+    """
+    repo = _get_repo(ctx, _GOAL_TRANSITIONS)
+    branch = ctx.deps.settings.tdb_branch
+
+    try:
+        doc = await repo.get_document(goal_iri, branch=branch)
+    except Exception as exc:
+        return {"ok": False, "error": f"document not found: {goal_iri}: {exc}"}
+
+    if doc.get("@type") != "Goal":
+        return {"ok": False, "error": f"{goal_iri} is not a Goal (type={doc.get('@type')})"}
+
+    current = doc.get("status", "?")
+    log.info("queryd: set_goal_status", iri=goal_iri, from_status=current, to_status=status)
+
+    if current == "achieved":
+        return {"ok": False, "error": f"Cannot transition from terminal status 'achieved' on {goal_iri}"}
+
+    try:
+        await repo.transition(
+            goal_iri,
+            "status",
+            current,
+            status,
+            agent=_AGENT,
+            branch=branch,
+        )
+    except RepoTransitionError as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+
+    return {"ok": True, "iri": goal_iri}
+
+
+# ---------------------------------------------------------------------------
+# Tool functions — Area
+# ---------------------------------------------------------------------------
+
+
+@traced
+async def create_area(
+    ctx: RunContext[Any],
+    name: str,
+    description: str | None = None,
+) -> dict[str, object]:
+    """Create a new Area document.
+
+    In PARA, an Area is a domain of ongoing responsibility without an end
+    date.  Areas are uniquely identified by name (Lexical key).  Use
+    ``assign_contexts`` to link a Project or Goal to an Area.
+    """
+    repo = _get_repo(ctx, {})
+    branch = ctx.deps.settings.tdb_branch
+
+    now = datetime.now(_UTC)
+    prov = Provenance(agent=_AGENT, at=now, method="tool_call")
+    area = Area(
+        name=name,
+        description=description,
+        created_at=now,
+        updated_at=now,
+        provenance=prov,
+    ).to_tdb()
+
+    log.info("queryd: create_area", doc=area)
+
+    try:
+        iri = await repo.create(
+            area,
+            agent=_AGENT,
+            method="tool_call",
+            branch=branch,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+
+    return {"ok": True, "iri": iri}
+
+
+# ---------------------------------------------------------------------------
+# Tool functions — Contexts (generic)
+# ---------------------------------------------------------------------------
+
+# Entity types that carry a ``contexts`` field and can be linked to Context
+# documents (Area, Project, Goal, etc.).
+_CONTEXTABLE_TYPES = frozenset({
+    "Task", "Event", "Project", "Goal", "Routine", "Activity", "Area",
+})
+
+
+@traced
+async def assign_contexts(
+    ctx: RunContext[Any],
+    iri: str,
+    context_iris: list[str],
+) -> dict[str, object]:
+    """Add Context IRIs to an entity's ``contexts`` set.
+
+    Use this to link a Task to a Project (PARA: move a task into a project),
+    a Project to an Area or Goal, or any entity to a relevant context.
+    Duplicate IRIs already present are silently skipped.  Each context IRI
+    must reference an existing document.
+    """
+    repo = _get_repo(ctx, {})
+    branch = ctx.deps.settings.tdb_branch
+
+    try:
+        doc = await repo.get_document(iri, branch=branch)
+    except Exception as exc:
+        return {"ok": False, "error": f"document not found: {iri}: {exc}"}
+
+    doc_type = doc.get("@type", "")
+    if doc_type not in _CONTEXTABLE_TYPES:
+        return {
+            "ok": False,
+            "error": f"{iri} (type={doc_type}) does not support contexts",
+        }
+
+    if doc.get("archived_at"):
+        return {"ok": False, "error": f"Cannot modify archived document: {iri}"}
+
+    # Validate each context IRI exists
+    for ctx_iri in context_iris:
+        try:
+            await repo.get_document(ctx_iri, branch=branch)
+        except Exception as exc:
+            return {"ok": False, "error": f"context document not found: {ctx_iri}: {exc}"}
+
+    existing: list[str] = doc.get("contexts", [])
+    updated = list(dict.fromkeys(existing + context_iris))  # dedupe preserving order
+    doc["contexts"] = updated
+    doc["updated_at"] = _format_datetime(datetime.now(_UTC))
+
+    log.info("queryd: assign_contexts", iri=iri, added=context_iris, contexts=updated)
+
+    try:
+        await repo.tdb.insert_documents([doc], branch=branch, message=f"queryd: assign_contexts {iri}")
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+
+    return {"ok": True, "iri": iri}
+
+
+@traced
+async def remove_contexts(
+    ctx: RunContext[Any],
+    iri: str,
+    context_iris: list[str],
+) -> dict[str, object]:
+    """Remove Context IRIs from an entity's ``contexts`` set.
+
+    Inverse of ``assign_contexts``.  IRIs that are not currently linked
+    are silently ignored.  The entity itself is not deleted.
+    """
+    repo = _get_repo(ctx, {})
+    branch = ctx.deps.settings.tdb_branch
+
+    try:
+        doc = await repo.get_document(iri, branch=branch)
+    except Exception as exc:
+        return {"ok": False, "error": f"document not found: {iri}: {exc}"}
+
+    doc_type = doc.get("@type", "")
+    if doc_type not in _CONTEXTABLE_TYPES:
+        return {
+            "ok": False,
+            "error": f"{iri} (type={doc_type}) does not support contexts",
+        }
+
+    if doc.get("archived_at"):
+        return {"ok": False, "error": f"Cannot modify archived document: {iri}"}
+
+    existing: list[str] = doc.get("contexts", [])
+    remove_set = set(context_iris)
+    updated = [c for c in existing if c not in remove_set]
+    doc["contexts"] = updated
+    doc["updated_at"] = _format_datetime(datetime.now(_UTC))
+
+    log.info("queryd: remove_contexts", iri=iri, removed=context_iris, contexts=updated)
+
+    try:
+        await repo.tdb.insert_documents([doc], branch=branch, message=f"queryd: remove_contexts {iri}")
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+
+    return {"ok": True, "iri": iri}
+
+
+# ---------------------------------------------------------------------------
 # Tool functions — Activity
 # ---------------------------------------------------------------------------
 
@@ -474,7 +874,7 @@ class TimeManagementToolsPlugin:
 
     name: str = "time_management_tools"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="time_management", range=">=0.1.0 <0.2.0")
+        ModuleRequirement(name="time_management", range=">=0.2.0 <0.3.0")
     ]
 
     def tools(self, deps: Any) -> list[Tool]:
@@ -487,6 +887,14 @@ class TimeManagementToolsPlugin:
             Tool(create_routine),
             Tool(update_routine),
             Tool(log_activity),
+            Tool(create_project),
+            Tool(update_project),
+            Tool(set_project_status),
+            Tool(create_goal),
+            Tool(set_goal_status),
+            Tool(create_area),
+            Tool(assign_contexts),
+            Tool(remove_contexts),
         ]
 
 

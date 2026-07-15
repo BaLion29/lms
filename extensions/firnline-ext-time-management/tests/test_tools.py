@@ -10,12 +10,20 @@ from pydantic_ai import RunContext
 
 from firnline_core.tdb import TdbClient
 from firnline_ext_time_management.tools import (
+    assign_contexts,
+    create_area,
+    create_goal,
+    create_project,
     create_routine,
     create_task,
     log_activity,
     plugin as tm_plugin,
+    remove_contexts,
     set_event_status,
+    set_goal_status,
+    set_project_status,
     set_task_status,
+    update_project,
     update_routine,
     update_task,
 )
@@ -76,7 +84,7 @@ def test_plugin_name_and_requires():
     reqs = tm_plugin.requires
     assert len(reqs) == 1
     assert reqs[0].name == "time_management"
-    assert reqs[0].range == ">=0.1.0 <0.2.0"
+    assert reqs[0].range == ">=0.2.0 <0.3.0"
 
 
 def test_plugin_tools():
@@ -90,6 +98,14 @@ def test_plugin_tools():
         "create_routine",
         "update_routine",
         "log_activity",
+        "create_project",
+        "update_project",
+        "set_project_status",
+        "create_goal",
+        "set_goal_status",
+        "create_area",
+        "assign_contexts",
+        "remove_contexts",
     }
 
 
@@ -617,3 +633,647 @@ async def test_set_task_status_normalizes_full_iri(respx_mock):
     assert result["ok"] is True
     assert "Task/abc" in result["iri"]
     assert post_route.called
+
+
+# ---------------------------------------------------------------------------
+# create_project
+# ---------------------------------------------------------------------------
+
+
+async def test_create_project_happy_path(respx_mock):
+    post_route = respx_mock.post(DOC_PATH).respond(
+        json=["terminusdb:///data/Project/proj1"],
+    )
+    ctx = _make_ctx()
+    result = await create_project(ctx, "My Project")
+
+    assert result == {"ok": True, "iri": "terminusdb:///data/Project/proj1"}
+    assert post_route.called
+
+    req = post_route.calls.last.request
+    sent = json.loads(req.read())
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["@type"] == "Project"
+    assert doc["name"] == "My Project"
+    assert doc["status"] == "active"
+    assert "created_at" in doc
+    assert "updated_at" in doc
+    assert doc["provenance"]["agent"] == "ext:time-management"
+    assert doc["provenance"]["method"] == "tool_call"
+
+
+async def test_create_project_with_all_fields(respx_mock):
+    respx_mock.post(DOC_PATH).respond(json=["terminusdb:///data/Project/p2"])
+    ctx = _make_ctx()
+    result = await create_project(
+        ctx,
+        "Complex Project",
+        description="A detailed project",
+        target_date="2026-12-31T12:00:00Z",
+    )
+    assert result["ok"] is True
+
+    req = respx_mock.calls.last.request
+    sent = json.loads(req.read())
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["name"] == "Complex Project"
+    assert doc["description"] == "A detailed project"
+    assert doc["target_date"] == "2026-12-31T12:00:00Z"
+    assert doc["status"] == "active"
+
+
+# ---------------------------------------------------------------------------
+# update_project
+# ---------------------------------------------------------------------------
+
+
+async def test_update_project_only_provided_fields_changed(respx_mock):
+    orig = {
+        "@id": "Project/p1",
+        "@type": "Project",
+        "name": "Old Project",
+        "description": "Old desc",
+        "status": "active",
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(orig))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
+
+    ctx = _make_ctx()
+    result = await update_project(ctx, "Project/p1", name="New Project")
+
+    assert result == {"ok": True, "iri": "Project/p1"}
+    assert post_route.called
+
+    req = post_route.calls.last.request
+    sent = json.loads(req.read())
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["name"] == "New Project"
+    assert doc["description"] == "Old desc"
+    assert doc["status"] == "active"
+    assert doc["updated_at"] != orig["updated_at"]
+
+
+async def test_update_project_not_found(respx_mock):
+    respx_mock.get(DOC_PATH).respond(status_code=404)
+    ctx = _make_ctx()
+    result = await update_project(ctx, "Project/nope")
+    assert result["ok"] is False
+    assert "document not found" in result["error"]
+
+
+async def test_update_project_wrong_type(respx_mock):
+    task_doc = {"@id": "Task/abc", "@type": "Task", "name": "Todo"}
+    respx_mock.get(DOC_PATH).respond(json=task_doc)
+
+    ctx = _make_ctx()
+    result = await update_project(ctx, "Task/abc", name="Not a project")
+    assert result["ok"] is False
+    assert "not a Project" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# set_project_status
+# ---------------------------------------------------------------------------
+
+
+async def test_set_project_status_happy_path(respx_mock):
+    orig_doc = {
+        "@id": "Project/p1",
+        "@type": "Project",
+        "name": "My Project",
+        "status": "active",
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
+
+    ctx = _make_ctx()
+    result = await set_project_status(ctx, "Project/p1", "on_hold")
+
+    assert result == {"ok": True, "iri": "Project/p1"}
+    assert post_route.called
+
+    req = post_route.calls.last.request
+    sent = json.loads(req.read())
+    updated_doc = sent[0]
+    assert updated_doc["status"] == "on_hold"
+
+
+async def test_set_project_status_on_hold_to_active(respx_mock):
+    orig_doc = {
+        "@id": "Project/p1",
+        "@type": "Project",
+        "name": "My Project",
+        "status": "on_hold",
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
+
+    ctx = _make_ctx()
+    result = await set_project_status(ctx, "Project/p1", "active")
+
+    assert result == {"ok": True, "iri": "Project/p1"}
+    assert post_route.called
+
+
+async def test_set_project_status_illegal_transition(respx_mock):
+    """on_hold -> completed is illegal (only active is allowed from on_hold)."""
+    orig_doc = {
+        "@id": "Project/p1",
+        "@type": "Project",
+        "name": "My Project",
+        "status": "on_hold",
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
+
+    ctx = _make_ctx()
+    result = await set_project_status(ctx, "Project/p1", "completed")
+
+    assert result["ok"] is False
+    assert "Illegal transition" in result["error"]
+    assert not post_route.called
+
+
+async def test_set_project_status_not_found(respx_mock):
+    respx_mock.get(DOC_PATH).respond(status_code=404, text="nope")
+    ctx = _make_ctx()
+    result = await set_project_status(ctx, "Project/nope", "active")
+    assert result["ok"] is False
+    assert "document not found" in result["error"]
+
+
+async def test_set_project_status_wrong_type(respx_mock):
+    task_doc = {"@id": "Task/abc", "@type": "Task", "name": "Todo"}
+    respx_mock.get(DOC_PATH).respond(json=task_doc)
+    post_route = respx_mock.post(DOC_PATH).respond(json=[])
+
+    ctx = _make_ctx()
+    result = await set_project_status(ctx, "Task/abc", "on_hold")
+    assert result["ok"] is False
+    assert "not a Project" in result["error"]
+    assert not post_route.called
+
+
+# ---------------------------------------------------------------------------
+# create_goal
+# ---------------------------------------------------------------------------
+
+
+async def test_create_goal_happy_path(respx_mock):
+    post_route = respx_mock.post(DOC_PATH).respond(
+        json=["terminusdb:///data/Goal/g1"],
+    )
+    ctx = _make_ctx()
+    result = await create_goal(ctx, "Learn Rust")
+
+    assert result == {"ok": True, "iri": "terminusdb:///data/Goal/g1"}
+    assert post_route.called
+
+    req = post_route.calls.last.request
+    sent = json.loads(req.read())
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["@type"] == "Goal"
+    assert doc["name"] == "Learn Rust"
+    assert doc["status"] == "active"
+    assert "created_at" in doc
+    assert doc["provenance"]["agent"] == "ext:time-management"
+
+
+async def test_create_goal_with_all_fields(respx_mock):
+    respx_mock.post(DOC_PATH).respond(json=["terminusdb:///data/Goal/g2"])
+    ctx = _make_ctx()
+    result = await create_goal(
+        ctx,
+        "Complex Goal",
+        description="Goal description",
+        success_criteria="Did the thing",
+        target_date="2026-12-31T12:00:00Z",
+    )
+    assert result["ok"] is True
+
+    req = respx_mock.calls.last.request
+    sent = json.loads(req.read())
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["name"] == "Complex Goal"
+    assert doc["description"] == "Goal description"
+    assert doc["success_criteria"] == "Did the thing"
+    assert doc["target_date"] == "2026-12-31T12:00:00Z"
+    assert doc["status"] == "active"
+
+
+# ---------------------------------------------------------------------------
+# set_goal_status
+# ---------------------------------------------------------------------------
+
+
+async def test_set_goal_status_happy_path(respx_mock):
+    orig_doc = {
+        "@id": "Goal/g1",
+        "@type": "Goal",
+        "name": "Learn Rust",
+        "status": "active",
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Goal/g1"])
+
+    ctx = _make_ctx()
+    result = await set_goal_status(ctx, "Goal/g1", "achieved")
+
+    assert result == {"ok": True, "iri": "Goal/g1"}
+    assert post_route.called
+
+    req = post_route.calls.last.request
+    sent = json.loads(req.read())
+    updated_doc = sent[0]
+    assert updated_doc["status"] == "achieved"
+
+
+async def test_set_goal_status_abandoned_to_active(respx_mock):
+    orig_doc = {
+        "@id": "Goal/g1",
+        "@type": "Goal",
+        "name": "Old goal",
+        "status": "abandoned",
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Goal/g1"])
+
+    ctx = _make_ctx()
+    result = await set_goal_status(ctx, "Goal/g1", "active")
+
+    assert result == {"ok": True, "iri": "Goal/g1"}
+    assert post_route.called
+
+
+async def test_set_goal_status_illegal_transition(respx_mock):
+    """abandoned -> achieved is illegal (only active is allowed from abandoned)."""
+    orig_doc = {
+        "@id": "Goal/g1",
+        "@type": "Goal",
+        "name": "Goal",
+        "status": "abandoned",
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Goal/g1"])
+
+    ctx = _make_ctx()
+    result = await set_goal_status(ctx, "Goal/g1", "achieved")
+
+    assert result["ok"] is False
+    assert "Illegal transition" in result["error"]
+    assert not post_route.called
+
+
+async def test_set_goal_status_not_found(respx_mock):
+    respx_mock.get(DOC_PATH).respond(status_code=404, text="nope")
+    ctx = _make_ctx()
+    result = await set_goal_status(ctx, "Goal/nope", "active")
+    assert result["ok"] is False
+    assert "document not found" in result["error"]
+
+
+async def test_set_goal_status_wrong_type(respx_mock):
+    task_doc = {"@id": "Task/abc", "@type": "Task", "name": "Todo"}
+    respx_mock.get(DOC_PATH).respond(json=task_doc)
+    post_route = respx_mock.post(DOC_PATH).respond(json=[])
+
+    ctx = _make_ctx()
+    result = await set_goal_status(ctx, "Task/abc", "achieved")
+    assert result["ok"] is False
+    assert "not a Goal" in result["error"]
+    assert not post_route.called
+
+
+# ---------------------------------------------------------------------------
+# create_area
+# ---------------------------------------------------------------------------
+
+
+async def test_create_area_happy_path(respx_mock):
+    post_route = respx_mock.post(DOC_PATH).respond(
+        json=["terminusdb:///data/Area/a1"],
+    )
+    ctx = _make_ctx()
+    result = await create_area(ctx, "Health")
+
+    assert result == {"ok": True, "iri": "terminusdb:///data/Area/a1"}
+    assert post_route.called
+
+    req = post_route.calls.last.request
+    sent = json.loads(req.read())
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["@type"] == "Area"
+    assert doc["name"] == "Health"
+    assert "created_at" in doc
+    assert doc["provenance"]["agent"] == "ext:time-management"
+
+
+async def test_create_area_with_description(respx_mock):
+    respx_mock.post(DOC_PATH).respond(json=["terminusdb:///data/Area/a2"])
+    ctx = _make_ctx()
+    result = await create_area(ctx, "Finance", description="Money matters")
+
+    assert result["ok"] is True
+    req = respx_mock.calls.last.request
+    sent = json.loads(req.read())
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["name"] == "Finance"
+    assert doc["description"] == "Money matters"
+
+
+async def test_create_area_duplicate_name(respx_mock):
+    """When an Area with the same lexical key already exists, report the error."""
+    respx_mock.post(DOC_PATH).respond(
+        status_code=400,
+        json={"@type": "api:ErrorResponse",
+              "api:status": "api:failure",
+              "api:message": "Duplicate key: Area/Health"},
+    )
+    ctx = _make_ctx()
+    result = await create_area(ctx, "Health")
+
+    assert result["ok"] is False
+    assert "Duplicate" in result["error"] or "Duplicate key" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# assign_contexts
+# ---------------------------------------------------------------------------
+
+
+async def test_assign_contexts_happy_path(respx_mock):
+    task_doc = {
+        "@id": "Task/abc",
+        "@type": "Task",
+        "name": "Review PR",
+        "status": "open",
+        "contexts": [],
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    project_doc = {
+        "@id": "Project/p1",
+        "@type": "Project",
+        "name": "Q3 Release",
+        "status": "active",
+    }
+
+    respx_mock.get(DOC_PATH, params={"id": "Task/abc"}).respond(json=dict(task_doc))
+    respx_mock.get(DOC_PATH, params={"id": "Project/p1"}).respond(json=dict(project_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+
+    ctx = _make_ctx()
+    result = await assign_contexts(ctx, "Task/abc", ["Project/p1"])
+
+    assert result == {"ok": True, "iri": "Task/abc"}
+    assert post_route.called
+
+    req = post_route.calls.last.request
+    sent = json.loads(req.read())
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert "Project/p1" in doc["contexts"]
+
+
+async def test_assign_contexts_dedupe(respx_mock):
+    """Adding an already-present context IRI should not duplicate it."""
+    task_doc = {
+        "@id": "Task/abc",
+        "@type": "Task",
+        "name": "Task",
+        "status": "open",
+        "contexts": ["Project/p1", "Area/a1"],
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    ctx_doc = {"@id": "Area/a1", "@type": "Area", "name": "Health"}
+
+    respx_mock.get(DOC_PATH, params={"id": "Task/abc"}).respond(json=dict(task_doc))
+    respx_mock.get(DOC_PATH, params={"id": "Area/a1"}).respond(json=dict(ctx_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+
+    ctx = _make_ctx()
+    result = await assign_contexts(ctx, "Task/abc", ["Area/a1"])
+
+    assert result["ok"] is True
+    req = post_route.calls.last.request
+    sent = json.loads(req.read())
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["contexts"] == ["Project/p1", "Area/a1"]  # No duplicate
+
+
+async def test_assign_contexts_context_not_found(respx_mock):
+    task_doc = {
+        "@id": "Task/abc",
+        "@type": "Task",
+        "name": "Task",
+        "status": "open",
+        "contexts": [],
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH, params={"id": "Task/abc"}).respond(json=dict(task_doc))
+    respx_mock.get(DOC_PATH, params={"id": "Project/missing"}).respond(status_code=404)
+    post_route = respx_mock.post(DOC_PATH).respond(json=[])
+
+    ctx = _make_ctx()
+    result = await assign_contexts(ctx, "Task/abc", ["Project/missing"])
+
+    assert result["ok"] is False
+    assert "context document not found" in result["error"]
+    assert not post_route.called
+
+
+async def test_assign_contexts_entity_not_found(respx_mock):
+    respx_mock.get(DOC_PATH).respond(status_code=404, text="nope")
+    ctx = _make_ctx()
+    result = await assign_contexts(ctx, "Task/nope", ["Project/p1"])
+    assert result["ok"] is False
+    assert "document not found" in result["error"]
+
+
+async def test_assign_contexts_wrong_type(respx_mock):
+    """Entity without a contexts field (e.g. RoutineStep) should be rejected."""
+    doc = {"@id": "RoutineStep/1", "@type": "RoutineStep", "name": "Step"}
+    respx_mock.get(DOC_PATH).respond(json=dict(doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=[])
+
+    ctx = _make_ctx()
+    result = await assign_contexts(ctx, "RoutineStep/1", ["Project/p1"])
+    assert result["ok"] is False
+    assert "does not support contexts" in result["error"]
+    assert not post_route.called
+
+
+# ---------------------------------------------------------------------------
+# remove_contexts
+# ---------------------------------------------------------------------------
+
+
+async def test_remove_contexts_happy_path(respx_mock):
+    task_doc = {
+        "@id": "Task/abc",
+        "@type": "Task",
+        "name": "Task",
+        "status": "open",
+        "contexts": ["Project/p1", "Area/a1"],
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(task_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+
+    ctx = _make_ctx()
+    result = await remove_contexts(ctx, "Task/abc", ["Project/p1"])
+
+    assert result == {"ok": True, "iri": "Task/abc"}
+    assert post_route.called
+
+    req = post_route.calls.last.request
+    sent = json.loads(req.read())
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["contexts"] == ["Area/a1"]
+    assert "Project/p1" not in doc["contexts"]
+
+
+async def test_remove_contexts_non_present_iri(respx_mock):
+    """Removing an IRI not in contexts should silently succeed."""
+    task_doc = {
+        "@id": "Task/abc",
+        "@type": "Task",
+        "name": "Task",
+        "status": "open",
+        "contexts": ["Project/p1"],
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(task_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+
+    ctx = _make_ctx()
+    result = await remove_contexts(ctx, "Task/abc", ["Project/missing"])
+
+    assert result["ok"] is True
+    req = post_route.calls.last.request
+    sent = json.loads(req.read())
+    doc = sent[0] if isinstance(sent, list) else sent
+    assert doc["contexts"] == ["Project/p1"]
+
+
+async def test_remove_contexts_entity_not_found(respx_mock):
+    respx_mock.get(DOC_PATH).respond(status_code=404, text="nope")
+    ctx = _make_ctx()
+    result = await remove_contexts(ctx, "Task/nope", ["Project/p1"])
+    assert result["ok"] is False
+    assert "document not found" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# assign_contexts / remove_contexts — archived guard
+# ---------------------------------------------------------------------------
+
+
+async def test_assign_contexts_archived_document_rejected(respx_mock):
+    """Assigning contexts to an archived document should fail."""
+    task_doc = {
+        "@id": "Task/abc",
+        "@type": "Task",
+        "name": "Old task",
+        "status": "open",
+        "contexts": [],
+        "archived_at": "2026-01-01T00:00:00Z",
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(task_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=[])
+
+    ctx = _make_ctx()
+    result = await assign_contexts(ctx, "Task/abc", ["Project/p1"])
+
+    assert result["ok"] is False
+    assert "archived" in result["error"]
+    assert not post_route.called
+
+
+async def test_remove_contexts_archived_document_rejected(respx_mock):
+    """Removing contexts from an archived document should fail."""
+    task_doc = {
+        "@id": "Task/abc",
+        "@type": "Task",
+        "name": "Old task",
+        "status": "open",
+        "contexts": ["Project/p1"],
+        "archived_at": "2026-01-01T00:00:00Z",
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(task_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=[])
+
+    ctx = _make_ctx()
+    result = await remove_contexts(ctx, "Task/abc", ["Project/p1"])
+
+    assert result["ok"] is False
+    assert "archived" in result["error"]
+    assert not post_route.called
+
+
+# ---------------------------------------------------------------------------
+# set_project_status / set_goal_status — terminal state guard
+# ---------------------------------------------------------------------------
+
+
+async def test_set_project_status_completed_is_terminal(respx_mock):
+    """completed -> active should be rejected at the tool level."""
+    orig_doc = {
+        "@id": "Project/p1",
+        "@type": "Project",
+        "name": "Done Project",
+        "status": "completed",
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
+
+    ctx = _make_ctx()
+    result = await set_project_status(ctx, "Project/p1", "active")
+
+    assert result["ok"] is False
+    assert "terminal" in result["error"]
+    assert not post_route.called
+
+
+async def test_set_goal_status_achieved_is_terminal(respx_mock):
+    """achieved -> active should be rejected at the tool level."""
+    orig_doc = {
+        "@id": "Goal/g1",
+        "@type": "Goal",
+        "name": "Achieved Goal",
+        "status": "achieved",
+        "created_at": "2026-07-01T10:00:00Z",
+        "updated_at": "2026-07-01T10:00:00Z",
+    }
+    respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
+    post_route = respx_mock.post(DOC_PATH).respond(json=["Goal/g1"])
+
+    ctx = _make_ctx()
+    result = await set_goal_status(ctx, "Goal/g1", "active")
+
+    assert result["ok"] is False
+    assert "terminal" in result["error"]
+    assert not post_route.called

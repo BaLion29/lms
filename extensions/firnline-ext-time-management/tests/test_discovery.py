@@ -30,7 +30,7 @@ def test_manifest_and_schema_present():
 def test_manifest_name_matches():
     manifest = json.loads((PKG_DIR / "manifest.json").read_text())
     assert manifest["name"] == "time_management"
-    assert manifest["version"] == "0.1.0"
+    assert manifest["version"] == "0.2.0"
 
 
 def test_schema_exports_all_four_main_classes():
@@ -53,7 +53,7 @@ def test_extractor_plugin_loadable():
     from firnline_ext_time_management.extract import plugin
 
     assert plugin.name == "time_management_extractor"
-    assert plugin.produces == ["Task", "Event", "Person", "Location", "Routine", "Activity"]
+    assert plugin.produces == ["Task", "Event", "Person", "Location", "Routine", "Activity", "Project", "Area", "Goal"]
 
 
 # ---------------------------------------------------------------------------
@@ -86,9 +86,9 @@ def test_indexer_protocol_conformance():
     assert violations == [], f"protocol violations: {violations}"
 
 
-def test_indexer_indexed_classes_cover_all_four():
-    """The indexer covers Task, Event, Routine, Activity."""
+def test_indexer_indexed_classes_cover_all_seven():
+    """The indexer covers Task, Event, Routine, Activity, Project, Area, Goal."""
     from firnline_ext_time_management.indexer import plugin
 
     classes = plugin.indexed_classes()
-    assert set(classes) == {"Task", "Event", "Routine", "Activity"}
+    assert set(classes) == {"Task", "Event", "Routine", "Activity", "Project", "Area", "Goal"}

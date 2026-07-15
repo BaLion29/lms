@@ -1,8 +1,8 @@
 {
   "name": "time_management",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "depends_on": [{"name": "places", "range": ">=0.1.0 <0.2.0"}, {"name": "reminders", "range": ">=0.1.0 <0.2.0"}, {"name": "triggers", "range": ">=0.1.0 <0.2.0"}],
   "models_target": "firnline_ext_time_management.models",
-  "exports": ["Task", "TaskSpec", "Event", "TaskStatus", "EventStatus", "Routine", "RoutineStep", "Activity", "ActivitySpec"],
+  "exports": ["Task", "TaskSpec", "Event", "TaskStatus", "EventStatus", "Routine", "RoutineStep", "Activity", "ActivitySpec", "Area", "Project", "ProjectStatus", "Goal", "GoalStatus"],
   "description": "Tasks, events, routines, activities and their specs"
 }
