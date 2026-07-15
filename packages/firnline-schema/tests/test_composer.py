@@ -406,7 +406,7 @@ def test_equivalence_with_monolithic() -> None:
         assert comp_cls == mono_cls, f"Mismatch for class '{cid}'"
 
     # Extension modules must be present with pkg: source prefix
-    extension_modules = {"inbox", "places", "time_management", "people", "reminders"}
+    extension_modules = {"inbox", "places", "time_management", "people"}
     repo_modules = {"core", "triggers"}
     module_names = {m.name for m in result.modules}
     for ext_name in extension_modules:
@@ -620,7 +620,7 @@ def test_triggers_discovered_from_repo() -> None:
 
 
 def test_time_management_resolves_transitive_deps() -> None:
-    """Compose with repo modules + time_management/address_book/reminders resolves transitive trigger dep."""
+    """Compose with repo modules + time_management/address_book resolves transitive trigger dep."""
     _EXT_DIR = Path(__file__).parents[3] / "extensions"
 
     # Check if extension manifests exist and have models_target
