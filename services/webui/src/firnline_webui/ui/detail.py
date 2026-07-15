@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
-from firnline_webui.ui.theme import RADIUS_MEDIUM, SHADOW_RAISED, SPACE_1_5, SPACE_2, SPACE_3
+from firnline_webui.ui.theme import FONT_MONO, RADIUS_MEDIUM, SHADOW_RAISED, SPACE_1_5, SPACE_2, SPACE_3
 
 
 def iri_var(selected_doc: rx.Var[dict | None]) -> rx.Var[str]:
@@ -67,7 +67,7 @@ def json_detail_drawer(
                                 rx.text(
                                     ref["target_label"].to(str),
                                     size="1",
-                                    font_family="mono",
+                                    font_family=FONT_MONO,
                                 ),
                                 rx.badge(
                                     ref["prop"].to(str),
@@ -141,7 +141,7 @@ def json_detail_drawer(
                             rx.text(
                                 iri_var,
                                 size="1",
-                                font_family="mono",
+                                font_family=FONT_MONO,
                                 word_break="break-all",
                             ),
                             background=rx.color("gray", 2),

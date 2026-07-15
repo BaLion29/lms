@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import reflex as rx
 
+from firnline_webui.ui.theme import SPACE_3
+
 
 def search_input(
     value: rx.Var[str],
@@ -49,24 +51,36 @@ def search_input(
 
 
 def filter_chip(
-    label: str,
+    label: rx.Var[str] | str,
     selected: rx.Var[bool] | bool,
     on_click,
 ) -> rx.Component:
     """Toggleable filter chip — solid accent when selected, soft grey otherwise.
 
+    Uses ``rx.cond`` to wrap two ``rx.button`` components because Reflex does
+    not accept ``rx.Var`` for the ``variant`` prop at Python level.
+
     Args:
-        label: Chip label text.
+        label: Chip label text (may be a reactive ``Var``).
         selected: Whether the chip is currently active.
         on_click: Event handler to toggle selection.
     """
-    return rx.badge(
-        label,
-        variant=rx.cond(selected, "solid", "surface"),
-        color_scheme=rx.cond(selected, "cyan", "gray"),
-        cursor="pointer",
-        on_click=on_click,
-        size="2",
+    s = rx.Var.create(selected)
+    return rx.cond(
+        s,
+        rx.button(
+            label,
+            variant="solid",
+            size="1",
+            on_click=on_click,
+        ),
+        rx.button(
+            label,
+            variant="soft",
+            size="1",
+            color_scheme="gray",
+            on_click=on_click,
+        ),
     )
 
 
@@ -219,8 +233,8 @@ def color_legend(
             typed,
             lambda item: rx.hstack(
                 rx.box(
-                    width="12px",
-                    height="12px",
+                    width=SPACE_3,
+                    height=SPACE_3,
                     border_radius="3px",
                     background=item["color"],
                     border=f"1px solid {rx.color('gray', 5)}",

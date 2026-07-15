@@ -13,7 +13,7 @@ from firnline_webui.ui.controls import search_input
 from firnline_webui.ui.detail import iri_var, json_detail_drawer
 from firnline_webui.ui.feedback import empty_state, error_callout, loading_spinner
 from firnline_webui.ui.nav import shell
-from firnline_webui.ui.theme import RADIUS_MEDIUM, SHADOW_CARD, SHADOW_CARD_HOVER, SPACING_EMPTY_STATE_Y
+from firnline_webui.ui.theme import RADIUS_MEDIUM, SHADOW_CARD, SPACING_EMPTY_STATE_Y
 from firnline_webui.ui.typography import page_heading
 
 
@@ -32,7 +32,7 @@ def _module_card(name: str, version: str, class_ids: list[str]) -> rx.Component:
             rx.spacer(),
             rx.cond(
                 version != "",
-                chip(version, "cyan"),
+                chip(version, "gray"),
             ),
             spacing="2",
             align="center",
@@ -43,14 +43,13 @@ def _module_card(name: str, version: str, class_ids: list[str]) -> rx.Component:
                 rx.Var.create(class_ids),
                 lambda cid: rx.link(
                     rx.hstack(
-                        rx.badge(cid, variant="surface", color_scheme="cyan", cursor="pointer", size="2"),
+                        rx.badge(cid, variant="surface", color_scheme="gray", cursor="pointer", size="2"),
                         rx.cond(
                             BrowseState.class_counts[cid].to(str) != "",  # type: ignore[index]
-                            rx.badge(
+                            rx.text(
                                 BrowseState.class_counts[cid].to(str),  # type: ignore[index]
-                                variant="outline",
-                                color_scheme="gray",
                                 size="1",
+                                color=rx.color("gray", 11),
                             ),
                         ),
                         spacing="1",
@@ -71,8 +70,7 @@ def _module_card(name: str, version: str, class_ids: list[str]) -> rx.Component:
         width="100%",
         border=f"1px solid {rx.color('gray', 4)}",
         border_radius=RADIUS_MEDIUM,
-        box_shadow=SHADOW_CARD,
-        _hover={"box_shadow": SHADOW_CARD_HOVER},
+        _hover={"box_shadow": SHADOW_CARD},
         transition="box-shadow 0.2s ease",
     )
 

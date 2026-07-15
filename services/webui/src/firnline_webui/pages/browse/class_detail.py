@@ -9,7 +9,7 @@ from firnline_webui.ui.controls import page_size_select, pagination_bar, search_
 from firnline_webui.ui.detail import iri_var, json_detail_drawer
 from firnline_webui.ui.feedback import empty_state, error_callout, loading_spinner
 from firnline_webui.ui.nav import shell
-from firnline_webui.ui.theme import TABLE_ROW_STYLE
+from firnline_webui.ui.theme import FONT_MONO, TABLE_ROW_STYLE
 from firnline_webui.ui.typography import page_heading
 
 
@@ -40,7 +40,7 @@ def _class_table() -> rx.Component:
                                 row["@id"].to(str),  # type: ignore[index]
                                 size="1",
                                 color_scheme="gray",
-                                font_family="mono",
+                                font_family=FONT_MONO,
                             ),
                         ),
                         rx.foreach(
@@ -91,14 +91,12 @@ def browse_class_page() -> rx.Component:
                         ),
                         href="/browse",
                     ),
-                    rx.heading(
+                    page_heading(
                         rx.cond(
                             BrowseClassState.current_class_name != "",
                             BrowseClassState.current_class_name,
                             "Browse",
                         ),
-                        size="6",
-                        weight="medium",
                     ),
                     # Total count badge in header
                     rx.cond(

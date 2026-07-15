@@ -9,6 +9,7 @@ from firnline_webui.ui.calendar import day_column, month_grid, week_grid
 from firnline_webui.ui.detail import iri_var, json_detail_drawer
 from firnline_webui.ui.feedback import error_callout, loading_spinner
 from firnline_webui.ui.nav import shell
+from firnline_webui.ui.typography import page_heading
 
 
 def calendar_page() -> rx.Component:
@@ -76,7 +77,7 @@ def _toolbar() -> rx.Component:
             custom_attrs={"aria-label": "Next period"},
         ),
         # Period heading
-        rx.heading(CalendarState.period_label, size="6"),
+        page_heading(CalendarState.period_label),
         rx.spacer(),
         # View mode toggle
         _view_toggle(),

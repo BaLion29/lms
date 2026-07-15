@@ -7,6 +7,7 @@ import reflex as rx
 from firnline_webui.state.capture import CaptureState
 from firnline_webui.ui.cards import chip
 from firnline_webui.ui.nav import shell
+from firnline_webui.ui.theme import RADIUS_MEDIUM, SHADOW_CARD, SPACE_8
 from firnline_webui.ui.typography import page_heading
 
 
@@ -85,6 +86,10 @@ def _note_tab() -> rx.Component:
             width="100%",
         ),
         size="3",
+        border=f"1px solid {rx.color('gray', 4)}",
+        border_radius=RADIUS_MEDIUM,
+        _hover={"box_shadow": SHADOW_CARD},
+        transition="box-shadow 0.2s ease",
     )
 
 
@@ -113,7 +118,7 @@ def _file_tab() -> rx.Component:
                     rx.text("Max 25 MB", size="1", color_scheme="gray"),
                     spacing="2",
                     align="center",
-                    padding="32px",
+                    padding=SPACE_8,
                 ),
                 id="capture_upload",
                 multiple=False,
@@ -135,6 +140,10 @@ def _file_tab() -> rx.Component:
             width="100%",
         ),
         size="3",
+        border=f"1px solid {rx.color('gray', 4)}",
+        border_radius=RADIUS_MEDIUM,
+        _hover={"box_shadow": SHADOW_CARD},
+        transition="box-shadow 0.2s ease",
     )
 
 
@@ -174,7 +183,7 @@ def capture_page() -> rx.Component:
                         rx.text("Handlers:", size="1", color_scheme="gray"),
                         rx.foreach(
                             CaptureState.handler_names,
-                            lambda name: chip(name, "blue"),
+                            lambda name: chip(name, "gray"),
                         ),
                         spacing="1",
                         align="center",

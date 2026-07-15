@@ -5,7 +5,8 @@ from __future__ import annotations
 import reflex as rx
 
 from firnline_webui.state.inbox import InboxState
-from firnline_webui.ui.cards import status_badge
+from firnline_webui.ui.cards import status_dot_text
+from firnline_webui.ui.controls import filter_chip
 from firnline_webui.ui.detail import iri_var, json_detail_drawer
 from firnline_webui.ui.feedback import empty_state, error_callout
 from firnline_webui.ui.nav import shell
@@ -20,20 +21,6 @@ _INBOX_STATUS_COLORS: dict[str, str] = {
     "failed": "red",
     "archived": "gray",
 }
-
-
-def _filter_chip(label: str, value: str, is_active: rx.Var[bool]) -> rx.Component:
-    return rx.badge(
-        rx.hstack(
-            rx.text(label, size="1"),
-            rx.cond(is_active, rx.icon(tag="check", size=12)),
-            spacing="1",
-        ),
-        variant=rx.cond(is_active, "solid", "soft"),
-        color_scheme="cyan",
-        cursor="pointer",
-        on_click=InboxState.set_status_filter(value),
-    )
 
 
 def _inbox_table() -> rx.Component:
@@ -51,7 +38,7 @@ def _inbox_table() -> rx.Component:
                 InboxState.filtered_rows,
                 lambda row: rx.table.row(
                     rx.table.cell(rx.text(row["content_type"], size="2", color_scheme="gray")),
-                    rx.table.cell(status_badge(row["status"], _INBOX_STATUS_COLORS)),
+                    rx.table.cell(status_dot_text(row["status"], _INBOX_STATUS_COLORS)),
                     rx.table.cell(rx.text(row["captured_at"], size="2")),
                     rx.table.cell(
                         rx.text(
@@ -111,10 +98,10 @@ def inbox_page() -> rx.Component:
                         InboxState.available_statuses.length() > 0,
                         rx.hstack(
                             rx.text("Filter:", size="2", color_scheme="gray"),
-                            _filter_chip("All", "all", InboxState.status_filter == "all"),
+                            filter_chip("All", InboxState.status_filter == "all", InboxState.set_status_filter("all")),
                             rx.foreach(
                                 InboxState.available_statuses,
-                                lambda s: _filter_chip(s, s, InboxState.status_filter == s),
+                                lambda s: filter_chip(s, InboxState.status_filter == s, InboxState.set_status_filter(s)),
                             ),
                             spacing="1",
                             align="center",
