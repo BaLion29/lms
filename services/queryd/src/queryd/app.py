@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 import secrets
 import tempfile
 from contextlib import asynccontextmanager
@@ -14,9 +16,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from firnline_core.conventions import blob_root_from_env
+from firnline_core.conventions import blob_root_from_env, parse_agent
 from firnline_core.plugins import HostPolicy, PluginHost, ToolPlugin
-from firnline_core.tdb import TdbClient, TdbError
+from firnline_core.repository import Repository
+from firnline_core.tdb import TdbClient, TdbConflictError, TdbError
 from pydantic_ai import Tool
 from pydantic_ai.exceptions import (
     ModelAPIError,
@@ -561,6 +564,87 @@ def create_app(
                 raise HTTPException(status_code=404, detail=f"Document not found: {iri}")
             raise HTTPException(status_code=502, detail=str(exc))
         return JSONResponse(content=doc)
+
+    # ------------------------------------------------------------------
+    # POST /v1/documents/{class_name} (auth)
+    # ------------------------------------------------------------------
+
+    @app.post(
+        "/v1/documents/{class_name}",
+        status_code=201,
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_document_post(request: Request, class_name: str):
+        """Create a new document of *class_name*."""
+        settings: Settings = app.state.settings
+
+        # Gate: writes must be enabled
+        if not settings.enable_writes:
+            raise HTTPException(status_code=403, detail="Writes are disabled")
+
+        # Validate class_name
+        if not re.fullmatch(r"^[A-Za-z][A-Za-z0-9_]*$", class_name):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid class name: {class_name!r}",
+            )
+
+        # Parse body
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=422,
+                detail="Request body must be valid JSON",
+            )
+
+        if not isinstance(body, dict):
+            raise HTTPException(
+                status_code=422,
+                detail="Request body must be a JSON object",
+            )
+
+        if "@type" in body:
+            raise HTTPException(
+                status_code=422,
+                detail="@type must not be present in body; class comes from the URL",
+            )
+
+        if "@id" in body:
+            raise HTTPException(
+                status_code=422,
+                detail="@id must not be present in body; server-assigned",
+            )
+
+        # Agent identity
+        agent = request.headers.get("X-Firnline-Agent", "service:queryd")
+        try:
+            _ = parse_agent(agent)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        # Build and create document
+        doc = dict(body)
+        doc["@type"] = class_name
+
+        repo = Repository(app.state.tdb)
+        try:
+            iri = await repo.create(
+                doc,
+                agent=agent,
+                method="direct",
+                branch=settings.tdb_branch,
+            )
+        except TdbConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except TdbError as exc:
+            if exc.status == 400:
+                raise HTTPException(status_code=422, detail=exc.body)
+            raise HTTPException(status_code=502, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        return JSONResponse(status_code=201, content={"iri": iri})
 
     # ------------------------------------------------------------------
     # /v1/graphql (auth)

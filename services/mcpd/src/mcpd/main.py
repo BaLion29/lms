@@ -229,6 +229,47 @@ async def _tool_capture(text: str) -> dict[str, Any]:
         return resp.json()
 
 
+async def _tool_create_document(
+    class_name: str, fields: dict[str, Any], agent: str | None = None
+) -> dict[str, Any]:
+    """Create a structured document of a known schema class directly — no LLM extraction.
+
+    Use this when you already know the exact field values for a document.
+    Unlike ``capture`` (which routes free text through LLM extraction), this
+    tool writes a structured document straight to the knowledge graph.  Use
+    ``get_schema`` to discover available classes and their fields before
+    calling this tool.
+
+    Args:
+        class_name: The document class name (e.g. ``Task``, ``Person``).  Must
+            match an existing schema class exactly (case-sensitive).
+        fields: A JSON object whose keys are the class field names as defined
+            in the schema.  Do **not** include ``@type`` or ``@id`` — both are
+            server-assigned from the class name and must not appear in the body.
+        agent: Optional provenance agent identity string.  Grammar:
+            ``service:<name>``, ``user:<name>``, or ``ext:<name>``.  When
+            omitted the call is attributed to ``ext:mcp`` so the origin is
+            correctly recorded as an external agent.
+
+    Returns:
+        A dict with the single key ``iri`` whose value is the created
+        document's IRI (e.g. ``{"iri": "Task/abc123"}``).
+    """
+    settings = _get_settings()
+    async with _build_client(
+        settings.queryd_url, settings.queryd_token, settings.request_timeout_seconds
+    ) as client:
+        headers = {"X-Firnline-Agent": agent} if agent else {"X-Firnline-Agent": "ext:mcp"}
+        try:
+            resp = await client.post(
+                f"/v1/documents/{class_name}", json=fields, headers=headers
+            )
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            raise ToolError(str(e)) from None
+        _raise_for_status(resp)
+        return resp.json()
+
+
 # ── Resource callbacks (async, invoked inside the MCP event loop) ───────────
 
 
@@ -289,9 +330,9 @@ def create_app() -> Starlette:
         stateless_http=True,
         instructions=(
             "Firnline is a personal knowledge system. Use the provided tools to query "
-            "documents, search the schema, run GraphQL queries, and capture new "
-            "knowledge. All read operations go through queryd; writes go through "
-            "captured."
+            "documents, search the schema, run GraphQL queries, and write new "
+            "knowledge.  All read operations go through queryd; unstructured writes "
+            "go through captured; structured writes go through create_document."
         ),
     )
 
@@ -304,6 +345,7 @@ def create_app() -> Starlette:
     mcp.tool()(_tool_get_schema)
     mcp.tool()(_tool_list_modules)
     mcp.tool()(_tool_capture)
+    mcp.tool()(_tool_create_document)
 
     # Register resources
     mcp.resource("firnline://schema")(_resource_schema)

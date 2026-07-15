@@ -68,7 +68,7 @@
 | **captured** | Ingestion API — accepts notes and file uploads; dispatches to pluggable handler plugins. | 8088 |
 | **ingestd** | Polling worker — picks up Captured documents, runs extractor plugins via LLM, writes typed documents. | — |
 | **queryd** | Conversational agent API — read tools, GraphQL, structured API endpoints, and flag-gated write-tool plugins. | 8087 |
-| **mcpd** | MCP server — exposes firnline to external AI agents via Model Context Protocol (streamable HTTP). Tools: graphql_query, get_document, find_entity/class/field, get_schema, list_modules, capture. | 8090 |
+| **mcpd** | MCP server — exposes firnline to external AI agents via Model Context Protocol (streamable HTTP). Tools: graphql_query, get_document, find_entity/class/field, get_schema, list_modules, capture, create_document. | 8090 |
 | **indexed** | Precision grounding service — mirrors TDB documents + schema into a hybrid vector+lexical index and serves precise-lookup endpoints to ingestd and queryd. | 8089 |
 | **triggerd** | Polling worker — evaluates Trigger documents, materializes TriggerFiring records. | — |
 | **effectd** | Effect delivery daemon — plans `ActionExecution` records, executes via `ActionExecutor` plugins (webhook, notify, etc.), runs legacy notification loop with nag policy (renotify, expire, snooze wake-up). See [docs/actions.md](actions.md) for the action lifecycle. | — |
@@ -104,7 +104,20 @@ the compose stack.
    `ingestd` consults it for entity linking beyond casefold-exact match;
    `queryd` uses `find_entity`/`find_class`/`find_field` tools to ground the
    agent before GraphQL queries.  If `indexed` is unavailable, both consumers
-   degrade gracefully to today's behaviour.
+    degrade gracefully to today's behaviour.
+
+### Direct Structured Ingestion
+
+When the caller already knows the exact field values for a document, the full
+capture → ingest pipeline is unnecessary — there is no free text to
+disambiguate.  A shortcut path is available: ``POST
+/v1/documents/{class_name}`` on **queryd** accepts a plain JSON object body,
+validates it against the TerminusDB schema, and writes it via
+``Repository.create()`` (design law L6: every entity write goes through this
+layer).  External AI agents access this path through **mcpd**'s
+``create_document`` tool.  Provenance is recorded via the ``X-Firnline-Agent``
+header (default ``service:queryd`` when not present; mcpd sets ``ext:mcp`` so
+external-agent writes are correctly attributed).
 
 ## Schema Module System
 

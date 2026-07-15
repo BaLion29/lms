@@ -12,6 +12,7 @@ from mcpd.main import (
     _resource_schema,
     _resource_schema_introspection,
     _tool_capture,
+    _tool_create_document,
     _tool_find_class,
     _tool_find_entity,
     _tool_find_field,
@@ -181,6 +182,102 @@ async def test_capture_success(monkeypatch, respx_mock: respx.MockRouter):
     )
     result = await _tool_capture("Hello firnline")
     assert result["id"] == "Note/xyz"
+
+
+# ── create_document ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_create_document_success(monkeypatch, respx_mock: respx.MockRouter):
+    """POST /v1/documents/{class_name} with valid fields → 201, returns iri."""
+    _configure_default_env(monkeypatch)
+    route = respx_mock.post("http://test-queryd/v1/documents/Task").respond(
+        status_code=201, json={"iri": "Task/abc"}
+    )
+    result = await _tool_create_document(
+        class_name="Task", fields={"name": "Review PR", "priority": 3}
+    )
+    assert result["iri"] == "Task/abc"
+    # Verify the request body and default agent header
+    assert route.call_count == 1
+    req = route.calls.last.request
+    assert req.headers["X-Firnline-Agent"] == "ext:mcp"
+    assert json.loads(req.read()) == {"name": "Review PR", "priority": 3}
+
+
+@pytest.mark.asyncio
+async def test_create_document_custom_agent(monkeypatch, respx_mock: respx.MockRouter):
+    """Explicit agent overrides the default ext:mcp header."""
+    _configure_default_env(monkeypatch)
+    route = respx_mock.post("http://test-queryd/v1/documents/Task").respond(
+        status_code=201, json={"iri": "Task/xyz"}
+    )
+    result = await _tool_create_document(
+        class_name="Task",
+        fields={"name": "test"},
+        agent="user:basti",
+    )
+    assert result["iri"] == "Task/xyz"
+    req = route.calls.last.request
+    assert req.headers["X-Firnline-Agent"] == "user:basti"
+
+
+@pytest.mark.asyncio
+async def test_create_document_422_propagates_detail(monkeypatch, respx_mock: respx.MockRouter):
+    """422 body invalid (schema rejection) detail reaches the calling agent."""
+    _configure_default_env(monkeypatch)
+    detail_msg = 'Field "priority" must be an integer, got string'
+    respx_mock.post("http://test-queryd/v1/documents/Task").respond(
+        status_code=422, json={"detail": detail_msg}
+    )
+    with pytest.raises(ToolError, match=detail_msg):
+        await _tool_create_document(
+            class_name="Task", fields={"name": "test", "priority": "high"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_document_connection_error(monkeypatch, respx_mock: respx.MockRouter):
+    """Connection errors are caught and raised as ToolError."""
+    _configure_default_env(monkeypatch)
+    respx_mock.post("http://test-queryd/v1/documents/Task").mock(
+        side_effect=httpx.ConnectError("Connection refused")
+    )
+    with pytest.raises(ToolError, match="Connection refused"):
+        await _tool_create_document(
+            class_name="Task", fields={"name": "test"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_document_400_bad_class_name(monkeypatch, respx_mock: respx.MockRouter):
+    """400 for unknown class_name propagates actionable detail to the caller."""
+    _configure_default_env(monkeypatch)
+    detail_msg = "Invalid class name: 'BogusClass'"
+    respx_mock.post("http://test-queryd/v1/documents/BogusClass").respond(
+        status_code=400, json={"detail": detail_msg}
+    )
+    with pytest.raises(ToolError, match=detail_msg):
+        await _tool_create_document(
+            class_name="BogusClass", fields={"name": "test"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_document_error_never_leaks_token(monkeypatch, respx_mock: respx.MockRouter):
+    """When create_document fails with a 500, the queryd token must never leak."""
+    _configure_default_env(monkeypatch)
+    respx_mock.post("http://test-queryd/v1/documents/Task").respond(
+        500, json={"detail": "Internal server error"}
+    )
+    with pytest.raises(ToolError) as exc_info:
+        await _tool_create_document(
+            class_name="Task", fields={"name": "test"}
+        )
+    error_msg = str(exc_info.value)
+    assert "q-token" not in error_msg
+    assert "Bearer" not in error_msg
+    assert "Internal server error" in error_msg
 
 
 # ── Connection error handling ───────────────────────────────────────────────
