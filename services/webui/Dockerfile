@@ -41,10 +41,21 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Put the workspace venv on PATH.
+# PYTHONPATH makes the extension overlay visible to importlib.metadata.
+# This image does NOT bake first-party extension wheels — extensions are
+# provided at runtime via the shared firnline_ext_venv overlay volume
+# (populated by the bootstrap service).
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/firnline-ext-venv/lib
+
+# Shared extension-installer entrypoint (verify-only mode)
+COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
 
 WORKDIR /app/services/webui
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=120s \
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/healthz',timeout=5)"]
 
 EXPOSE 3000
 
@@ -55,4 +66,5 @@ USER webui
 #
 # Startup: reflex compiles the frontend at boot (~30-60s), then serves backend
 # + compiled frontend on a single port (default 3000).
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["reflex", "run", "--env", "prod", "--backend-host", "0.0.0.0"]

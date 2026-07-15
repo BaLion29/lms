@@ -9,7 +9,7 @@ import reflex as rx
 from firnline_webui.state.auth import AuthState
 from firnline_webui.state.base import BaseState
 
-NavActive = Literal["home", "capture", "inbox", "browse", "calendar", "automations", "health", "modules"]
+NavActive = Literal["home", "capture", "inbox", "browse", "calendar", "automations", "health", "modules", "history"]
 
 NAV_ITEMS: list[dict] = [
     {"label": "Home", "icon": "house", "active": "home", "route": "/"},
@@ -20,6 +20,7 @@ NAV_ITEMS: list[dict] = [
     {"label": "Automations", "icon": "zap", "active": "automations", "route": "/automations"},
     {"label": "Health", "icon": "activity", "active": "health", "route": "/health"},
     {"label": "Modules", "icon": "blocks", "active": "modules", "route": "/modules"},
+    {"label": "History", "icon": "history", "active": "history", "route": "/history"},
 ]
 
 SIDEBAR_WIDTH = "240px"
@@ -316,5 +317,6 @@ def _page_title_for(active: str) -> str:
         "automations": "Automations",
         "health": "Service Health",
         "modules": "Schema Modules",
+        "history": "History",
     }
     return titles.get(active, "Firnline")
