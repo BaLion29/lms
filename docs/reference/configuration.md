@@ -1,8 +1,11 @@
 # Configuration
 
-All configuration is done via environment variables. There are no config files.
-The `.env.example` in the repo root lists every variable; copy it to `.env` and
-edit as needed.
+## Purpose
+
+This page is the single source of truth for every environment variable in
+firnline. Use it to look up variable names, defaults, and which service
+consumes each one. No other page carries configuration tables — link here
+instead.
 
 ## Shared TerminusDB settings
 
@@ -101,10 +104,11 @@ Prefixed `TRIGGERD_`.
 | `TRIGGERD_TDB_PASSWORD` | — | TerminusDB password |
 | `TRIGGERD_POLL_INTERVAL_SECONDS` | `60` | Seconds between evaluation cycles |
 | `TRIGGERD_LOOKBACK_SECONDS` | `900` | How far back to look for Trigger changes |
-| `TRIGGERD_DEFAULT_TIMEZONE` | `Europe/Zurich` | Fallback timezone for date parsing |
+| `TRIGGERD_DEFAULT_TIMEZONE` | `UTC` | Fallback timezone for date parsing |
 | `TRIGGERD_DRY_RUN` | `false` | Evaluate but skip writes |
 | `TRIGGERD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
 | `TRIGGERD_LIVENESS_FILE` | `/tmp/triggerd-alive` | Path touched on each successful cycle for healthchecks |
+| `TRIGGERD_STATE_FILE` | `/tmp/triggerd-state.json` | Path to persist evaluation state across restarts |
 
 ## effectd
 
@@ -220,22 +224,7 @@ Prefixed `QUERYD_`.
 | `QUERYD_LISTEN_ADDR` | `0.0.0.0:8087` | Host:port to bind |
 | `QUERYD_CORS_ORIGINS` | `[]` | Comma-separated CORS origins |
 
-### Structured API endpoints (bearer-authed)
-
-queryd serves the following endpoints (all bearer-authed):
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/v1/schema` | Rendered schema summary |
-| `GET` | `/v1/schema/introspection` | Raw GraphQL introspection JSON |
-| `GET` | `/v1/modules` | SchemaModule registry docs |
-| `GET` | `/v1/documents/{iri}` | Fetch a single document by IRI |
-| `POST` | `/v1/graphql` | Read-only GraphQL query (mutations rejected) |
-| `POST` | `/v1/find/entity` | Semantic entity search (requires indexed) |
-| `POST` | `/v1/find/class` | Semantic class search (requires indexed) |
-| `POST` | `/v1/find/field` | Semantic field search (requires indexed) |
-| `GET` | `/v1/tools` | List write-tool specs (name, description, input_schema). Empty when `QUERYD_ENABLE_WRITES=false`. |
-| `POST` | `/v1/tools/{name}` | Invoke a write tool by name. Requires `QUERYD_ENABLE_WRITES=true`. |
+For the structured API endpoints, see [reference/api.md](api.md).
 
 The compose file additionally uses:
 
@@ -261,23 +250,25 @@ First-party extension wheels are baked into service images at build time.
 
 ## webui
 
-Prefixed `WEBUI_`.
+Prefixed `WEBUI_`. Defaults code-verified against
+`services/webui/src/firnline_webui/settings.py`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `WEBUI_CAPTURED_URL` | `http://captured:8088` | Base URL for the captured service |
+| `WEBUI_CAPTURED_URL` | `http://apid:8080` | Base URL for the captured service |
 | `WEBUI_CAPTURED_API_TOKEN` | (empty) | Bearer token for captured endpoints (server-side, never exposed to browser) |
-| `WEBUI_QUERYD_URL` | `http://queryd:8087` | Base URL for the queryd service |
-| `WEBUI_QUERYD_API_TOKEN` | (empty) | Bearer token for queryd `/healthz` (server-side) |
-| `WEBUI_INDEXED_URL` | `http://indexed:8089` | Base URL for the indexed service |
+| `WEBUI_QUERYD_URL` | `http://apid:8080` | Base URL for the queryd service |
+| `WEBUI_QUERYD_API_TOKEN` | (empty) | Bearer token for queryd endpoints (server-side) |
+| `WEBUI_INDEXED_URL` | `http://apid:8080` | Base URL for the indexed service |
 | `WEBUI_INDEXED_API_TOKEN` | (empty) | Bearer token for indexed endpoints (reserved) |
+| `WEBUI_MCPD_URL` | `http://apid:8080/mcp` | Base URL for the MCP server (within apid) |
 | `WEBUI_TDB_URL` | `http://terminusdb:6363` | TerminusDB base URL |
 | `WEBUI_TDB_ORG` | `admin` | TerminusDB organisation |
 | `WEBUI_TDB_DB` | `firnline` | TerminusDB database name |
 | `WEBUI_TDB_BRANCH` | `main` | TerminusDB branch |
 | `WEBUI_TDB_USER` | `admin` | TerminusDB username |
 | `WEBUI_TDB_PASSWORD` | (empty) | TerminusDB password |
-| `WEBUI_PASSWORD` | (empty) | Optional UI password gate; empty = open |
+| `WEBUI_PASSWORD` | (empty) | Optional UI password gate; empty = auth disabled |
 | `WEBUI_REQUEST_TIMEOUT_SECONDS` | `30.0` | HTTP timeout for all backend calls |
 
 The compose file additionally uses:
@@ -285,7 +276,8 @@ The compose file additionally uses:
 | Variable | Default | Description |
 |---|---|---|
 | `WEBUI_HOST_PORT` | `3000` | Host port mapped to the container's port 3000 |
-| `WEBUI_API_URL` | `http://localhost:3000` | Browser-facing URL (maps to `REFLEX_API_URL` — must be absolute) |
+| `WEBUI_API_URL` | `http://localhost:3000` | Browser-facing URL — set to the hostname visible in the browser (must be absolute) |
+| `REFLEX_API_URL` | `http://localhost:3000` | Reflex frontend API URL (must be absolute — Reflex parses it with `new URL()`) |
 
 ## mcpd (Model Context Protocol server)
 
@@ -304,28 +296,7 @@ talks to queryd and captured over HTTP — no direct database access.
 | `MCPD_CAPTURED_TOKEN` | — | Bearer token for captured endpoints |
 | `MCPD_ENABLE_QUERYD_TOOLS` | `true` | Register queryd write tools (`GET /v1/tools`) as dynamic MCP tools at startup |
 
-### MCP tools
-
-| Tool | Backed by |
-|---|---|
-| `graphql_query` | queryd `POST /v1/graphql` |
-| `get_document` | queryd `GET /v1/documents/{iri}` |
-| `find_entity` | queryd `POST /v1/find/entity` |
-| `find_class` | queryd `POST /v1/find/class` |
-| `find_field` | queryd `POST /v1/find/field` |
-| `get_schema` | queryd `GET /v1/schema` |
-| `list_modules` | queryd `GET /v1/modules` |
-| `capture` | captured `POST /v1/capture/note` |
-
-### MCP resources
-
-| URI | Backed by |
-|---|---|
-| `firnline://schema` | queryd `GET /v1/schema` |
-| `firnline://schema/introspection` | queryd `GET /v1/schema/introspection` |
-| `firnline://modules` | queryd `GET /v1/modules` |
-
-For full details see [docs/mcpd.md](mcpd.md).
+For the full MCP tools and resources tables, see [reference/mcp.md](mcp.md).
 
 ## Bundled TerminusDB overlay
 
@@ -335,3 +306,11 @@ For full details see [docs/mcpd.md](mcpd.md).
 
 > When using the bundled TDB overlay, set `TDB_URL=http://terminusdb:6363` in
 > `.env` — the container name is hardcoded in `compose.bundled-tdb.yaml`.
+
+## Related documents
+
+- [API reference](api.md) — REST endpoints for all services
+- [MCP reference](mcp.md) — MCP tools and resources
+- [CLI reference](cli.md) — `firnline-schema` commands
+- [Entry-point reference](entry-points.md) — plugin system groups and protocols
+- [TerminusDB notes](terminusdb-notes.md) — empirically verified TDB API behaviour

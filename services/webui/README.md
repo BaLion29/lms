@@ -1,23 +1,25 @@
 # firnline-webui
 
-Reflex-based web UI for the Firnline personal data system.
+Reflex-based web dashboard for the Firnline personal data system. Provides a
+browser UI for capturing thoughts, browsing TerminusDB documents by class,
+inspecting service health, viewing pipeline history, and managing automations.
 
-Browses TerminusDB schemas and documents, inspects capture/indexed/queryd
-services, and provides a lightweight password gate.
+Pages all use real Reflex state classes that call the TerminusDB API via
+`CapturedClient` and `TdbBrowser`:
 
-## Packaging layout
-
-The package lives under `src/firnline_webui/` (hatchling src layout).
-`uv run` installs the package in dev mode, making `import firnline_webui`
-work from the project root (`services/webui/`). Reflex discovers the app
-via the `app_name` in `rxconfig.py` which maps to
-`firnline_webui.firnline_webui:app`.
-
-## Backend health endpoint
-
-A `GET /healthz` endpoint is added via the `api_transformer` parameter
-of `rx.App`. It returns `{"status": "ok", "version": "<pkg version>"}`.
-Reflex also serves its built-in `/ping` for basic liveness checks.
+| Route               | Page        |
+|---------------------|-------------|
+| `/`                 | Dashboard   |
+| `/capture`          | Capture     |
+| `/inbox`            | Inbox       |
+| `/browse`           | Browse      |
+| `/browse/[class]`   | Class View  |
+| `/health`           | Health      |
+| `/modules`          | Modules     |
+| `/history`          | History     |
+| `/calendar`         | Calendar    |
+| `/automations`      | Automations |
+| `/login`            | Sign In     |
 
 ## Run locally
 
@@ -26,13 +28,7 @@ cd services/webui
 uv run reflex run
 ```
 
-## Pages
+## Further reading
 
-| Route       | Page      | Status      |
-|-------------|-----------|-------------|
-| `/`         | Dashboard | Active      |
-| `/capture`  | Capture   | Placeholder |
-| `/inbox`    | Inbox     | Placeholder |
-| `/browse`   | Browse    | Placeholder |
-| `/health`   | Health    | Active      |
-| `/modules`  | Modules   | Active      |
+- [WebUI guide](../../docs/guides/webui.md) — full walkthrough
+- [Configuration](../../docs/reference/configuration.md) — env vars
