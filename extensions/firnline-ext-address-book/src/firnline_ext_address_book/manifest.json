@@ -1,0 +1,8 @@
+{
+  "name": "address_book",
+  "version": "0.2.0",
+  "depends_on": [{"name": "core", "range": ">=0.2.0 <0.3.0"}, {"name": "actions", "range": ">=0.1.0 <0.2.0"}],
+  "models_target": "firnline_ext_address_book.models",
+  "exports": ["Person", "Contact", "Location", "Organization", "Affiliation", "AddressBookGeocoderAction"],
+  "description": "People and contacts with organizations, affiliations, and locations"
+}

@@ -270,6 +270,10 @@ services:
       EFFECTD_TDB_PASSWORD: ${TDB_PASSWORD:?}
       EFFECTD_POLL_INTERVAL_SECONDS: ${EFFECTD_POLL_INTERVAL_SECONDS:-30}
       EFFECTD_LIVENESS_FILE: ${EFFECTD_LIVENESS_FILE:-/tmp/effectd-alive}
+      GEOCODING_BASE_URL: ${GEOCODING_BASE_URL:-https://nominatim.openstreetmap.org}
+      GEOCODING_API_KEY: ${GEOCODING_API_KEY:-}
+      GEOCODING_TIMEOUT_SECONDS: ${GEOCODING_TIMEOUT_SECONDS:-10.0}
+      GEOCODING_USER_AGENT: ${GEOCODING_USER_AGENT:-firnline-address-book}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
       - firnline_ext_venv:/opt/firnline-ext-venv:ro

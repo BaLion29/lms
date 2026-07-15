@@ -620,11 +620,11 @@ def test_triggers_discovered_from_repo() -> None:
 
 
 def test_time_management_resolves_transitive_deps() -> None:
-    """Compose with repo modules + time_management/places/reminders resolves transitive trigger dep."""
+    """Compose with repo modules + time_management/address_book/reminders resolves transitive trigger dep."""
     _EXT_DIR = Path(__file__).parents[3] / "extensions"
 
     # Check if extension manifests exist and have models_target
-    for ext_name in ("places", "time-management"):
+    for ext_name in ("address-book", "time-management"):
         manifest_path = _EXT_DIR / f"firnline-ext-{ext_name}" / "src" / f"firnline_ext_{ext_name.replace('-', '_')}" / "manifest.json"
         if manifest_path.is_file():
             try:
@@ -637,10 +637,10 @@ def test_time_management_resolves_transitive_deps() -> None:
             pytest.skip(f"Extension '{ext_name}' manifest not found")
 
     entry_point_modules: dict[str, ModuleSource] = {
-        "places": ModuleSource(
-            name="places",
-            path=_EXT_DIR / "firnline-ext-places" / "src" / "firnline_ext_places",
-            origin="pkg:test-places",
+        "address_book": ModuleSource(
+            name="address_book",
+            path=_EXT_DIR / "firnline-ext-address-book" / "src" / "firnline_ext_address_book",
+            origin="pkg:test-address-book",
         ),
         "time_management": ModuleSource(
             name="time_management",
@@ -662,7 +662,7 @@ def test_time_management_resolves_transitive_deps() -> None:
     names = {m.name for m in result.modules}
     assert "triggers" in names
     assert "time_management" in names
-    assert "places" in names
+    assert "address_book" in names
     assert "reminders" in names
 
 

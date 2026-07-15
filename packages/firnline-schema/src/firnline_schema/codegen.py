@@ -92,13 +92,13 @@ def _resolve_prop_type(
     *is_nested_model* is True when the type refers to a Pydantic model class
     (subdocument, @oneOf, or List of concrete class) that must be imported and nested.
 
-    Returns (None, False) for xdd:coordinate — the caller should skip the field.
     """
+
     if isinstance(prop_value, str):
         # Plain class or primitive reference
         if _is_builtin(prop_value):
             if prop_value == "xdd:coordinate":
-                return None, False  # signal: skip this field
+                return "tuple[float, float]", False
             py_type = PRIMITIVE_MAP.get(prop_value, "str")
             return py_type, False
 
@@ -134,8 +134,9 @@ def _resolve_prop_type(
         elif isinstance(inner_class, str):
             if _is_builtin(inner_class):
                 if inner_class == "xdd:coordinate":
-                    return None, False
-                inner_type = PRIMITIVE_MAP.get(inner_class, "str")
+                    inner_type = "tuple[float, float]"
+                else:
+                    inner_type = PRIMITIVE_MAP.get(inner_class, "str")
                 nested = False
             elif inner_class in all_classes:
                 cls_def = all_classes[inner_class]
@@ -164,9 +165,6 @@ def _resolve_prop_type(
         else:
             inner_type = "str"
             nested = False
-
-        if inner_type is None:
-            return None, False
 
         if wtype in ("Set", "List"):
             return f"list[{inner_type}]", nested
@@ -230,7 +228,7 @@ def _build_fields(
 ) -> list[dict[str, Any]]:
     """Build the list of fields for a concrete class, flattening inheritance.
 
-    Returns a list of dicts with keys: name, type, default, nested, skip_comment.
+    Returns a list of dicts with keys: name, type, default, nested.
     """
     own_fields: OrderedDict[str, dict[str, Any]] = OrderedDict()
     _walked: set[str] = set()
@@ -256,19 +254,6 @@ def _build_fields(
                 in_oneof=("@oneOf" in from_cls_def),
                 wrapper_type=wtype,
             )
-            if py_type is None:
-                # xdd:coordinate → add as a comment-only field
-                own_fields[key] = {
-                    "name": key,
-                    "type": "SKIP",
-                    "nested": False,
-                    "optional": _is_optional(val),
-                    "has_default": True,  # treat as optional for ordering
-                    "is_collection": False,
-                    "raw_value": val,
-                    "skip_comment": f"# {key} (xdd:coordinate) omitted",
-                }
-                continue
 
             own_fields[key] = {
                 "name": key,
@@ -278,7 +263,6 @@ def _build_fields(
                 "has_default": _has_default(val),
                 "is_collection": _is_collection(val),
                 "raw_value": val,
-                "skip_comment": None,
             }
 
     # Recursively walk the inheritance chain (deepest parent first, then own)
@@ -315,7 +299,6 @@ def _build_fields(
                     "has_default": True,
                     "is_collection": False,
                     "raw_value": branch_ref,
-                    "skip_comment": None,
                 }
 
     # Convert to list, sorted: required first (alphabetical), then optional (alphabetical)
@@ -370,7 +353,6 @@ def _generate_module(
 
     enums: list[dict[str, Any]] = []
     concrete: list[dict[str, Any]] = []
-    skipped_coords: list[tuple[str, str]] = []  # (class, field_name)
 
     for cls in classes:
         cid = cls.get("@id", "")
@@ -392,8 +374,6 @@ def _generate_module(
         for f in fields:
             if f["nested"]:
                 nested_refs.add(f["type"].replace(" | None", "").replace("list[", "").rstrip("]"))
-            if f["skip_comment"]:
-                skipped_coords.append((cls_def["@id"], f["name"]))
             # Check if any field uses TdbDateTime
             if "TdbDateTime" in f.get("type", ""):
                 needs_tdbdatetime = True
@@ -542,9 +522,6 @@ def _generate_module(
 
         # Fields
         for f in fields:
-            if f["skip_comment"]:
-                L(f"    {f['skip_comment']}")
-                continue
             name = _attr_name(f["name"])
             py_type = f["type"]
             default = _field_default(f["raw_value"])

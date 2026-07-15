@@ -3,7 +3,7 @@
 An opinionated ADHD-focused Life-Management System that captures thoughts
 (text notes, voice memos, files), runs them through AI extraction pipelines
 to turn unstructured input into linked, typed documents (tasks, events,
-people, places, reminders, routines), and stores everything in a TerminusDB
+address book (people, organizations, locations), reminders, routines), and stores everything in a TerminusDB
 graph database — the single source of truth.
 
 - **[Getting Started](getting-started.md)** — prerequisites, Docker quickstart,

@@ -13,9 +13,8 @@ members = [
     "captured",
     "effectd",
     "firnline-core",
+    "firnline-ext-address-book",
     "firnline-ext-gotify",
-    "firnline-ext-people",
-    "firnline-ext-places",
     "firnline-ext-reminders",
     "firnline-ext-time-management",
     "firnline-ext-webhook",
@@ -443,6 +442,39 @@ dev = [
 ]
 
 [[package]]
+name = "firnline-ext-address-book"
+version = "0.2.0"
+source = { editable = "extensions/firnline-ext-address-book" }
+dependencies = [
+    { name = "firnline-core" },
+    { name = "httpx" },
+    { name = "pydantic-settings" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "firnline-core", editable = "packages/firnline-core" },
+    { name = "httpx" },
+    { name = "pydantic-settings" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[[package]]
 name = "firnline-ext-gotify"
 version = "0.1.0"
 source = { editable = "extensions/firnline-ext-gotify" }
@@ -470,52 +502,6 @@ requires-dist = [
 dev = [
     { name = "pytest" },
     { name = "respx" },
-    { name = "ruff" },
-]
-
-[[package]]
-name = "firnline-ext-people"
-version = "0.1.0"
-source = { editable = "extensions/firnline-ext-people" }
-dependencies = [
-    { name = "firnline-core" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "firnline-core", editable = "packages/firnline-core" }]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[[package]]
-name = "firnline-ext-places"
-version = "0.1.0"
-source = { editable = "extensions/firnline-ext-places" }
-dependencies = [
-    { name = "firnline-core" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "firnline-core", editable = "packages/firnline-core" }]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest" },
     { name = "ruff" },
 ]
 
@@ -558,8 +544,7 @@ version = "0.2.0"
 source = { editable = "extensions/firnline-ext-time-management" }
 dependencies = [
     { name = "firnline-core" },
-    { name = "firnline-ext-people" },
-    { name = "firnline-ext-places" },
+    { name = "firnline-ext-address-book" },
     { name = "structlog" },
 ]
 
@@ -574,8 +559,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "firnline-core", editable = "packages/firnline-core" },
-    { name = "firnline-ext-people", editable = "extensions/firnline-ext-people" },
-    { name = "firnline-ext-places", editable = "extensions/firnline-ext-places" },
+    { name = "firnline-ext-address-book", editable = "extensions/firnline-ext-address-book" },
     { name = "structlog" },
 ]
 
@@ -913,7 +897,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "firnline-ext-people" },
+    { name = "firnline-ext-address-book" },
     { name = "firnline-ext-reminders" },
     { name = "firnline-ext-time-management" },
     { name = "pytest" },
@@ -934,7 +918,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "firnline-ext-people", editable = "extensions/firnline-ext-people" },
+    { name = "firnline-ext-address-book", editable = "extensions/firnline-ext-address-book" },
     { name = "firnline-ext-reminders", editable = "extensions/firnline-ext-reminders" },
     { name = "firnline-ext-time-management", editable = "extensions/firnline-ext-time-management" },
     { name = "pytest" },
@@ -1512,6 +1496,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "firnline-ext-address-book" },
     { name = "firnline-ext-reminders" },
     { name = "firnline-ext-time-management" },
     { name = "pytest" },
@@ -1534,6 +1519,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "firnline-ext-address-book", editable = "extensions/firnline-ext-address-book" },
     { name = "firnline-ext-reminders", editable = "extensions/firnline-ext-reminders" },
     { name = "firnline-ext-time-management", editable = "extensions/firnline-ext-time-management" },
     { name = "pytest" },

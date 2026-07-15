@@ -253,9 +253,9 @@ The compose file additionally uses:
 
 Accepted specifier formats in `FIRNLINE_EXTENSIONS`:
 
-- **PyPI name**: `firnline_ext_people>=0.1.0`
+- **PyPI name**: `firnline_ext_address_book>=0.2.0`
 - **Git URL**: `git+https://github.com/user/firnline-ext-foo.git`
-- **Wheel filename**: `firnline_ext_people-0.1.0-py3-none-any.whl` (resolved against `/extensions/` in the image)
+- **Wheel filename**: `firnline_ext_address_book-0.2.0-py3-none-any.whl` (resolved against `/extensions/` in the image)
 
 First-party extension wheels are baked into service images at build time.
 

@@ -16,8 +16,7 @@ from pydantic import BaseModel
 from firnline_core.models import Provenance
 from firnline_core.plugins import BuildContext, ExtractorPlugin, ModuleRequirement
 from firnline_core.tdb import short_iri
-from firnline_ext_people.models import Contact, Person
-from firnline_ext_places.models import Location
+from firnline_ext_address_book.models import Contact, Location, Person
 from firnline_ext_time_management.models import (
     Activity,
     ActivitySpec,
@@ -163,8 +162,7 @@ class TimeManagementPlugin(ExtractorPlugin):
     produces: list[str] = ["Task", "Event", "Person", "Location", "Routine", "Activity", "Project", "Area", "Goal"]
     requires: list[ModuleRequirement] = [
         ModuleRequirement(name="time_management", range=">=0.2.0 <0.3.0"),
-        ModuleRequirement(name="people", range=">=0.1.0 <0.2.0"),
-        ModuleRequirement(name="places", range=">=0.1.0 <0.2.0"),
+        ModuleRequirement(name="address_book", range=">=0.2.0 <0.3.0"),
     ]
 
     def proposal_models(self) -> list[type[BaseModel]]:

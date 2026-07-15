@@ -30,7 +30,7 @@ from firnline_ext_time_management.extract import (
     TimeManagementPlugin,
 )
 from firnline_ext_reminders.extract import ReminderProposal, ReminderExtractPlugin
-from firnline_ext_people.extract import PeopleLinkingPlugin
+from firnline_ext_address_book.extract import AddressBookLinkingPlugin
 
 UTC = timezone.utc
 
@@ -42,7 +42,7 @@ _EXTRACTION_CTX = build_extraction_context([_PLANNING_PLUGIN])
 _FULL_ENSEMBLE_CTX = build_extraction_context([
     TimeManagementPlugin(),
     ReminderExtractPlugin(),
-    PeopleLinkingPlugin(),
+    AddressBookLinkingPlugin(),
 ])
 
 # Kind-to-model map for direct parse_extraction calls
@@ -549,7 +549,7 @@ def test_parse_extraction_flat_list_fallback():
 def test_composed_prompt_covers_all_six_kinds():
     """The system prompt built by the kernel contains two ```json fences:
     one instructional example in the core rules prose, and one actual
-    schema fence with a union schema covering all six proposal kinds."""
+    schema fence with a union schema covering all proposal kinds."""
     prompt = _FULL_ENSEMBLE_CTX.system_prompt
     # Core rules present
     assert "extraction assistant" in prompt.lower()
@@ -562,13 +562,15 @@ def test_composed_prompt_covers_all_six_kinds():
     # The schema fence uses ```json\\n (not ```json space as in the prose example)
     assert "```json\n" in prompt
     assert "\n```" in prompt
-    # Union schema lists all six kinds (time_management: 5 + reminders: 1)
+    # Union schema lists base kinds (time_management: 5 + reminders: 1 + address_book: 3)
     assert '"kind": "task"' in prompt
     assert '"kind": "event"' in prompt
-    assert '"kind": "person"' in prompt
     assert '"kind": "routine"' in prompt
     assert '"kind": "activity"' in prompt
     assert '"kind": "reminder"' in prompt
+    assert '"kind": "ab_person"' in prompt
+    assert '"kind": "ab_location"' in prompt
+    assert '"kind": "ab_organization"' in prompt
     # Plugin fields
     assert "estimated_duration" in prompt
     assert "location_name" in prompt
@@ -578,8 +580,10 @@ def test_composed_prompt_covers_all_six_kinds():
     assert "reasoning" in prompt
     assert "confidence" in prompt
 
-    # Kind map has all six kinds (time_management: 5 + reminders: 1)
-    assert set(_FULL_KIND_MAP.keys()) == {"task", "event", "person", "routine", "activity", "reminder"}
+    # Kind map has all kinds from all three plugins
+    expected = {"task", "event", "person", "routine", "activity", "project", "area", "goal",
+                "reminder", "ab_person", "ab_location", "ab_organization"}
+    assert set(_FULL_KIND_MAP.keys()) == expected
 
 
 def test_mixed_batch_parse_all_six_kinds():

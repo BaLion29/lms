@@ -470,6 +470,7 @@ def test_oneshot_trigger_round_trip():
         "fire_at": "2026-07-06T09:00:00Z",
         "renotify_every": "PT30M",
         "max_renotifications": 3,
+        "aliases": [],
         "contexts": [],
         "external_refs": [],
         "derived_from": [],

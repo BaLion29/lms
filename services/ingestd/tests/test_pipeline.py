@@ -34,10 +34,10 @@ except ImportError:
     _planning_ok = False
 
 try:
-    from firnline_ext_people.extract import PeopleLinkingPlugin
-    _people_ok = True
+    from firnline_ext_address_book.extract import AddressBookLinkingPlugin
+    _ab_ok = True
 except ImportError:
-    _people_ok = False
+    _ab_ok = False
 
 
 # ---------------------------------------------------------------------------
@@ -45,10 +45,10 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 # Shared extraction context for all pipeline tests
-if _planning_ok and _people_ok:
+if _planning_ok and _ab_ok:
     _PLANNING_PLUGIN = TimeManagementPlugin()
-    _PEOPLE_PLUGIN = PeopleLinkingPlugin()
-    _EXTRACTION_CTX = build_extraction_context([_PLANNING_PLUGIN, _PEOPLE_PLUGIN])
+    _AB_PLUGIN = AddressBookLinkingPlugin()
+    _EXTRACTION_CTX = build_extraction_context([_PLANNING_PLUGIN, _AB_PLUGIN])
 else:
     _EXTRACTION_CTX = None
 

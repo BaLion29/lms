@@ -1,8 +1,0 @@
-{
-  "name": "people",
-  "version": "0.1.0",
-  "depends_on": [{"name": "places", "range": ">=0.1.0 <0.2.0"}],
-  "models_target": "firnline_ext_people.models",
-  "exports": ["Person", "Contact"],
-  "description": "People and contacts"
-}

@@ -147,7 +147,7 @@ The `core` module (kernel) stays in `schema/modules/core/` and owns:
 blessed Context for frictionless cross-extension tagging), registry
 classes (`SchemaModule`, `SchemaMigration` — `SchemaModule.exports`
 stores the module's exported class @ids, written at install), and
-`ExternalRef`. All domain modules (planning, people, places, reminders,
+`ExternalRef`. All domain modules (planning, address_book, reminders,
 routines) live in extensions; core, triggers, and capture are kernel
 modules in `schema/modules/`.
 
@@ -262,8 +262,7 @@ firnline/
 ├── extensions/
 │   ├── firnline-ext-gotify/    # Gotify notification channel & action executor
 │   ├── firnline-ext-webhook/   # Webhook action executor (reference)
-│   ├── firnline-ext-people/    # people schema + extractor
-│   ├── firnline-ext-places/    # places/Location schema
+│   ├── firnline-ext-address-book/  # address_book schema + extractors + indexer + geocoder
 │   ├── firnline-ext-time-management/  # tasks, events, routines, activities schema + extractor + queryd tools
 │   ├── firnline-ext-reminders/ # reminders schema + extractor + tools
 └── docker/entrypoint.sh        # extension overlay management in containers

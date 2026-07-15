@@ -290,12 +290,31 @@ def test_subdocument_nesting():
 
 
 # ---------------------------------------------------------------------------
-# xdd:coordinate skipped
+# xdd:coordinate → tuple[float, float]
 # ---------------------------------------------------------------------------
 
 
-def test_xdd_coordinate_skipped():
-    """Fields typed xdd:coordinate must be omitted with a comment."""
+def test_xdd_coordinate_plain():
+    """Plain xdd:coordinate ref → tuple[float, float]."""
+    schema = [
+        {
+            "@id": "Location",
+            "@type": "Class",
+            "name": "xsd:string",
+            "coords": "xdd:coordinate",
+        },
+    ]
+    class_to_module = {"Location": "testmod"}
+    module_to_target = {"testmod": "firnline_core.generated.testmod"}
+    checksum = schema_checksum(schema)
+    files = generate(schema, class_to_module, module_to_target, checksum)
+
+    source = files["testmod.py"]
+    assert "coords: tuple[float, float]" in source
+
+
+def test_xdd_coordinate_optional():
+    """Optional xdd:coordinate → tuple[float, float] | None = None."""
     schema = [
         {
             "@id": "Location",
@@ -306,26 +325,58 @@ def test_xdd_coordinate_skipped():
                 "@type": "Optional",
             },
         },
-        {
-            "@id": "Location2",
-            "@type": "Class",
-            "name": "xsd:string",
-            "coords": "xdd:coordinate",
-        },
     ]
-    class_to_module = {"Location": "testmod", "Location2": "testmod"}
+    class_to_module = {"Location": "testmod"}
     module_to_target = {"testmod": "firnline_core.generated.testmod"}
     checksum = schema_checksum(schema)
     files = generate(schema, class_to_module, module_to_target, checksum)
 
     source = files["testmod.py"]
+    assert "coordinates: tuple[float, float] | None = None" in source
 
-    # Both classes must have the omit comment
-    assert "# coordinates (xdd:coordinate) omitted" in source
-    assert "# coords (xdd:coordinate) omitted" in source
-    # No actual field declarations for these
-    assert "coordinates:" not in source.replace("# coordinates (xdd:coordinate) omitted", "")
-    assert "coords:" not in source.replace("# coords (xdd:coordinate) omitted", "")
+
+def test_xdd_coordinate_set():
+    """Set of xdd:coordinate → list[tuple[float, float]] = Field(default_factory=list)."""
+    schema = [
+        {
+            "@id": "Area",
+            "@type": "Class",
+            "name": "xsd:string",
+            "polygon": {
+                "@class": "xdd:coordinate",
+                "@type": "Set",
+            },
+        },
+    ]
+    class_to_module = {"Area": "testmod"}
+    module_to_target = {"testmod": "firnline_core.generated.testmod"}
+    checksum = schema_checksum(schema)
+    files = generate(schema, class_to_module, module_to_target, checksum)
+
+    source = files["testmod.py"]
+    assert "polygon: list[tuple[float, float]] = Field(default_factory=list)" in source
+
+
+def test_no_xdd_coordinate_omitted_comments():
+    """Generated output must NOT contain any 'xdd:coordinate omitted' comments."""
+    schema = [
+        {
+            "@id": "Location",
+            "@type": "Class",
+            "name": "xsd:string",
+            "coordinates": {
+                "@class": "xdd:coordinate",
+                "@type": "Optional",
+            },
+        },
+    ]
+    class_to_module = {"Location": "testmod"}
+    module_to_target = {"testmod": "firnline_core.generated.testmod"}
+    checksum = schema_checksum(schema)
+    files = generate(schema, class_to_module, module_to_target, checksum)
+
+    source = files["testmod.py"]
+    assert "omitted" not in source
 
 
 # ---------------------------------------------------------------------------
