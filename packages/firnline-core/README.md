@@ -26,5 +26,5 @@ from firnline_core.plugins import ExtractorPlugin, ModuleRequirement
 from firnline_core.settings import TdbSettings
 ```
 
-See [Architecture](../../docs/architecture.md) for the full system design
-and [Extensions](../../docs/extensions.md) for plugin protocol details.
+See [Architecture](../../docs/concepts/architecture.md) for the full system design
+and [Entry Points](../../docs/reference/entry-points.md) for plugin protocol details.

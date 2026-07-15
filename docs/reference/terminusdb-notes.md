@@ -1,4 +1,10 @@
-# TerminusDB API Notes (v12.0.6)
+# TerminusDB API notes (v12.0.6)
+
+## Purpose
+
+An appendix of empirically verified TerminusDB behaviour — not a substitute
+for official docs, but a record of what actually works against the bundled
+`terminusdb/terminusdb-server:v12.0.6` image.
 
 Empirically verified against a local `terminusdb/terminusdb-server:v12.0.6` instance
 (running on port 6363, admin password `root`).  All tests used throwaway databases.
@@ -114,3 +120,9 @@ Empirically verified against a local `terminusdb/terminusdb-server:v12.0.6` inst
 - Returns `{"data": {"ClassName": [...]}}` on success.
 - Works for every concrete (non-abstract) class, even if no instances exist.
 - Abstract classes return `"Cannot query field"` error — this is expected; skip them.
+
+## Related documents
+
+- [Configuration reference](configuration.md) — TDB connection variables
+- [CLI reference](cli.md) — `firnline-schema` commands that use these TDB endpoints
+- [Schema changes guide](../guides/schema-changes.md) — how `apply` and `promote` use branching
