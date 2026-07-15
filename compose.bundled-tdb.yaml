@@ -79,26 +79,14 @@ services:
           --branch $${TDB_BRANCH:-main}
         echo "=== Bootstrap complete ==="
 
-  # ── captured (add terminusdb dependency) ────────────────────────────────
-  captured:
+  # ── apid (add terminusdb dependency) ────────────────────────────────────
+  apid:
     depends_on:
       terminusdb:
         condition: service_healthy
 
   # ── ingestd (add terminusdb dependency) ─────────────────────────────────
   ingestd:
-    depends_on:
-      terminusdb:
-        condition: service_healthy
-
-  # ── queryd (add terminusdb dependency) ──────────────────────────────────
-  queryd:
-    depends_on:
-      terminusdb:
-        condition: service_healthy
-
-  # ── indexed (add terminusdb dependency) ─────────────────────────────────
-  indexed:
     depends_on:
       terminusdb:
         condition: service_healthy

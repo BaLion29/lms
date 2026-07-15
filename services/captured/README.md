@@ -19,14 +19,14 @@ From the monorepo root:
 
 ```bash
 docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-docker compose up -d                           # starts captured on port 8088
-curl http://localhost:8088/healthz             # verify
+docker compose up -d                           # all services behind apid on port 8080
+curl http://localhost:8080/healthz             # captured via apid (standalone: port 8088)
 ```
 
 First capture:
 
 ```bash
-curl -s -X POST http://localhost:8088/v1/capture/note \
+curl -s -X POST http://localhost:8080/v1/capture/note \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"text": "Buy milk on the way home", "kind": "note"}'

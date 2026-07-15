@@ -9,8 +9,8 @@ From the monorepo root:
 
 ```bash
 docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-docker compose up -d                        # starts queryd on port 8087
-curl http://localhost:8087/healthz          # verify
+docker compose up -d                        # all services behind apid on port 8080
+curl http://localhost:8080/v1/graphql       # queryd via apid (standalone: port 8087)
 ```
 
 For local dev without Docker:

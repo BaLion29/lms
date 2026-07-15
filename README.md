@@ -17,13 +17,13 @@ docker compose --profile bootstrap up bootstrap --abort-on-container-exit
 docker compose up -d
 ```
 
-The stack starts on ports 8087 (queryd), 8088 (captured), 8089 (indexed),
-8090 (mcpd), and 3000 (WebUI — visit <http://localhost:3000> for the Reflex dashboard).
+The stack starts on port 8080 (apid — unified API: captured, queryd, indexed, mcpd)
+and 3000 (WebUI — visit <http://localhost:3000> for the Reflex dashboard).
 
 Then capture a note:
 
 ```bash
-curl -s -X POST http://localhost:8088/v1/capture/note \
+curl -s -X POST http://localhost:8080/v1/capture/note \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"text": "Buy milk on the way home", "kind": "note"}'
@@ -32,7 +32,7 @@ curl -s -X POST http://localhost:8088/v1/capture/note \
 Query your data (GraphQL):
 
 ```bash
-curl -s -X POST http://localhost:8087/v1/graphql \
+curl -s -X POST http://localhost:8080/v1/graphql \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"query": "{ Task { id name done } }"}'
@@ -41,7 +41,7 @@ curl -s -X POST http://localhost:8087/v1/graphql \
 List available write tools:
 
 ```bash
-curl -s http://localhost:8087/v1/tools \
+curl -s http://localhost:8080/v1/tools \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -54,6 +54,7 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `packages/firnline-core/` | Shared library: TerminusDB client, models, plugin protocols |
 | `packages/firnline-schema/` | Schema CLI: compose, diff, apply, codegen |
 | `services/captured/` | Capture-ingress daemon (`POST /v1/capture/note`, `/v1/capture/file`) |
+| `services/apid/` | Combined deployment daemon (captured + queryd + indexed + mcpd on port 8080) — default for compose |
 | `services/ingestd/` | AI ingestion polling worker (LLM extraction + entity linking) |
 | `services/indexed/` | Search index sidecar: entity and schema lookup over TerminusDB (SQLite + embeddings) |
 | `services/queryd/` | GraphQL read proxy + document lookup, find/entity|class|field, schema introspection, write-tool endpoints |

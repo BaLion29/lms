@@ -200,9 +200,7 @@ firnline-schema validate --modules-dir schema/modules \
 Then confirm all services are healthy:
 
 ```bash
-curl http://localhost:8087/healthz   # queryd
-curl http://localhost:8088/healthz   # captured
-curl http://localhost:8089/healthz   # indexed
+curl http://localhost:8080/healthz   # apid (captured + queryd + indexed + mcpd)
 ```
 
 For polling workers (ingestd, triggerd, effectd), verify liveness files

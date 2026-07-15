@@ -7,13 +7,13 @@ from firnline_webui.settings import Settings, get_settings
 
 def test_defaults():
     s = Settings()
-    assert s.captured_url == "http://captured:8088"
+    assert s.captured_url == "http://apid:8080"
     assert s.captured_api_token == ""
-    assert s.queryd_url == "http://queryd:8087"
+    assert s.queryd_url == "http://apid:8080"
     assert s.queryd_api_token == ""
-    assert s.indexed_url == "http://indexed:8089"
+    assert s.indexed_url == "http://apid:8080"
     assert s.indexed_api_token == ""
-    assert s.mcpd_url == "http://mcpd:8090"
+    assert s.mcpd_url == "http://apid:8080/mcp"
     assert s.tdb_url == "http://terminusdb:6363"
     assert s.tdb_org == "admin"
     assert s.tdb_db == "firnline"
@@ -46,4 +46,4 @@ def test_get_settings_after_monkeypatch_is_stale_by_design(monkeypatch):
     monkeypatch.setenv("WEBUI_CAPTURED_URL", "http://changed:1234")
     s = get_settings()
     # Still the original cached value
-    assert s.captured_url == "http://captured:8088"
+    assert s.captured_url == "http://apid:8080"

@@ -13,6 +13,7 @@ class EffectdSettings(TdbSettings):
 
     model_config = SettingsConfigDict(env_prefix="EFFECTD_")
 
+    log_level: str = "INFO"
     poll_interval_seconds: int = 30
     liveness_file: str = "/tmp/effectd-alive"
 

@@ -8,9 +8,9 @@ def test_settings_defaults():
     s = McpdSettings()
     assert s.host == "0.0.0.0"
     assert s.port == 8090
-    assert s.queryd_url == "http://localhost:8087"
+    assert s.queryd_url == "http://localhost:8080"
     assert s.queryd_token == ""
-    assert s.captured_url == "http://localhost:8088"
+    assert s.captured_url == "http://localhost:8080"
     assert s.captured_token == ""
     assert s.request_timeout_seconds == 30.0
 

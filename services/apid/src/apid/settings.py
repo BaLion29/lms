@@ -1,27 +1,22 @@
-"""Application settings loaded from environment variables prefixed with CAPTURED_."""
+"""Application settings loaded from environment variables prefixed with APID_."""
 
 from __future__ import annotations
 
-from firnline_core.settings import TdbSettings
 from pydantic import Field, field_validator
-from pydantic_settings import SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(TdbSettings):
-    """Application settings loaded from environment variables prefixed with CAPTURED_."""
+class ApidSettings(BaseSettings):
+    """Combined API daemon settings.
 
-    model_config = SettingsConfigDict(env_prefix="CAPTURED_")
+    All fields can be set via environment variables with the ``APID_`` prefix
+    (e.g. ``APID_LISTEN_ADDR``, ``APID_LOG_LEVEL``).
+    """
 
-    # API auth
-    api_token: str = Field(min_length=1)
+    model_config = SettingsConfigDict(env_prefix="APID_")
 
-    # Operational
-    listen_addr: str = "0.0.0.0:8088"
+    listen_addr: str = "0.0.0.0:8080"
     log_level: str = "INFO"
-    strict_plugins: bool = False
-
-    # Upload limits
-    max_upload_bytes: int = Field(default=50_000_000, gt=0)
 
     @field_validator("listen_addr")
     @classmethod

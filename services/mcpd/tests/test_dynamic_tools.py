@@ -459,7 +459,7 @@ def test_build_tool_function_sanitises_hyphenated_name():
 
 
 def test_create_app_registers_dynamic_tools(monkeypatch, respx_mock: respx.MockRouter):
-    """With 2 queryd tool specs, the MCP instance lists 8+2=10 tools."""
+    """With 2 queryd tool specs, the MCP instance lists 9+2=11 tools."""
     _configure_env(monkeypatch)
     respx_mock.get("http://test-queryd/v1/tools").respond(
         json={
@@ -475,8 +475,8 @@ def test_create_app_registers_dynamic_tools(monkeypatch, respx_mock: respx.MockR
     tools = mcp._tool_manager.list_tools()
     tool_names = {t.name for t in tools}
 
-    # 8 static + 2 dynamic = 10
-    assert len(tools) == 10, f"Expected 10 tools, got {len(tools)}: {tool_names}"
+    # 9 static + 2 dynamic = 11
+    assert len(tools) == 11, f"Expected 11 tools, got {len(tools)}: {tool_names}"
     assert "create_task" in tool_names
     assert "toggle_feature" in tool_names
 
@@ -493,7 +493,7 @@ def test_create_app_queryd_down_still_starts(monkeypatch, respx_mock: respx.Mock
     tools = mcp._tool_manager.list_tools()
     tool_names = {t.name for t in tools}
 
-    assert len(tools) == 8, f"Expected 8 static tools, got {len(tools)}: {tool_names}"
+    assert len(tools) == 9, f"Expected 9 static tools, got {len(tools)}: {tool_names}"
     # Static tools are registered under their function names
     for name in ("_tool_graphql_query", "_tool_get_document", "_tool_find_entity",
                  "_tool_find_class", "_tool_find_field", "_tool_get_schema",
@@ -526,8 +526,8 @@ def test_create_app_name_collision_skipped(monkeypatch, respx_mock: respx.MockRo
     tools = mcp._tool_manager.list_tools()
     tool_names = [t.name for t in tools]
 
-    # 8 static + 1 dynamic (_tool_capture skipped) = 9
-    assert len(tools) == 9, f"Expected 9 tools, got {len(tools)}: {tool_names}"
+    # 9 static + 1 dynamic (_tool_capture skipped) = 10
+    assert len(tools) == 10, f"Expected 10 tools, got {len(tools)}: {tool_names}"
     assert "create_task" in tool_names
     # The original static _tool_capture is still there; the colliding
     # dynamic tool was not registered.
@@ -546,8 +546,8 @@ def test_create_app_disabled_via_setting(monkeypatch, respx_mock: respx.MockRout
     mcp = app.state.mcp
     tools = mcp._tool_manager.list_tools()
 
-    # Only the 8 static tools; no HTTP call to queryd was made.
-    assert len(tools) == 8
+    # Only the static tools; no HTTP call to queryd was made.
+    assert len(tools) == 9
 
 
 def test_create_app_dynamic_tool_metadata(monkeypatch, respx_mock: respx.MockRouter):
@@ -583,4 +583,144 @@ def test_create_app_does_not_call_queryd_when_disabled(monkeypatch, respx_mock: 
     app = create_app()
     mcp = app.state.mcp
     tools = mcp._tool_manager.list_tools()
-    assert len(tools) == 8
+    assert len(tools) == 9
+
+
+# ── _register_dynamic_tools_with_retry unit tests ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_retry_succeeds_after_initial_failures(monkeypatch):
+    """Retry loop registers tools once the fetch finally succeeds."""
+    from mcp.server.fastmcp import FastMCP
+    from mcpd.main import _register_dynamic_tools_with_retry
+
+    call_count = 0
+
+    async def fake_fetch(settings):
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise httpx.ConnectError("Connection refused")
+        return [_make_create_task_spec()]
+
+    monkeypatch.setattr("mcpd.main.fetch_tool_specs", fake_fetch)
+
+    mcp = FastMCP("test", stateless_http=True)
+    settings = McpdSettings(queryd_url="http://q", queryd_token="t", captured_url="http://c", captured_token="ct")
+
+    await _register_dynamic_tools_with_retry(mcp, settings, max_attempts=5, base_delay=0.01)
+
+    tools = mcp._tool_manager.list_tools()
+    tool_names = {t.name for t in tools}
+    assert "create_task" in tool_names
+    assert call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_retry_logs_warning_on_all_failures(monkeypatch):
+    """After max_attempts failures, returns without registering."""
+    from mcp.server.fastmcp import FastMCP
+    from mcpd.main import _register_dynamic_tools_with_retry
+
+    async def fake_fetch(settings):
+        raise httpx.ConnectError("Connection refused")
+
+    monkeypatch.setattr("mcpd.main.fetch_tool_specs", fake_fetch)
+
+    mcp = FastMCP("test", stateless_http=True)
+    settings = McpdSettings(queryd_url="http://q", queryd_token="t", captured_url="http://c", captured_token="ct")
+
+    await _register_dynamic_tools_with_retry(mcp, settings, max_attempts=3, base_delay=0.01)
+
+    tools = mcp._tool_manager.list_tools()
+    assert len(tools) == 0
+
+
+@pytest.mark.asyncio
+async def test_retry_succeeds_on_first_attempt(monkeypatch):
+    """First-attempt success registers tools after one call."""
+    from mcp.server.fastmcp import FastMCP
+    from mcpd.main import _register_dynamic_tools_with_retry
+
+    call_count = 0
+
+    async def fake_fetch(settings):
+        nonlocal call_count
+        call_count += 1
+        return [_make_create_task_spec()]
+
+    monkeypatch.setattr("mcpd.main.fetch_tool_specs", fake_fetch)
+
+    mcp = FastMCP("test", stateless_http=True)
+    settings = McpdSettings(queryd_url="http://q", queryd_token="t", captured_url="http://c", captured_token="ct")
+
+    await _register_dynamic_tools_with_retry(mcp, settings, max_attempts=5, base_delay=0.01)
+
+    tools = mcp._tool_manager.list_tools()
+    assert "create_task" in {t.name for t in tools}
+    assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_returns_immediately_on_empty_specs(monkeypatch):
+    """Empty specs list counts as success (writes disabled)."""
+    from mcp.server.fastmcp import FastMCP
+    from mcpd.main import _register_dynamic_tools_with_retry
+
+    call_count = 0
+
+    async def fake_fetch(settings):
+        nonlocal call_count
+        call_count += 1
+        return []
+
+    monkeypatch.setattr("mcpd.main.fetch_tool_specs", fake_fetch)
+
+    mcp = FastMCP("test", stateless_http=True)
+    settings = McpdSettings(queryd_url="http://q", queryd_token="t", captured_url="http://c", captured_token="ct")
+
+    await _register_dynamic_tools_with_retry(mcp, settings, max_attempts=5, base_delay=0.01)
+
+    tools = mcp._tool_manager.list_tools()
+    assert len(tools) == 0
+    assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_collision_skip(monkeypatch):
+    """Dynamic tools whose names collide with existing tools are skipped."""
+    from mcp.server.fastmcp import FastMCP
+    from mcpd.main import _register_dynamic_tools_with_retry
+
+    async def fake_fetch(settings):
+        return [
+            {
+                "name": "already_registered",
+                "description": "Should be skipped",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                    "required": ["x"],
+                },
+            },
+            _make_create_task_spec(),
+        ]
+
+    monkeypatch.setattr("mcpd.main.fetch_tool_specs", fake_fetch)
+
+    mcp = FastMCP("test", stateless_http=True)
+    # Pre-register a tool with the colliding name
+    async def dummy(**kwargs):
+        return {}
+    mcp.tool(name="already_registered", description="Existing tool")(dummy)
+
+    settings = McpdSettings(queryd_url="http://q", queryd_token="t", captured_url="http://c", captured_token="ct")
+
+    await _register_dynamic_tools_with_retry(mcp, settings, max_attempts=3, base_delay=0.01)
+
+    tool_names = {t.name for t in mcp._tool_manager.list_tools()}
+    assert "already_registered" in tool_names
+    assert "create_task" in tool_names
+    # Exactly 2: the pre-registered dummy + create_task
+    assert len(tool_names) == 2

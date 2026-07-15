@@ -55,7 +55,7 @@ Prefixed `CAPTURED_`.
 | `CAPTURED_TDB_USER` | `admin` | TerminusDB username |
 | `CAPTURED_TDB_PASSWORD` | — | TerminusDB password |
 | `CAPTURED_API_TOKEN` | — | Bearer token for capture endpoints |
-| `CAPTURED_LISTEN_ADDR` | `0.0.0.0:8088` | Host:port to bind |
+| `CAPTURED_LISTEN_ADDR` | `0.0.0.0:8088` | Host:port to bind (standalone: `0.0.0.0:8088`); via apid uses port 8080 |
 | `CAPTURED_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
 | `CAPTURED_MAX_UPLOAD_BYTES` | `50000000` (50 MB) | Max file upload size for `/v1/capture/file` |
 | `FIRNLINE_BLOB_ROOT` | — | Root directory for blob storage (captured) |
@@ -64,7 +64,7 @@ The compose file additionally uses:
 
 | Variable | Default | Description |
 |---|---|---|
-| `CAPTURED_HOST_PORT` | `8088` | Host port mapped to the container's 8088 |
+| `APID_HOST_PORT` | `8080` | Host port mapped to the apid container's 8080 (replaces per-service port args) |
 
 ## ingestd
 
@@ -172,14 +172,14 @@ Prefixed `INDEXED_`.
 | `INDEXED_MIN_CONFIDENCE` | `0.60` | Minimum score threshold for `/v1/find_*` results |
 | `INDEXED_LIVENESS_FILE` | `/tmp/indexed-alive` | Path touched on each successful cycle |
 | `INDEXED_DATA_DIR` | `/var/lib/firnline/index` | Directory for the sqlite index store |
-| `INDEXED_LISTEN_ADDR` | `0.0.0.0:8089` | Host:port to bind |
+| `INDEXED_LISTEN_ADDR` | `0.0.0.0:8089` | Host:port to bind (standalone: `0.0.0.0:8089`); via apid uses port 8080 |
 
 ### Consumed by ingestd (when `INGESTD_INDEXED_ENABLED=true`)
 
 | Variable | Default | Description |
 |---|---|---|
 | `INGESTD_INDEXED_ENABLED` | `false` | Enable indexed-grounded entity linking |
-| `INGESTD_INDEXED_URL` | `http://localhost:8089` | Base URL of the indexed service |
+| `INGESTD_INDEXED_URL` | `http://localhost:8080` | Base URL of the indexed service |
 | `INGESTD_INDEXED_TOKEN` | `""` | Bearer token for indexed endpoints |
 | `INGESTD_INDEXED_MIN_CONFIDENCE` | `0.85` | Auto-accept threshold for entity linking matches |
 | `INGESTD_INDEXED_TIMEOUT_SECONDS` | `10.0` | HTTP timeout for indexed calls |
@@ -189,7 +189,7 @@ Prefixed `INDEXED_`.
 | Variable | Default | Description |
 |---|---|---|
 | `QUERYD_INDEXED_ENABLED` | `false` | Enable `find_entity`/`find_class`/`find_field` tools |
-| `QUERYD_INDEXED_URL` | `http://localhost:8089` | Base URL of the indexed service |
+| `QUERYD_INDEXED_URL` | `http://localhost:8080` | Base URL of the indexed service |
 | `QUERYD_INDEXED_TOKEN` | `""` | Bearer token for indexed endpoints |
 | `QUERYD_INDEXED_MIN_CONFIDENCE` | `0.60` | Minimum score for candidates shown to the agent |
 | `QUERYD_INDEXED_TIMEOUT_SECONDS` | `10.0` | HTTP timeout for indexed calls |
@@ -198,8 +198,8 @@ The compose file additionally uses:
 
 | Variable | Default | Description |
 |---|---|---|
-| `INDEXED_HOST_PORT` | `8089` | Host port mapped to the container's 8089 |
-| `INDEXED_URL` | `http://indexed:8089` | Service URL used by ingestd/queryd |
+| `APID_HOST_PORT` | `8080` | Host port mapped to the apid container's 8080 (replaces per-service port args) |
+| `INDEXED_URL` | `http://localhost:8080` | Service URL used by ingestd/queryd for the indexed component |
 
 ## queryd
 
@@ -217,7 +217,7 @@ Prefixed `QUERYD_`.
 | `QUERYD_ENABLE_WRITES` | `false` | Gate write-tool plugins — exposes `GET /v1/tools` and `POST /v1/tools/{name}` |
 | `QUERYD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
 | `QUERYD_REQUEST_TIMEOUT_SECONDS` | `60` | Total request timeout |
-| `QUERYD_LISTEN_ADDR` | `0.0.0.0:8087` | Host:port to bind |
+| `QUERYD_LISTEN_ADDR` | `0.0.0.0:8087` | Host:port to bind (standalone: `0.0.0.0:8087`); via apid uses port 8080 |
 | `QUERYD_CORS_ORIGINS` | `[]` | Comma-separated CORS origins |
 
 ### Structured API endpoints (bearer-authed)
@@ -241,7 +241,7 @@ The compose file additionally uses:
 
 | Variable | Default | Description |
 |---|---|---|
-| `QUERYD_HOST_PORT` | `8087` | Host port mapped to the container's 8087 |
+| `APID_HOST_PORT` | `8080` | Host port mapped to the apid container's 8080 (replaces `QUERYD_HOST_PORT`) |
 
 ## Extension management
 
@@ -265,11 +265,11 @@ Prefixed `WEBUI_`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `WEBUI_CAPTURED_URL` | `http://captured:8088` | Base URL for the captured service |
+| `WEBUI_CAPTURED_URL` | `http://apid:8080` | Base URL for the captured service |
 | `WEBUI_CAPTURED_API_TOKEN` | (empty) | Bearer token for captured endpoints (server-side, never exposed to browser) |
-| `WEBUI_QUERYD_URL` | `http://queryd:8087` | Base URL for the queryd service |
+| `WEBUI_QUERYD_URL` | `http://apid:8080` | Base URL for the queryd service |
 | `WEBUI_QUERYD_API_TOKEN` | (empty) | Bearer token for queryd `/healthz` (server-side) |
-| `WEBUI_INDEXED_URL` | `http://indexed:8089` | Base URL for the indexed service |
+| `WEBUI_INDEXED_URL` | `http://apid:8080` | Base URL for the indexed service |
 | `WEBUI_INDEXED_API_TOKEN` | (empty) | Bearer token for indexed endpoints (reserved) |
 | `WEBUI_TDB_URL` | `http://terminusdb:6363` | TerminusDB base URL |
 | `WEBUI_TDB_ORG` | `admin` | TerminusDB organisation |
@@ -291,16 +291,17 @@ The compose file additionally uses:
 
 Prefixed `MCPD_`.
 
-mcpd exposes firnline to external AI agents via MCP (streamable HTTP). It
-talks to queryd and captured over HTTP — no direct database access.
+mcpd exposes firnline to external AI agents via MCP (streamable HTTP). In
+the default compose deployment it runs in-process within apid, mounted at
+``/mcp``. It talks to queryd and captured over HTTP — no direct database access.
 
 | Variable | Default | Description |
 |---|---|---|
-| `MCPD_HOST` | `0.0.0.0` | Host to bind |
-| `MCPD_PORT` | `8090` | Port to bind |
-| `MCPD_QUERYD_URL` | `http://queryd:8087` | Base URL of the queryd service |
+| `MCPD_HOST` | `0.0.0.0` | Host to bind (standalone only) |
+| `MCPD_PORT` | `8090` | Port to bind (standalone only; unused inside apid) |
+| `MCPD_QUERYD_URL` | `http://localhost:8080` | Base URL of the queryd service |
 | `MCPD_QUERYD_TOKEN` | — | Bearer token for queryd endpoints |
-| `MCPD_CAPTURED_URL` | `http://captured:8088` | Base URL of the captured service |
+| `MCPD_CAPTURED_URL` | `http://localhost:8080` | Base URL of the captured service |
 | `MCPD_CAPTURED_TOKEN` | — | Bearer token for captured endpoints |
 | `MCPD_ENABLE_QUERYD_TOOLS` | `true` | Register queryd write tools (`GET /v1/tools`) as dynamic MCP tools at startup |
 

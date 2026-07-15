@@ -45,18 +45,16 @@ docker compose --profile bootstrap up bootstrap --abort-on-container-exit
 docker compose up -d
 ```
 
-This starts **captured** (port 8088), **ingestd**, **triggerd**, **effectd**,
-**indexed** (port 8089), and **queryd** (port 8087). The optional search index
-sidecar (`indexed`) provides entity and schema lookup; it is opt-in via
-`INGESTD_INDEXED_ENABLED` / `QUERYD_INDEXED_ENABLED` env vars (see
-`.env.example` and [docs/indexed.md](indexed.md)).
+This starts **apid** (port 8080 — unified API: captured, queryd, indexed, mcpd),
+**ingestd**, **triggerd**, **effectd**, and **webui**. The optional search index
+sidecar (`indexed`) provides entity and schema lookup; it runs in-process within
+apid and is opt-in via `INGESTD_INDEXED_ENABLED` / `QUERYD_INDEXED_ENABLED`
+env vars (see `.env.example` and [docs/indexed.md](indexed.md)).
 
 ### 4. Verify
 
 ```bash
-curl http://localhost:8087/healthz   # queryd
-curl http://localhost:8088/healthz   # captured
-curl http://localhost:8089/healthz   # indexed
+curl http://localhost:8080/healthz   # apid (captured + queryd + indexed + mcpd)
 ```
 
 Both should return 200 with `{"status": "ok", ...}`.
@@ -66,7 +64,7 @@ Both should return 200 with `{"status": "ok", ...}`.
 Replace `$TOKEN` with your `CAPTURED_API_TOKEN` value:
 
 ```bash
-curl -s -X POST http://localhost:8088/v1/capture/note \
+curl -s -X POST http://localhost:8080/v1/capture/note \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"text": "Buy milk on the way home", "kind": "note"}'
@@ -101,7 +99,7 @@ Data is persisted in the `terminusdb_data` Docker volume.
 ## Querying queryd
 
 ```bash
-curl -s -X POST http://localhost:8087/v1/graphql \
+curl -s -X POST http://localhost:8080/v1/graphql \
   -H "Authorization: Bearer $QUERYD_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"query": "{ Task { id name done } }"}'
@@ -119,7 +117,7 @@ bootstrap profile:
 
 ```bash
 docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-docker compose restart captured ingestd queryd
+docker compose restart apid ingestd
 ```
 
 To purge and reinstall from scratch, set `FIRNLINE_EXTENSIONS_PURGE=true`,

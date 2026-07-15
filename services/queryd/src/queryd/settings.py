@@ -17,6 +17,7 @@ class Settings(TdbSettings):
 
     # Operational
     enable_writes: bool = False
+    log_level: str = "INFO"
     strict_plugins: bool = False
     request_timeout_seconds: float = 60
     listen_addr: str = "0.0.0.0:8087"
