@@ -10,7 +10,7 @@ import pytest
 
 from firnline_core.plugins import CaptureContext, CapturePayload
 
-from captured.handlers import captured_audio_handler, captured_note_handler
+from captured.handlers import captured_file_handler, captured_note_handler
 
 UTC = timezone.utc
 
@@ -59,8 +59,6 @@ class TestCapturedNoteHandler:
         assert doc["content"] == "Hello world"
         assert doc["status"] == "new"
         assert doc["captured_at"] == "2026-07-05T14:00:00Z"
-        assert doc["created_at"] == "2026-07-05T14:00:00Z"
-        assert doc["updated_at"] == "2026-07-05T14:00:00Z"
         # Provenance subdocument
         assert "provenance" in doc
         prov = doc["provenance"]
@@ -80,8 +78,6 @@ class TestCapturedNoteHandler:
         tdb.insert_documents.assert_called_once()
         doc = tdb.insert_documents.call_args[0][0][0]
         assert doc["captured_at"] == "2026-01-15T10:30:00Z"
-        assert doc["created_at"] == "2026-01-15T10:30:00Z"
-        assert doc["updated_at"] == "2026-01-15T10:30:00Z"
 
     @pytest.mark.asyncio
     async def test_empty_text_defaults_to_empty_string(self) -> None:
@@ -122,7 +118,7 @@ class TestCapturedNoteHandler:
         assert captured_note_handler.requires[0].range == ">=0.1.0 <0.2.0"
 
 
-class TestCapturedAudioHandler:
+class TestCapturedFileHandler:
     @pytest.mark.asyncio
     async def test_creates_captured_from_file_payload(self, tmp_path: Path) -> None:
         tdb = _fake_tdb(["terminusdb:///data/Captured/aud1"])
@@ -138,7 +134,7 @@ class TestCapturedAudioHandler:
             content_type="audio/wav",
             captured_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
         )
-        iri = await captured_audio_handler.handle(payload, ctx)
+        iri = await captured_file_handler.handle(payload, ctx)
         assert iri == "terminusdb:///data/Captured/aud1"
         tdb.insert_documents.assert_called_once()
         doc = tdb.insert_documents.call_args[0][0][0]
@@ -148,8 +144,6 @@ class TestCapturedAudioHandler:
         assert doc["file_name"] == "recording.wav"
         assert doc["blob_sha256"] == "abc123def456"
         assert doc["captured_at"] == "2026-07-05T14:00:00Z"
-        assert doc["created_at"] == "2026-07-05T14:00:00Z"
-        assert doc["updated_at"] == "2026-07-05T14:00:00Z"
         # Provenance subdocument
         assert "provenance" in doc
         prov = doc["provenance"]
@@ -164,7 +158,7 @@ class TestCapturedAudioHandler:
         ctx = _ctx(tdb, blob_store=_FakeBlobStore("abc", Path("/tmp")))
         payload = CapturePayload(kind="file", blob_sha256=None)
         with pytest.raises(ValueError, match="blob_sha256"):
-            await captured_audio_handler.handle(payload, ctx)
+            await captured_file_handler.handle(payload, ctx)
 
     @pytest.mark.asyncio
     async def test_unnamed_file_defaults_filename(self, tmp_path: Path) -> None:
@@ -175,16 +169,16 @@ class TestCapturedAudioHandler:
         bs = _FakeBlobStore("sha", blob_path)
         ctx = _ctx(tdb, blob_store=bs)
         payload = CapturePayload(kind="file", blob_sha256="sha", filename=None)
-        await captured_audio_handler.handle(payload, ctx)
+        await captured_file_handler.handle(payload, ctx)
         doc = tdb.insert_documents.call_args[0][0][0]
         assert doc["file_name"] == "unnamed"
 
     def test_metadata(self) -> None:
-        assert captured_audio_handler.name == "captured_audio"
-        assert captured_audio_handler.kinds == ("file",)
-        assert len(captured_audio_handler.requires) == 1
-        assert captured_audio_handler.requires[0].name == "capture"
-        assert captured_audio_handler.requires[0].range == ">=0.1.0 <0.2.0"
+        assert captured_file_handler.name == "captured_file"
+        assert captured_file_handler.kinds == ("file",)
+        assert len(captured_file_handler.requires) == 1
+        assert captured_file_handler.requires[0].name == "capture"
+        assert captured_file_handler.requires[0].range == ">=0.1.0 <0.2.0"
 
     @pytest.mark.asyncio
     async def test_raises_when_blob_store_is_none(self) -> None:
@@ -193,7 +187,7 @@ class TestCapturedAudioHandler:
         ctx = _ctx(tdb, blob_store=None)
         payload = CapturePayload(kind="file", blob_sha256="abc123")
         with pytest.raises(RuntimeError, match="no BlobStore"):
-            await captured_audio_handler.handle(payload, ctx)
+            await captured_file_handler.handle(payload, ctx)
 
     @pytest.mark.asyncio
     async def test_raises_when_blob_not_found(self) -> None:
@@ -203,7 +197,7 @@ class TestCapturedAudioHandler:
         ctx = _ctx(tdb, blob_store=bs)
         payload = CapturePayload(kind="file", blob_sha256="unknown_digest")
         with pytest.raises(RuntimeError, match="unknown_digest"):
-            await captured_audio_handler.handle(payload, ctx)
+            await captured_file_handler.handle(payload, ctx)
 
     @pytest.mark.asyncio
     async def test_provenance_always_present(self, tmp_path: Path) -> None:
@@ -215,7 +209,7 @@ class TestCapturedAudioHandler:
         bs = _FakeBlobStore("sha", blob_path)
         ctx = _ctx(tdb, blob_store=bs)
         payload = CapturePayload(kind="file", blob_sha256="sha", filename="test.wav")
-        await captured_audio_handler.handle(payload, ctx)
+        await captured_file_handler.handle(payload, ctx)
         doc = tdb.insert_documents.call_args[0][0][0]
         assert "provenance" in doc
         assert doc["provenance"]["agent"] == "service:captured"

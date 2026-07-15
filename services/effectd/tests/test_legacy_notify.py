@@ -153,8 +153,6 @@ class TestPendingToNotified:
             "fired_at": "2026-07-07T11:59:00Z",
             "status": "pending",
             "subject": None,
-            "created_at": "2026-07-07T11:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(channels=[channel], pending_firings=[firing], now=now)
 
@@ -202,8 +200,6 @@ class TestPendingToNotified:
             "fired_at": "2026-07-07T11:59:00Z",
             "status": "pending",
             "subject": "Reminder/r1",
-            "created_at": "2026-07-07T11:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(channels=[channel], pending_firings=[firing], subject_doc=subject_doc, now=now)
 
@@ -227,8 +223,6 @@ class TestPendingToNotified:
             "fired_at": "2026-07-07T11:59:00Z",
             "status": "pending",
             "subject": "Reminder/nonexistent",
-            "created_at": "2026-07-07T11:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         # subject_doc is None, so get_document for Reminder/nonexistent will raise
         loop = _make_loop(channels=[channel], pending_firings=[firing], subject_doc=None, now=now)
@@ -254,8 +248,6 @@ class TestPendingToNotified:
             "fired_at": "2026-07-07T11:59:00Z",
             "status": "pending",
             "subject": None,
-            "created_at": "2026-07-07T11:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(channels=[channel], pending_firings=[firing], now=now)
 
@@ -283,8 +275,6 @@ class TestPendingToNotified:
             "fired_at": "2026-07-07T11:59:00Z",
             "status": "pending",
             "subject": None,
-            "created_at": "2026-07-07T11:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(channels=[ok_channel, fail_channel], pending_firings=[firing], now=now)
 
@@ -309,8 +299,6 @@ class TestPendingToNotified:
             "fired_at": "2026-07-07T11:59:00Z",
             "status": "pending",
             "subject": None,
-            "created_at": "2026-07-07T11:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(channels=[bad_channel, good_channel], pending_firings=[firing], now=now)
 
@@ -365,8 +353,6 @@ class TestRenotifyAndExpiry:
             "subject": None,
             "last_notified_at": _utc_iso(last_notified),
             "notification_count": 1,
-            "created_at": "2026-07-07T10:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(
             channels=[channel],
@@ -404,8 +390,6 @@ class TestRenotifyAndExpiry:
             "subject": None,
             "last_notified_at": _utc_iso(last_notified),
             "notification_count": 1,
-            "created_at": "2026-07-07T10:00:00Z",
-            "updated_at": "2026-07-07T11:30:00Z",
         }
         loop = _make_loop(
             channels=[channel],
@@ -442,8 +426,6 @@ class TestRenotifyAndExpiry:
             "subject": None,
             "last_notified_at": _utc_iso(last_notified),
             "notification_count": 4,  # already at cap (1 + 3)
-            "created_at": "2026-07-07T10:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(
             channels=[channel],
@@ -480,8 +462,6 @@ class TestRenotifyAndExpiry:
             "subject": None,
             "last_notified_at": _utc_iso(last_notified),
             "notification_count": 99,
-            "created_at": "2026-07-07T10:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(
             channels=[channel],
@@ -520,8 +500,6 @@ class TestRenotifyAndExpiry:
             "subject": None,
             "last_notified_at": _utc_iso(now - timedelta(hours=2)),
             "notification_count": 1,
-            "created_at": "2026-07-07T09:00:00Z",
-            "updated_at": "2026-07-07T10:00:00Z",
         }
         loop = _make_loop(
             channels=[channel],
@@ -563,8 +541,6 @@ class TestRenotifyAndExpiry:
             "subject": None,
             "last_notified_at": _utc_iso(now - timedelta(hours=2)),
             "notification_count": 1,
-            "created_at": "2026-07-07T10:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(
             channels=[channel],
@@ -603,8 +579,6 @@ class TestRenotifyAndExpiry:
             "subject": None,
             "last_notified_at": _utc_iso(now - timedelta(hours=2)),
             "notification_count": 1,
-            "created_at": "2026-07-07T10:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(
             channels=[channel],
@@ -639,8 +613,6 @@ class TestRenotifyAndExpiry:
             "subject": None,
             "last_notified_at": _utc_iso(now - timedelta(hours=2)),
             "notification_count": 1,
-            "created_at": "2026-07-07T10:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(
             channels=[channel],
@@ -683,8 +655,6 @@ class TestSnoozed:
             "snoozed_until": _utc_iso(now - timedelta(minutes=5)),
             "notification_count": 3,
             "last_notified_at": _utc_iso(now - timedelta(hours=1)),
-            "created_at": "2026-07-07T10:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(channels=[channel], snoozed_firings=[firing], now=now)
 
@@ -728,8 +698,6 @@ class TestSnoozed:
             "snoozed_until": _utc_iso(now + timedelta(hours=1)),
             "notification_count": 1,
             "last_notified_at": _utc_iso(now - timedelta(hours=1)),
-            "created_at": "2026-07-07T10:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(channels=[channel], snoozed_firings=[firing], now=now)
 
@@ -756,8 +724,6 @@ class TestSnoozed:
             "snoozed_until": _utc_iso(now - timedelta(minutes=5)),
             "notification_count": 1,
             "last_notified_at": _utc_iso(now - timedelta(hours=1)),
-            "created_at": "2026-07-07T10:00:00Z",
-            "updated_at": "2026-07-07T11:00:00Z",
         }
         loop = _make_loop(channels=[channel], snoozed_firings=[firing], now=now)
 

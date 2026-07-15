@@ -563,7 +563,6 @@ RAW_SCHEMA = [
         "@id": "Task",
         "@type": "Class",
         "@inherits": ["Entity", "Source", "TaskSpec"],
-        "created_at": "xsd:dateTime",
         "provenance": {
             "@class": "Provenance",
             "@type": "Optional",
@@ -573,7 +572,6 @@ RAW_SCHEMA = [
             "@type": "Optional",
         },
         "status": "TaskStatus",
-        "updated_at": "xsd:dateTime",
         "@key": {"@type": "Lexical", "@fields": ["name"]},
         "@documentation": {"@comment": "A task that can be scheduled."},
     },
@@ -627,9 +625,9 @@ async def test_reindex_schema_class_and_enum_properties(tmp_path: Path):
             assert not fn.endswith("@type")
 
         # --- String property type_hint ---
-        created_at_fields = [r for r in results if r.name == "Task.created_at"]
-        assert len(created_at_fields) == 1
-        assert created_at_fields[0].type_hint == "xsd:dateTime"
+        due_date_fields = [r for r in results if r.name == "Task.due_date"]
+        assert len(due_date_fields) == 1
+        assert due_date_fields[0].type_hint == "xsd:dateTime"
 
         # --- Dict property type_hint (@class) ---
         provenance_fields = [r for r in results if r.name == "Task.provenance"]

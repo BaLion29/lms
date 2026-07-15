@@ -108,8 +108,6 @@ class DecisionsExtractor(ExtractorPlugin):
                 )
                 for opt in proposal.options
             ],
-            created_at=now,
-            updated_at=now,
             derived_from=[source_iri],
             provenance=Provenance(
                 agent="ingestd",

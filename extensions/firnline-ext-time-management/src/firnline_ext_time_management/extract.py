@@ -161,8 +161,8 @@ class TimeManagementPlugin(ExtractorPlugin):
     # (this plugin resolves them via ensure_entity but never creates them directly).
     produces: list[str] = ["Task", "Event", "Person", "Location", "Routine", "Activity", "Project", "Area", "Goal"]
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="time_management", range=">=0.2.0 <0.3.0"),
-        ModuleRequirement(name="address_book", range=">=0.2.0 <0.3.0"),
+        ModuleRequirement(name="time_management", range=">=0.1.0 <0.2.0"),
+        ModuleRequirement(name="address_book", range=">=0.1.0 <0.2.0"),
     ]
 
     def proposal_models(self) -> list[type[BaseModel]]:
@@ -255,8 +255,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                 estimated_duration=proposal.estimated_duration,
                 due_date=proposal.due_date,
                 status=TaskStatus.OPEN,
-                created_at=now,
-                updated_at=now,
                 derived_from=[source_iri],
                 provenance=Provenance(
                     agent="ingestd",
@@ -289,8 +287,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                 end_datetime=proposal.end_datetime,
                 location=None,
                 status=EventStatus.OPEN,
-                created_at=now,
-                updated_at=now,
                 derived_from=[source_iri],
                 provenance=Provenance(
                     agent="ingestd",
@@ -307,8 +303,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                     proposal.location_name,
                     lambda: Location(
                         name=proposal.location_name,
-                        created_at=now,
-                        updated_at=now,
                         derived_from=[source_iri],
                         provenance=Provenance(
                             agent="ingestd",
@@ -341,8 +335,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                 proposal.name,
                 lambda: Person(
                     name=proposal.name,
-                    created_at=now,
-                    updated_at=now,
                     contact=(
                         Contact(email=proposal.email, phone=proposal.phone)
                         if (proposal.email or proposal.phone)
@@ -377,8 +369,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                         name=step_spec.name,
                         cadence_days=step_spec.cadence_days,
                         task=spec,
-                        created_at=now,
-                        updated_at=now,
                         derived_from=[source_iri],
                         provenance=Provenance(
                             agent="ingestd",
@@ -398,8 +388,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                         name=step_spec.name,
                         cadence_days=step_spec.cadence_days,
                         activity=spec,
-                        created_at=now,
-                        updated_at=now,
                         derived_from=[source_iri],
                         provenance=Provenance(
                             agent="ingestd",
@@ -425,8 +413,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                         ctx_name,
                         lambda n=ctx_name: Tag(
                             name=n,
-                            created_at=now,
-                            updated_at=now,
                             derived_from=[source_iri],
                             provenance=Provenance(
                                 agent="ingestd",
@@ -443,8 +429,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                 name=proposal.name,
                 required_context=required_iri_list,
                 steps=steps,
-                created_at=now,
-                updated_at=now,
                 derived_from=[source_iri],
                 provenance=Provenance(
                     agent="ingestd",
@@ -465,8 +449,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                 priority=proposal.priority,
                 estimated_duration=proposal.estimated_duration,
                 routine=None,
-                created_at=now,
-                updated_at=now,
                 derived_from=[source_iri],
                 provenance=Provenance(
                     agent="ingestd",
@@ -495,8 +477,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                 description=proposal.description,
                 target_date=proposal.target_date,
                 status=ProjectStatus.ACTIVE,
-                created_at=now,
-                updated_at=now,
                 derived_from=[source_iri],
                 provenance=Provenance(
                     agent="ingestd",
@@ -528,8 +508,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                 lambda: Area(
                     name=proposal.name,
                     description=proposal.description,
-                    created_at=now,
-                    updated_at=now,
                     derived_from=[source_iri],
                     provenance=Provenance(
                         agent="ingestd",
@@ -551,8 +529,6 @@ class TimeManagementPlugin(ExtractorPlugin):
                 success_criteria=proposal.success_criteria,
                 target_date=proposal.target_date,
                 status=GoalStatus.ACTIVE,
-                created_at=now,
-                updated_at=now,
                 derived_from=[source_iri],
                 provenance=Provenance(
                     agent="ingestd",

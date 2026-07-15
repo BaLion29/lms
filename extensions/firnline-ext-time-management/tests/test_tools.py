@@ -84,7 +84,7 @@ def test_plugin_name_and_requires():
     reqs = tm_plugin.requires
     assert len(reqs) == 1
     assert reqs[0].name == "time_management"
-    assert reqs[0].range == ">=0.2.0 <0.3.0"
+    assert reqs[0].range == ">=0.1.0 <0.2.0"
 
 
 def test_plugin_tools():
@@ -122,8 +122,6 @@ async def test_set_task_status_happy_path(respx_mock):
         "status": "open",
         "description": "look at the diff",
         "priority": 3,
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
         "required_context": [],
     }
     get_route = respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
@@ -183,8 +181,6 @@ async def test_set_event_status_happy_path(respx_mock):
         "@type": "Event",
         "name": "Team sync",
         "status": "open",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Event/xyz"])
@@ -237,8 +233,6 @@ async def test_create_task(respx_mock):
     assert doc["@type"] == "Task"
     assert doc["name"] == "New Task"
     assert doc["status"] == "open"
-    assert "created_at" in doc
-    assert "updated_at" in doc
     assert "anchor_at" not in doc
     prov = doc["provenance"]
     assert prov["agent"] == "ext:time-management"
@@ -279,8 +273,6 @@ async def test_update_task_only_provided_fields_changed(respx_mock):
         "description": "Old desc",
         "priority": 1,
         "status": "open",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
         "required_context": [],
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
@@ -299,7 +291,6 @@ async def test_update_task_only_provided_fields_changed(respx_mock):
     assert doc["description"] == "Old desc"
     assert doc["priority"] == 1
     assert doc["status"] == "open"
-    assert doc["updated_at"] != orig["updated_at"]
 
 
 async def test_update_task_not_found(respx_mock):
@@ -444,8 +435,6 @@ async def test_update_routine_name_only(respx_mock):
         "name": "Old routine",
         "required_context": [],
         "steps": [],
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Routine/r1"])
@@ -462,7 +451,6 @@ async def test_update_routine_name_only(respx_mock):
     assert doc["name"] == "New routine"
     assert doc["required_context"] == []
     assert doc["steps"] == []
-    assert doc["updated_at"] != orig["updated_at"]
 
 
 async def test_update_routine_replace_steps(respx_mock):
@@ -472,8 +460,6 @@ async def test_update_routine_replace_steps(respx_mock):
         "name": "Old routine",
         "required_context": [],
         "steps": [{"@type": "RoutineStep", "name": "Old step", "activity": {"@type": "ActivitySpec", "name": "Old step"}}],
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Routine/r1"])
@@ -500,8 +486,6 @@ async def test_update_routine_partial_name_and_context(respx_mock):
         "name": "Old",
         "required_context": [],
         "steps": [],
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Routine/r1"])
@@ -656,8 +640,6 @@ async def test_create_project_happy_path(respx_mock):
     assert doc["@type"] == "Project"
     assert doc["name"] == "My Project"
     assert doc["status"] == "active"
-    assert "created_at" in doc
-    assert "updated_at" in doc
     assert doc["provenance"]["agent"] == "ext:time-management"
     assert doc["provenance"]["method"] == "tool_call"
 
@@ -694,8 +676,6 @@ async def test_update_project_only_provided_fields_changed(respx_mock):
         "name": "Old Project",
         "description": "Old desc",
         "status": "active",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
@@ -712,7 +692,6 @@ async def test_update_project_only_provided_fields_changed(respx_mock):
     assert doc["name"] == "New Project"
     assert doc["description"] == "Old desc"
     assert doc["status"] == "active"
-    assert doc["updated_at"] != orig["updated_at"]
 
 
 async def test_update_project_not_found(respx_mock):
@@ -744,8 +723,6 @@ async def test_set_project_status_happy_path(respx_mock):
         "@type": "Project",
         "name": "My Project",
         "status": "active",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
@@ -768,8 +745,6 @@ async def test_set_project_status_on_hold_to_active(respx_mock):
         "@type": "Project",
         "name": "My Project",
         "status": "on_hold",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
@@ -788,8 +763,6 @@ async def test_set_project_status_illegal_transition(respx_mock):
         "@type": "Project",
         "name": "My Project",
         "status": "on_hold",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
@@ -843,7 +816,6 @@ async def test_create_goal_happy_path(respx_mock):
     assert doc["@type"] == "Goal"
     assert doc["name"] == "Learn Rust"
     assert doc["status"] == "active"
-    assert "created_at" in doc
     assert doc["provenance"]["agent"] == "ext:time-management"
 
 
@@ -880,8 +852,6 @@ async def test_set_goal_status_happy_path(respx_mock):
         "@type": "Goal",
         "name": "Learn Rust",
         "status": "active",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Goal/g1"])
@@ -904,8 +874,6 @@ async def test_set_goal_status_abandoned_to_active(respx_mock):
         "@type": "Goal",
         "name": "Old goal",
         "status": "abandoned",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Goal/g1"])
@@ -924,8 +892,6 @@ async def test_set_goal_status_illegal_transition(respx_mock):
         "@type": "Goal",
         "name": "Goal",
         "status": "abandoned",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Goal/g1"])
@@ -978,7 +944,6 @@ async def test_create_area_happy_path(respx_mock):
     doc = sent[0] if isinstance(sent, list) else sent
     assert doc["@type"] == "Area"
     assert doc["name"] == "Health"
-    assert "created_at" in doc
     assert doc["provenance"]["agent"] == "ext:time-management"
 
 
@@ -1022,8 +987,6 @@ async def test_assign_contexts_happy_path(respx_mock):
         "name": "Review PR",
         "status": "open",
         "contexts": [],
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     project_doc = {
         "@id": "Project/p1",
@@ -1056,8 +1019,6 @@ async def test_assign_contexts_dedupe(respx_mock):
         "name": "Task",
         "status": "open",
         "contexts": ["Project/p1", "Area/a1"],
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     ctx_doc = {"@id": "Area/a1", "@type": "Area", "name": "Health"}
 
@@ -1082,8 +1043,6 @@ async def test_assign_contexts_context_not_found(respx_mock):
         "name": "Task",
         "status": "open",
         "contexts": [],
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH, params={"id": "Task/abc"}).respond(json=dict(task_doc))
     respx_mock.get(DOC_PATH, params={"id": "Project/missing"}).respond(status_code=404)
@@ -1130,8 +1089,6 @@ async def test_remove_contexts_happy_path(respx_mock):
         "name": "Task",
         "status": "open",
         "contexts": ["Project/p1", "Area/a1"],
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(task_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
@@ -1157,8 +1114,6 @@ async def test_remove_contexts_non_present_iri(respx_mock):
         "name": "Task",
         "status": "open",
         "contexts": ["Project/p1"],
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(task_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
@@ -1195,8 +1150,6 @@ async def test_assign_contexts_archived_document_rejected(respx_mock):
         "status": "open",
         "contexts": [],
         "archived_at": "2026-01-01T00:00:00Z",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(task_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=[])
@@ -1218,8 +1171,6 @@ async def test_remove_contexts_archived_document_rejected(respx_mock):
         "status": "open",
         "contexts": ["Project/p1"],
         "archived_at": "2026-01-01T00:00:00Z",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(task_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=[])
@@ -1244,8 +1195,6 @@ async def test_set_project_status_completed_is_terminal(respx_mock):
         "@type": "Project",
         "name": "Done Project",
         "status": "completed",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
@@ -1265,8 +1214,6 @@ async def test_set_goal_status_achieved_is_terminal(respx_mock):
         "@type": "Goal",
         "name": "Achieved Goal",
         "status": "achieved",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Goal/g1"])

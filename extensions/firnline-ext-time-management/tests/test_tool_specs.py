@@ -192,8 +192,6 @@ async def test_handle_update_task_only_provided_fields_changed(respx_mock):
         "description": "Old desc",
         "priority": 1,
         "status": "open",
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
         "required_context": [],
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
@@ -244,8 +242,6 @@ async def test_handle_update_routine_name_only(respx_mock):
         "name": "Old routine",
         "required_context": [],
         "steps": [],
-        "created_at": "2026-07-01T10:00:00Z",
-        "updated_at": "2026-07-01T10:00:00Z",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
     post_route = respx_mock.post(DOC_PATH).respond(json=["Routine/r1"])

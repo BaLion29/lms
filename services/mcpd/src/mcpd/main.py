@@ -208,7 +208,11 @@ async def _tool_capture(text: str) -> dict[str, Any]:
     settings = _get_settings()
     async with _build_client(settings.captured_url, settings.captured_token, settings.request_timeout_seconds) as client:
         try:
-            resp = await client.post("/v1/capture/note", json={"text": text})
+            resp = await client.post(
+                "/v1/capture/note",
+                content=text,
+                headers={"Content-Type": "text/plain"},
+            )
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             raise ToolError(str(e)) from None
         _raise_for_status(resp)
@@ -249,6 +253,46 @@ async def _tool_create_document(
         try:
             resp = await client.post(
                 f"/v1/documents/{class_name}", json=fields, headers=headers
+            )
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            raise ToolError(str(e)) from None
+        _raise_for_status(resp)
+        return resp.json()
+
+
+async def _tool_update_document(
+    iri: str, fields: dict[str, Any], agent: str | None = None
+) -> dict[str, Any]:
+    """Update an existing document's fields directly — no LLM extraction.
+
+    Use this to modify a document when you know the exact field values to
+    change.  Only the fields you provide are updated; all other fields
+    remain unchanged.  The ``@type`` and ``@id`` of the document cannot
+    be changed.  Use ``get_document`` to inspect the current state before
+    calling this tool, and ``get_schema`` to discover which fields exist.
+
+    Args:
+        iri: The document IRI (e.g. ``Task/abc123``).
+        fields: A JSON object containing only the fields you want to
+            update (partial update).  Do **not** include ``@type`` or
+            ``@id`` — both are immutable.
+        agent: Optional provenance agent identity string.  Grammar:
+            ``service:<name>``, ``user:<name>``, or ``ext:<name>``.  When
+            omitted the call is attributed to ``ext:mcp``.
+
+    Returns:
+        A dict with the single key ``iri`` whose value is the updated
+        document's IRI (e.g. ``{"iri": "Task/abc123"}``).
+    """
+    settings = _get_settings()
+    async with _build_client(
+        settings.queryd_url, settings.queryd_token, settings.request_timeout_seconds
+    ) as client:
+        headers = {"X-Firnline-Agent": agent} if agent else {"X-Firnline-Agent": "ext:mcp"}
+        iri_stripped = iri.strip("/")
+        try:
+            resp = await client.put(
+                f"/v1/documents/{iri_stripped}", json=fields, headers=headers
             )
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             raise ToolError(str(e)) from None
@@ -396,6 +440,7 @@ def create_mcp_component(
         "firnline",
         json_response=True,
         stateless_http=True,
+        streamable_http_path="/",
         instructions=(
             "Firnline is a personal knowledge system. Use the provided tools to query "
             "documents, search the schema, run GraphQL queries, and write new "
@@ -417,6 +462,7 @@ def create_mcp_component(
     mcp.tool()(_tool_list_modules)
     mcp.tool()(_tool_capture)
     mcp.tool()(_tool_create_document)
+    mcp.tool()(_tool_update_document)
 
     # Register resources (static — no async deps needed)
     mcp.resource("firnline://schema")(_resource_schema)

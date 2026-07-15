@@ -129,8 +129,6 @@ def _build_step_dicts(
                 name=name,
                 cadence_days=cadence_days,
                 task=spec,
-                created_at=now,
-                updated_at=now,
                 provenance=provenance,
             )
         else:  # activity
@@ -144,8 +142,6 @@ def _build_step_dicts(
                 name=name,
                 cadence_days=cadence_days,
                 activity=spec,
-                created_at=now,
-                updated_at=now,
                 provenance=provenance,
             )
         result.append(step.to_tdb())
@@ -184,7 +180,7 @@ class CreateTaskArgs(BaseModel):
 class UpdateTaskArgs(BaseModel):
     """Update fields of an existing Task.
 
-    Only the provided (non-None) fields are changed; ``updated_at`` is
+    Only the provided (non-None) fields are changed.
     always bumped to now.
     """
 
@@ -218,7 +214,7 @@ class CreateRoutineArgs(BaseModel):
 class UpdateRoutineArgs(BaseModel):
     """Update fields of an existing Routine.
 
-    Only the provided (non-None) fields are changed; ``updated_at`` is
+    Only the provided (non-None) fields are changed.
     always bumped to now.  When *steps* is provided, the entire steps list
     is replaced.
     """
@@ -345,8 +341,6 @@ async def _do_create_task(
         due_date=due_date,
         priority=priority,
         status=TaskStatus.OPEN,
-        created_at=now,
-        updated_at=now,
         provenance=prov,
     ).to_tdb()
 
@@ -377,7 +371,7 @@ async def _do_update_task(
 ) -> dict[str, object]:
     """Update fields of an existing Task (core logic).
 
-    Only the provided (non-None) fields are changed; ``updated_at`` is
+    Only the provided (non-None) fields are changed.
     always bumped to now.
     """
     repo = Repository(tdb, transitions=_TASK_TRANSITIONS) if not isinstance(tdb, Repository) else tdb
@@ -398,8 +392,6 @@ async def _do_update_task(
         doc["due_date"] = due_date
     if priority is not None:
         doc["priority"] = priority
-
-    doc["updated_at"] = _format_datetime(datetime.now(timezone.utc))
 
     log.info("queryd: update_task", iri=task_iri, doc=doc)
 
@@ -443,8 +435,6 @@ async def _do_create_routine(
         name=name,
         required_context=required_context or [],
         steps=step_docs,
-        created_at=now,
-        updated_at=now,
         provenance=prov,
     ).to_tdb()
 
@@ -474,7 +464,7 @@ async def _do_update_routine(
 ) -> dict[str, object]:
     """Update fields of an existing Routine (core logic).
 
-    Only the provided (non-None) fields are changed; ``updated_at`` is
+    Only the provided (non-None) fields are changed.
     always bumped to now.  When *steps* is provided, the entire steps list
     is replaced.
     """
@@ -499,8 +489,6 @@ async def _do_update_routine(
             doc["steps"] = _build_step_dicts(steps, now, prov)
         except Exception as exc:
             return {"ok": False, "error": f"invalid steps: {exc}"}
-
-    doc["updated_at"] = _format_datetime(datetime.now(timezone.utc))
 
     log.info("queryd: update_routine", iri=routine_iri, doc=doc)
 
@@ -539,8 +527,6 @@ async def create_project(
         description=description,
         target_date=target_date,
         status=ProjectStatus.ACTIVE,
-        created_at=now,
-        updated_at=now,
         provenance=prov,
     ).to_tdb()
 
@@ -569,7 +555,7 @@ async def update_project(
 ) -> dict[str, object]:
     """Update fields of an existing Project.
 
-    Only the provided (non-None) fields are changed; ``updated_at`` is
+    Only the provided (non-None) fields are changed.
     always bumped to now.  Status changes must go through
     ``set_project_status``.
     """
@@ -590,8 +576,6 @@ async def update_project(
         doc["description"] = description
     if target_date is not None:
         doc["target_date"] = target_date
-
-    doc["updated_at"] = _format_datetime(datetime.now(_UTC))
 
     log.info("queryd: update_project", iri=project_iri, doc=doc)
 
@@ -675,8 +659,6 @@ async def create_goal(
         success_criteria=success_criteria,
         target_date=target_date,
         status=GoalStatus.ACTIVE,
-        created_at=now,
-        updated_at=now,
         provenance=prov,
     ).to_tdb()
 
@@ -763,8 +745,6 @@ async def create_area(
     area = Area(
         name=name,
         description=description,
-        created_at=now,
-        updated_at=now,
         provenance=prov,
     ).to_tdb()
 
@@ -835,7 +815,6 @@ async def assign_contexts(
     existing: list[str] = doc.get("contexts", [])
     updated = list(dict.fromkeys(existing + context_iris))  # dedupe preserving order
     doc["contexts"] = updated
-    doc["updated_at"] = _format_datetime(datetime.now(_UTC))
 
     log.info("queryd: assign_contexts", iri=iri, added=context_iris, contexts=updated)
 
@@ -880,7 +859,6 @@ async def remove_contexts(
     remove_set = set(context_iris)
     updated = [c for c in existing if c not in remove_set]
     doc["contexts"] = updated
-    doc["updated_at"] = _format_datetime(datetime.now(_UTC))
 
     log.info("queryd: remove_contexts", iri=iri, removed=context_iris, contexts=updated)
 
@@ -934,8 +912,6 @@ async def _do_log_activity(
         priority=priority,
         estimated_duration=estimated_duration,
         routine=routine_id,
-        created_at=now,
-        updated_at=now,
         provenance=prov,
     ).to_tdb()
 
@@ -1014,7 +990,7 @@ async def update_task(
 ) -> dict[str, object]:
     """Update fields of an existing Task.
 
-    Only the provided (non-None) fields are changed; ``updated_at`` is
+    Only the provided (non-None) fields are changed.
     always bumped to now.
     """
     return await _do_update_task(
@@ -1058,7 +1034,7 @@ async def update_routine(
 ) -> dict[str, object]:
     """Update fields of an existing Routine.
 
-    Only the provided (non-None) fields are changed; ``updated_at`` is
+    Only the provided (non-None) fields are changed.
     always bumped to now.  When *steps* is provided, the entire steps list
     is replaced.
     """
@@ -1151,7 +1127,7 @@ class TimeManagementToolsPlugin:
 
     name: str = "time_management_tools"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="time_management", range=">=0.2.0 <0.3.0")
+        ModuleRequirement(name="time_management", range=">=0.1.0 <0.2.0")
     ]
 
     def tools(self, deps: Any) -> list[Tool]:

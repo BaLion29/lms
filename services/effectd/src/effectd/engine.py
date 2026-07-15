@@ -207,8 +207,6 @@ class EffectEngine:
                 "status": status,
                 "idempotency_key": idempotency_key,
                 "attempt": 0,
-                "created_at": _format_datetime(now),
-                "updated_at": _format_datetime(now),
                 "provenance": {
                     "agent": self._agent,
                     "at": _format_datetime(now),
@@ -275,8 +273,9 @@ class EffectEngine:
                     pass  # unparseable → treat as due (will be re-checked in _execute_one)
             due_execs.append(d)
 
-        # Sort oldest-first, cap
-        due_execs.sort(key=lambda d: d.get("created_at", ""))
+        # Sort by @id: IRIs provide stable deterministic ordering (always present);
+        # chronological order is not required here.
+        due_execs.sort(key=lambda d: d.get("@id", ""))
         max_ex = settings.max_executions_per_cycle
         due_execs = due_execs[:max_ex]
 
@@ -406,7 +405,6 @@ class EffectEngine:
                 doc["executed_at"] = now_str
                 doc["external_ref"] = result.external_ref
                 doc["result_detail"] = result.detail or None
-                doc["updated_at"] = now_str
                 cleaned = _strip_nones(doc)
                 await repo.tdb.insert_documents(
                     [cleaned],
@@ -429,7 +427,6 @@ class EffectEngine:
                     doc["executed_at"] = now_str
                     doc["next_attempt_at"] = next_at
                     doc["result_detail"] = result.detail or None
-                    doc["updated_at"] = now_str
                     cleaned = _strip_nones(doc)
                     await repo.tdb.insert_documents(
                         [cleaned],
@@ -455,7 +452,6 @@ class EffectEngine:
                     doc["attempt"] = new_attempt
                     doc["executed_at"] = now_str
                     doc["result_detail"] = result.detail or None
-                    doc["updated_at"] = now_str
                     cleaned = _strip_nones(doc)
                     await repo.tdb.insert_documents(
                         [cleaned],
@@ -481,7 +477,6 @@ class EffectEngine:
                     doc["attempt"] = new_attempt
                     doc["executed_at"] = now_str
                     doc["result_detail"] = result.detail or None
-                    doc["updated_at"] = now_str
                     cleaned = _strip_nones(doc)
                     await repo.tdb.insert_documents(
                         [cleaned],

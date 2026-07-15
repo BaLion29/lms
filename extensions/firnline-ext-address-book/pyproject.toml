@@ -1,6 +1,6 @@
 [project]
 name = "firnline-ext-address-book"
-version = "0.2.0"
+version = "0.1.0"
 description = "Firnline address-book extension — Person, Contact, Location, Organization, Affiliation schema module and entity linking extractors"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }

@@ -51,12 +51,11 @@ class Decision(TdbDocument):
     type_: Literal["Decision"] = Field(alias="@type", default="Decision")
     label_field: ClassVar[str | None] = "title"
     transitions: ClassVar[dict[str, list[str]] | None] = {'draft': ['proposed', 'rejected'], 'proposed': ['accepted', 'rejected', 'draft'], 'accepted': ['superseded', 'deprecated'], 'rejected': ['draft']}
-    created_at: TdbDateTime
     decision: str
     provenance: Provenance
     status: DecisionStatus
     title: str
-    updated_at: TdbDateTime
+    aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
     consequences: str | None = None
     context: str | None = None

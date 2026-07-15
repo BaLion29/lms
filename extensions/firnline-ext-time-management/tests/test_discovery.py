@@ -30,7 +30,7 @@ def test_manifest_and_schema_present():
 def test_manifest_name_matches():
     manifest = json.loads((PKG_DIR / "manifest.json").read_text())
     assert manifest["name"] == "time_management"
-    assert manifest["version"] == "0.2.0"
+    assert manifest["version"] == "0.1.0"
 
 
 def test_schema_exports_all_four_main_classes():

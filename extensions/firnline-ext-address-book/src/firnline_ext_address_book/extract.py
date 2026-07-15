@@ -66,7 +66,7 @@ class AddressBookLinkingPlugin(ExtractorPlugin):
 
     name: str = "address_book_linking"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="address_book", range=">=0.2.0 <0.3.0"),
+        ModuleRequirement(name="address_book", range=">=0.1.0 <0.2.0"),
     ]
     produces: list[str] = ["Person", "Location", "Organization"]
 
@@ -158,8 +158,6 @@ class AddressBookLinkingPlugin(ExtractorPlugin):
                     aliases=proposal.aliases or [],
                     contact=contact,
                     affiliations=affiliations,
-                    created_at=now,
-                    updated_at=now,
                     derived_from=[source_iri],
                     provenance=Provenance(
                         agent="ingestd",
@@ -182,8 +180,6 @@ class AddressBookLinkingPlugin(ExtractorPlugin):
                     name=proposal.name,
                     aliases=proposal.aliases or [],
                     address=proposal.address,
-                    created_at=now,
-                    updated_at=now,
                     derived_from=[source_iri],
                     provenance=Provenance(
                         agent="ingestd",
@@ -208,8 +204,6 @@ class AddressBookLinkingPlugin(ExtractorPlugin):
                     name=proposal.name,
                     aliases=proposal.aliases or [],
                     location=loc_iri,
-                    created_at=now,
-                    updated_at=now,
                     derived_from=[source_iri],
                     provenance=Provenance(
                         agent="ingestd",
@@ -243,8 +237,6 @@ def _make_minimal_entity(
         "@type": type_name,
         "name": name,
         "aliases": [],
-        "created_at": now,
-        "updated_at": now,
         "derived_from": [source_iri],
         "provenance": {
             "@type": "Provenance",

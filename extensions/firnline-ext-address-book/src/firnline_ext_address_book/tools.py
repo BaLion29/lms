@@ -208,8 +208,6 @@ async def _do_create_person(
             if (email is not None or phone is not None or domicile_id is not None)
             else None
         ),
-        created_at=now,
-        updated_at=now,
         provenance=prov,
     ).to_tdb()
 
@@ -245,8 +243,6 @@ async def _do_create_location(
         aliases=aliases,
         address=address,
         coordinates=coordinates,
-        created_at=now,
-        updated_at=now,
         provenance=prov,
     ).to_tdb()
 
@@ -280,8 +276,6 @@ async def _do_create_organization(
         name=name,
         aliases=aliases,
         location=location_id,
-        created_at=now,
-        updated_at=now,
         provenance=prov,
     ).to_tdb()
 
@@ -348,7 +342,6 @@ async def _do_geocode(
     # Persist coordinates
     now = datetime.now(_UTC)
     doc["coordinates"] = list(coords)
-    doc["updated_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         await tdb.insert_documents([doc], branch=branch, message=f"queryd: geocode {location_id}")
     except Exception as exc:
@@ -411,7 +404,7 @@ class AddressBookToolsPlugin:
 
     name: str = "address_book_tools"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="address_book", range=">=0.2.0 <0.3.0")
+        ModuleRequirement(name="address_book", range=">=0.1.0 <0.2.0")
     ]
 
     def tool_specs(self) -> list[ToolSpec]:

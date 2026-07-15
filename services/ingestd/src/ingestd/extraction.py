@@ -89,7 +89,7 @@ Guidelines:
 the input's language — do not translate.
 - Relative dates ("Freitag", "next week", "morgen") must be resolved to ABSOLUTE datetimes \
 using the reference datetime provided in the user prompt. The reference datetime is the \
-inbox document's created_at or recorded_at.
+inbox document's captured_at or recorded_at.
 - When resolving weekday names (e.g. "Freitag", "Monday"), first determine the weekday \
 of the reference datetime, then count forward to the next occurrence of the target \
 weekday (the reference date itself counts as day 0). Do not count backward.
@@ -489,7 +489,7 @@ async def extract(
     ----------
     agent: A pre-built extraction agent (see :func:`build_agent`).
     text: The note or transcription to analyse.
-    reference_dt: Inbox document's ``created_at`` / ``recorded_at``, used to
+    reference_dt: Inbox document's ``captured_at`` / ``recorded_at``, used to
         resolve relative date expressions.
     entity_context: Compact block of known people/locations for entity linking
         hints.  May be an empty string.

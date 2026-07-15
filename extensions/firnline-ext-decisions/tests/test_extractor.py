@@ -172,8 +172,6 @@ class TestBuildDocuments:
         assert doc["title"] == "Use Python"
         assert doc["decision"] == "We chose Python for the backend"
         assert doc["status"] == "draft"
-        assert doc["created_at"] == "2026-07-07T12:00:00Z"
-        assert doc["updated_at"] == "2026-07-07T12:00:00Z"
         assert doc["derived_from"] == ["InboxNote/test123"]
         assert doc["provenance"] == {
             "@type": "Provenance",

@@ -14,7 +14,6 @@ from typing import Any, Callable
 import structlog
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 from firnline_core.conventions import BlobStore, blob_root_from_env
 from firnline_core.plugins import (
@@ -36,20 +35,6 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 _PLUGIN_GROUP = "firnline.captured.handlers"
-
-# Kinds that require a blob/file upload — rejected from the text-only /note endpoint.
-_KINDS_REQUIRING_FILE_UPLOAD = frozenset({"file"})
-
-# ---------------------------------------------------------------------------
-# Request models
-# ---------------------------------------------------------------------------
-
-
-class NoteRequest(BaseModel):
-    text: str
-    kind: str = "note"
-    metadata: dict[str, Any] = {}
-    captured_at: datetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +67,27 @@ class Component:
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
+
+def _parse_captured_at(value: str | None) -> datetime | None:
+    """Parse an ISO 8601 datetime string with mandatory timezone info.
+
+    Accepts ``Z`` as UTC suffix.  Returns ``None`` when *value* is ``None``.
+    Raises ``ValueError`` on invalid or naive timestamps.
+    """
+    if value is None:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        raise ValueError(
+            "captured_at must be an ISO 8601 datetime with timezone"
+        ) from None
+    if dt.tzinfo is None:
+        raise ValueError(
+            "captured_at must be an ISO 8601 datetime with timezone"
+        )
+    return dt
 
 
 def _get_version() -> str:
@@ -189,25 +195,54 @@ def create_component(settings: Settings | None = None) -> Component:
     router = APIRouter()
 
     @router.post("/v1/capture/note", dependencies=[Depends(_bearer_auth)])
-    async def v1_capture_note(body: NoteRequest):
-        if body.kind in _KINDS_REQUIRING_FILE_UPLOAD:
+    async def v1_capture_note(request: Request):
+        # Reject non-text/plain content types
+        content_type = request.headers.get("content-type", "")
+        if not content_type:
+            raise HTTPException(
+                status_code=415,
+                detail="Content-Type header is required; expected text/plain",
+            )
+        # Split on ";" to handle charset parameter
+        media_type = content_type.split(";")[0].strip().lower()
+        if media_type != "text/plain":
+            raise HTTPException(
+                status_code=415,
+                detail=f"Unsupported media type '{media_type}'; expected text/plain",
+            )
+
+        body_bytes = await request.body()
+        if not body_bytes:
             raise HTTPException(
                 status_code=422,
-                detail={
-                    "message": f"kind '{body.kind}' requires a file upload — use /v1/capture/file instead",
-                    "hint": "The /note endpoint only accepts text-based kinds (e.g. 'note').",
-                },
+                detail="note text must not be empty",
             )
+        try:
+            text = body_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(
+                status_code=422,
+                detail="request body must be valid UTF-8 text",
+            )
+
+        # Parse captured_at from X-Captured-At header
+        captured_at: datetime | None = None
+        captured_at_raw = request.headers.get("X-Captured-At")
+        if captured_at_raw:
+            try:
+                captured_at = _parse_captured_at(captured_at_raw)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+
         payload = CapturePayload(
-            kind=body.kind,
-            text=body.text,
-            metadata=body.metadata,
-            captured_at=body.captured_at,
+            kind="note",
+            text=text,
+            captured_at=captured_at,
         )
         doc_id = await _dispatch(payload, state)
         return JSONResponse(
             status_code=201,
-            content={"id": doc_id, "kind": body.kind},
+            content={"id": doc_id, "kind": "note"},
         )
 
     @router.post("/v1/capture/file", dependencies=[Depends(_bearer_auth)])
@@ -242,16 +277,9 @@ def create_component(settings: Settings | None = None) -> Component:
         captured_at_dt: datetime | None = None
         if captured_at:
             try:
-                captured_at_dt = datetime.fromisoformat(
-                    captured_at.replace("Z", "+00:00")
-                )
-                if captured_at_dt.tzinfo is None:
-                    raise ValueError("timezone required")
-            except (ValueError, TypeError):
-                raise HTTPException(
-                    status_code=422,
-                    detail="captured_at must be an ISO 8601 datetime with timezone",
-                )
+                captured_at_dt = _parse_captured_at(captured_at)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
 
         # Read file bytes (with size cap)
         data = await file.read()

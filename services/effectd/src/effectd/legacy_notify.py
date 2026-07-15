@@ -130,7 +130,6 @@ class LegacyNotifyLoop:
                     doc = await repo.get_document(firing["@id"])
                     doc["last_notified_at"] = _format_datetime(now)
                     doc["notification_count"] = 1
-                    doc["updated_at"] = _format_datetime(now)
                     await repo.tdb.insert_documents([doc], message=f"effectd: bump {firing.get('@id', '?')}")
                 except Exception:
                     self.log.warning("firing_bump_failed", firing=firing.get("@id"), exc_info=True)
@@ -213,7 +212,6 @@ class LegacyNotifyLoop:
                                 doc = await repo.get_document(firing["@id"])
                                 doc["notification_count"] = notification_count + 1
                                 doc["last_notified_at"] = _format_datetime(now)
-                                doc["updated_at"] = _format_datetime(now)
                                 await repo.tdb.insert_documents(
                                     [doc], message=f"effectd: renotify {firing.get('@id', '?')}"
                                 )
@@ -254,7 +252,6 @@ class LegacyNotifyLoop:
                         doc["last_notified_at"] = _format_datetime(now)
                         doc["notification_count"] = (firing.get("notification_count") or 0) + 1
                         doc["snoozed_until"] = None
-                        doc["updated_at"] = _format_datetime(now)
                         cleaned = _strip_nones(doc)
                         await repo.tdb.insert_documents([cleaned], message=f"effectd: unsnooze {firing.get('@id', '?')}")
                     except Exception:

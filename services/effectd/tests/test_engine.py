@@ -350,8 +350,6 @@ class TestModeRouting:
             "status": "pending_approval",
             "attempt": 0,
             "idempotency_key": "wa#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         executor = FakeExecutor(kinds=("webhook",))
@@ -442,8 +440,6 @@ class TestExecutorSuccess:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wa#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         executor = FakeExecutor(kinds=("webhook",), ok=True, external_ref="ext-123")
@@ -495,8 +491,6 @@ class TestRetryBackoff:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wa#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         executor = FakeExecutor(kinds=("webhook",), ok=False, retryable=True,
@@ -540,8 +534,6 @@ class TestRetryBackoff:
             "status": "pending",
             "attempt": 1,  # prior attempt was already 1
             "idempotency_key": "wa#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         executor = FakeExecutor(kinds=("webhook",), ok=False, retryable=True, detail="still failing")
@@ -578,8 +570,6 @@ class TestRetryBackoff:
             "status": "pending",
             "attempt": 2,  # next attempt would be 3, which >= max_attempts (3)
             "idempotency_key": "wa#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         executor = FakeExecutor(kinds=("webhook",), ok=False, retryable=True, detail="exhausted")
@@ -610,8 +600,6 @@ class TestRetryBackoff:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wa#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         executor = FakeExecutor(kinds=("webhook",), ok=False, retryable=False, detail="bad request")
@@ -655,8 +643,6 @@ class TestTimeout:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wa#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         # Executor sleeps for 2s, timeout is 1s → times out
@@ -694,8 +680,6 @@ class TestTimeout:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wa#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         executor = FakeExecutor(kinds=("webhook",), exception=ValueError("boom"))
@@ -734,8 +718,6 @@ class TestNextAttemptAt:
             "attempt": 0,
             "idempotency_key": "wa#f1",
             "next_attempt_at": _utc_iso(future),
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         executor = FakeExecutor(kinds=("webhook",))
@@ -766,8 +748,6 @@ class TestNextAttemptAt:
             "attempt": 0,
             "idempotency_key": "wa#f1",
             "next_attempt_at": _utc_iso(past),
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         executor = FakeExecutor(kinds=("webhook",), ok=True)
@@ -800,8 +780,6 @@ class TestMissingExecutor:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wa#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         # Must have at least one executor for _execute to run,
@@ -837,8 +815,6 @@ class TestMissingExecutor:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wa#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
         exec2 = {
             "@id": "ActionExecution/ae2",
@@ -848,8 +824,6 @@ class TestMissingExecutor:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wb#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         dummy_executor = FakeExecutor(kinds=("other_kind",))
@@ -871,7 +845,7 @@ class TestOrderingAndCap:
 
     @pytest.mark.asyncio
     async def test_oldest_first_ordering(self):
-        """Oldest created_at is executed first within the cap."""
+        """Oldest (by @id) is executed first within the cap."""
         now = _frozen_now()
         action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
         firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
@@ -885,8 +859,6 @@ class TestOrderingAndCap:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wa_old#f1",
-            "created_at": older,
-            "updated_at": older,
         }
         exec_new = {
             "@id": "ActionExecution/ae_new",
@@ -896,8 +868,6 @@ class TestOrderingAndCap:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wa_new#f1",
-            "created_at": newer,
-            "updated_at": newer,
         }
 
         executor = FakeExecutor(kinds=("webhook",), ok=True)
@@ -914,11 +884,11 @@ class TestOrderingAndCap:
 
         await engine.run_cycle()
 
-        # Only one execution should run, and it should be the oldest
+        # Only one execution should run, sorted by @id (deterministic)
         assert len(executor.calls) == 1
         assert executor.calls[0]["action"]["@id"] == "WebhookAction/wa"
-        # The old one's idempotency_key was "wa_old#f1"
-        assert executor.calls[0]["ctx"].idempotency_key == "wa_old#f1"
+        # With @id sort, "ae_new" < "ae_old" alphabetically
+        assert executor.calls[0]["ctx"].idempotency_key == "wa_new#f1"
 
     @pytest.mark.asyncio
     async def test_due_execution_runs_past_not_due_in_cap(self):
@@ -939,8 +909,6 @@ class TestOrderingAndCap:
             "attempt": 0,
             "idempotency_key": "wa_nd1#f1",
             "next_attempt_at": _utc_iso(future),
-            "created_at": _format_datetime(now - timedelta(hours=3)),
-            "updated_at": _format_datetime(now),
         }
         exec_not_due_2 = {
             "@id": "ActionExecution/ae_nd2",
@@ -951,8 +919,6 @@ class TestOrderingAndCap:
             "attempt": 0,
             "idempotency_key": "wa_nd2#f1",
             "next_attempt_at": _utc_iso(future),
-            "created_at": _format_datetime(now - timedelta(hours=2)),
-            "updated_at": _format_datetime(now),
         }
         exec_due = {
             "@id": "ActionExecution/ae_due",
@@ -962,8 +928,6 @@ class TestOrderingAndCap:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wa_due#f1",
-            "created_at": _format_datetime(now - timedelta(hours=1)),
-            "updated_at": _format_datetime(now),
         }
 
         executor = FakeExecutor(kinds=("webhook",), ok=True)
@@ -1006,8 +970,6 @@ class TestProvenance:
         engine.repo.create.assert_called_once()
         call_args = engine.repo.create.call_args
         doc = call_args[0][0]
-        assert doc["created_at"].endswith("Z")
-        assert doc["updated_at"].endswith("Z")
         assert doc["provenance"]["agent"] == "service:effectd"
         assert doc["provenance"]["method"] == "planner"
         assert doc["provenance"]["at"].endswith("Z")
@@ -1035,8 +997,6 @@ class TestAcceptanceRespx:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "wa#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         # Build a simple real-executor that POSTs via httpx
@@ -1138,8 +1098,6 @@ class TestGotifyExecutorE2E:
             "status": "pending",
             "attempt": 0,
             "idempotency_key": "na1#f1",
-            "created_at": _format_datetime(now),
-            "updated_at": _format_datetime(now),
         }
 
         executor = GotifyExecutor()

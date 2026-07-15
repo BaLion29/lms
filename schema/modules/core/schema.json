@@ -1,9 +1,7 @@
 [
   {"@abstract": [], "@id": "Entity", "@type": "Class",
-   "@documentation": {"@comment": "Universal base for every domain document in the graph. Carries audit timestamps, required provenance (birth certificate), optional derivation ancestry (derived_from), optional soft-delete tombstone (archived_at), context tagging, and external identity. Registry meta-classes (SchemaModule, SchemaMigration) are deliberately outside this grammar."},
-   "created_at": "xsd:dateTime",
-   "updated_at": "xsd:dateTime",
-   "provenance": "Provenance",
+   "@documentation": {"@comment": "Universal base for every domain document in the graph. Carries required provenance (birth certificate — timestamps and update tracking are covered by prov + the TerminusDB commit graph), optional derivation ancestry (derived_from), optional soft-delete tombstone (archived_at), context tagging, and external identity. Registry meta-classes (SchemaModule, SchemaMigration) are deliberately outside this grammar."},
+    "provenance": "Provenance",
    "derived_from": {"@class": "Source", "@type": "Set"},
    "archived_at": {"@class": "xsd:dateTime", "@type": "Optional"},
 "contexts": {"@class": "Context", "@type": "Set"},

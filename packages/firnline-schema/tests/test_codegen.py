@@ -105,10 +105,8 @@ def test_task_fields_flattened():
             "@id": "Task",
             "@inherits": ["Source", "TaskSpec"],
             "@type": "Class",
-            "created_at": "xsd:dateTime",
             "due_date": {"@class": "xsd:dateTime", "@type": "Optional"},
             "status": "TaskStatus",
-            "updated_at": "xsd:dateTime",
         },
         {
             "@id": "TaskStatus",
@@ -140,8 +138,6 @@ def test_task_fields_flattened():
     # Own fields
     assert "due_date: TdbDateTime | None = None" in task_source
     assert "status: TaskStatus" in task_source
-    assert "created_at: TdbDateTime" in task_source
-    assert "updated_at: TdbDateTime" in task_source
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +412,7 @@ def test_xsd_decimal_maps_to_float():
 def test_absolute_cross_target_imports():
     """Classes referencing types in a different target use absolute imports."""
     schema = [
-        {"@abstract": [], "@id": "Entity", "@type": "Class", "created_at": "xsd:dateTime"},
+        {"@abstract": [], "@id": "Entity", "@type": "Class"},
         {
             "@id": "TaskSpec",
             "@type": "Class",
@@ -556,7 +552,7 @@ def test_write_generated_init_no_overwrite_on_handwritten(tmp_path: Path):
 def test_cross_target_uses_models_import():
     """When models_import is set, cross-target imports use it, not models_target."""
     schema = [
-        {"@abstract": [], "@id": "Entity", "@type": "Class", "created_at": "xsd:dateTime"},
+        {"@abstract": [], "@id": "Entity", "@type": "Class"},
         {
             "@id": "Provenance",
             "@subdocument": [],
@@ -607,7 +603,7 @@ def test_cross_target_uses_models_import():
 def test_cross_target_fallback_when_no_models_import():
     """When module_to_import is None, fall back to module_to_target."""
     schema = [
-        {"@abstract": [], "@id": "Entity", "@type": "Class", "created_at": "xsd:dateTime"},
+        {"@abstract": [], "@id": "Entity", "@type": "Class"},
         {
             "@id": "Provenance",
             "@subdocument": [],
@@ -646,8 +642,7 @@ def test_cross_target_fallback_when_no_models_import():
 def test_metadata_classvar_emission():
     """@metadata with label_field/ anchor_field emits ClassVar declarations."""
     schema = [
-        {"@abstract": [], "@id": "Entity", "@type": "Class",
-         "created_at": "xsd:dateTime", "updated_at": "xsd:dateTime"},
+        {"@abstract": [], "@id": "Entity", "@type": "Class"},
         {"@abstract": [], "@id": "Anchored", "@type": "Class"},
         {
             "@id": "Task",

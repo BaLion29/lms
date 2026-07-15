@@ -135,8 +135,10 @@ containing:
   migration code).
 
 The `core` module (kernel) stays in `schema/modules/core/` and owns:
-`@context`, the `Entity` universal base (`created_at`, `updated_at`,
-`provenance` — required, exactly one, the birth certificate — `derived_from`,
+`@context`, the `Entity` universal base (timestamps and update tracking are
+covered by `provenance` and the TerminusDB commit graph — `created_at` and
+`updated_at` have been removed; `provenance` — required, exactly one, the
+birth certificate — `derived_from`,
 `archived_at`, `contexts`, `external_refs`), the role markers (`Source`,
 `Context`, `Anchored` — all pure markers), the `Provenance` subdocument
 (agent, at, method, confidence — agent grammar: `service:<name>`,

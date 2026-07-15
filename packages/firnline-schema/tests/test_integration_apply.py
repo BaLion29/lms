@@ -169,8 +169,6 @@ async def test_integration_bootstrap_on_legacy():
             "@type": "Task",
             "name": "Test bootstrap task",
             "status": "open",
-            "created_at": "2026-01-01T00:00:00+00:00",
-            "updated_at": "2026-01-01T00:00:00+00:00",
         }
         iris = await tdb.insert_documents([task_doc], branch="main", message="seed task")
         assert len(iris) == 1
@@ -365,8 +363,6 @@ async def test_integration_promote():
             "@type": "Task",
             "name": "Feature task",
             "status": "open",
-            "created_at": "2026-01-01T00:00:00+00:00",
-            "updated_at": "2026-01-01T00:00:00+00:00",
         }
         iris = await tdb.insert_documents(
             [task_doc],
@@ -442,8 +438,6 @@ async def test_integration_promote_diverged_main_refused():
             "@type": "Task",
             "name": "Main diverged task",
             "status": "open",
-            "created_at": "2026-01-01T00:00:00+00:00",
-            "updated_at": "2026-01-01T00:00:00+00:00",
         }
         await tdb.insert_documents(
             [task_doc_main],
@@ -456,8 +450,6 @@ async def test_integration_promote_diverged_main_refused():
             "@type": "Task",
             "name": "Feature task",
             "status": "open",
-            "created_at": "2026-01-01T00:00:00+00:00",
-            "updated_at": "2026-01-01T00:00:00+00:00",
         }
         await tdb.insert_documents(
             [task_doc_feature],

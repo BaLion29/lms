@@ -357,7 +357,7 @@ class TimeManagementWebUIPlugin:
 
     name: str = "time_management_webui"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="time_management", range=">=0.2.0 <0.3.0"),
+        ModuleRequirement(name="time_management", range=">=0.1.0 <0.2.0"),
     ]
 
     def pages(self) -> list[PageSpec]:

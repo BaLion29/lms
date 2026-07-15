@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import httpx
 import pytest
 
@@ -75,9 +73,8 @@ async def test_captured_healthz_non_json():
 async def test_capture_note_happy_path():
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.headers["authorization"] == "Bearer mytoken"
-        body = json.loads(req.read())
-        assert body["text"] == "hello"
-        assert body["kind"] == "note"
+        assert req.headers["content-type"] == "text/plain"
+        assert req.read() == b"hello"
         return _created_json({"id": "abc", "kind": "note"})
 
     client = CapturedClient("http://x", "mytoken", transport=httpx.MockTransport(handler))
@@ -91,17 +88,6 @@ async def test_capture_note_401():
     with pytest.raises(WebuiClientError) as exc_info:
         await client.capture_note("hi")
     assert exc_info.value.status == 401
-
-
-async def test_capture_note_with_metadata():
-    def handler(req: httpx.Request) -> httpx.Response:
-        body = json.loads(req.read())
-        assert body["metadata"] == {"tags": ["a"]}
-        return _created_json({"id": "x"})
-
-    client = CapturedClient("http://x", "tok", transport=httpx.MockTransport(handler))
-    data = await client.capture_note("hi", metadata={"tags": ["a"]})
-    assert data["id"] == "x"
 
 
 async def test_capture_file_happy_path():
@@ -237,7 +223,7 @@ def test_class_display_fields_preferred_first():
         "title": "xsd:string",
     }
     fields = class_display_fields(class_def)
-    # Preferred order: name, title, text, status, kind, created_at, updated_at
+    # Preferred order: name, title, text, status, kind
     # Present: name, title, status → then remaining alphabetically: other
     assert fields == ["name", "title", "status", "other"]
 
@@ -251,8 +237,6 @@ def test_class_display_fields_caps_at_5():
         "text": "xsd:string",
         "status": "xsd:string",
         "kind": "xsd:string",
-        "created_at": "xsd:dateTime",
-        "updated_at": "xsd:dateTime",
         "zebra": "xsd:string",
     }
     fields = class_display_fields(class_def)

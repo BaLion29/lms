@@ -10,7 +10,7 @@ from firnline_core.plugins import IndexerPlugin, ModuleRequirement
 class TimeManagementIndexerPlugin(IndexerPlugin):
     name: str = "time_management_indexer"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="time_management", range=">=0.2.0 <0.3.0"),
+        ModuleRequirement(name="time_management", range=">=0.1.0 <0.2.0"),
     ]
 
     def indexed_classes(self) -> list[str]:

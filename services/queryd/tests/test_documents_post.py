@@ -168,8 +168,6 @@ def test_happy_path(respx_mock: respx.MockRouter):
     assert "provenance" in doc
     assert doc["provenance"]["agent"] == "service:queryd"
     assert doc["provenance"]["method"] == "direct"
-    assert "created_at" in doc
-    assert "updated_at" in doc
 
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ def test_plugin_metadata():
     assert plugin.name == "time_management_webui"
     assert len(plugin.requires) == 1
     assert plugin.requires[0].name == "time_management"
-    assert plugin.requires[0].range == ">=0.2.0 <0.3.0"
+    assert plugin.requires[0].range == ">=0.1.0 <0.2.0"
 
 
 def test_plugin_singleton():

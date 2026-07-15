@@ -15,7 +15,7 @@ class TestIndexerPluginMetadata:
 
     def test_requires(self):
         reqs = {r.name: r.range for r in self.plugin.requires}
-        assert reqs == {"address_book": ">=0.2.0 <0.3.0"}
+        assert reqs == {"address_book": ">=0.1.0 <0.2.0"}
 
     def test_indexed_classes(self):
         classes = self.plugin.indexed_classes()

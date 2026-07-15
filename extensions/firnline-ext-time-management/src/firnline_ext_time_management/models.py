@@ -66,10 +66,8 @@ class Activity(TdbDocument):
     type_: Literal["Activity"] = Field(alias="@type", default="Activity")
     label_field: ClassVar[str | None] = "name"
     anchor_field: ClassVar[str | None] = "start_datetime"
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
-    updated_at: TdbDateTime
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)
@@ -102,10 +100,8 @@ class ActivitySpec(TdbDocument):
 class Area(TdbDocument):
     type_: Literal["Area"] = Field(alias="@type", default="Area")
     label_field: ClassVar[str | None] = "name"
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
-    updated_at: TdbDateTime
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)
@@ -123,11 +119,9 @@ class Event(TdbDocument):
     label_field: ClassVar[str | None] = "name"
     anchor_field: ClassVar[str | None] = "start_datetime"
     transitions: ClassVar[dict[str, list[str]] | None] = {'open': ['planned', 'closed', 'cancelled'], 'planned': ['open', 'closed', 'cancelled'], 'closed': ['open'], 'cancelled': ['open']}
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
     status: EventStatus
-    updated_at: TdbDateTime
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)
@@ -150,11 +144,9 @@ class Goal(TdbDocument):
     label_field: ClassVar[str | None] = "name"
     anchor_field: ClassVar[str | None] = "target_date"
     transitions: ClassVar[dict[str, list[str]] | None] = {'active': ['achieved', 'abandoned'], 'abandoned': ['active']}
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
     status: GoalStatus
-    updated_at: TdbDateTime
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)
@@ -174,11 +166,9 @@ class Project(TdbDocument):
     label_field: ClassVar[str | None] = "name"
     anchor_field: ClassVar[str | None] = "target_date"
     transitions: ClassVar[dict[str, list[str]] | None] = {'active': ['on_hold', 'completed'], 'on_hold': ['active'], 'completed': []}
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
     status: ProjectStatus
-    updated_at: TdbDateTime
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)
@@ -195,10 +185,8 @@ class Project(TdbDocument):
 class Routine(TdbDocument):
     type_: Literal["Routine"] = Field(alias="@type", default="Routine")
     label_field: ClassVar[str | None] = "name"
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
-    updated_at: TdbDateTime
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)
@@ -216,10 +204,8 @@ class Routine(TdbDocument):
 class RoutineStep(TdbDocument):
     type_: Literal["RoutineStep"] = Field(alias="@type", default="RoutineStep")
     label_field: ClassVar[str | None] = "name"
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
-    updated_at: TdbDateTime
     activity: ActivitySpec | None = None
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
@@ -246,11 +232,9 @@ class Task(TdbDocument):
     label_field: ClassVar[str | None] = "name"
     anchor_field: ClassVar[str | None] = "due_date"
     transitions: ClassVar[dict[str, list[str]] | None] = {'open': ['planned', 'done'], 'planned': ['open', 'done'], 'done': ['open']}
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
     status: TaskStatus
-    updated_at: TdbDateTime
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)

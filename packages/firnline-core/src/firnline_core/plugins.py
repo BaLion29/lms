@@ -421,7 +421,7 @@ class IngestSourcePlugin(Protocol):
         ...
 
     def reference_time(self, doc: dict) -> datetime:
-        """Anchor for resolving relative dates (created_at / recorded_at)."""
+        """Anchor for resolving relative dates (e.g. captured_at / recorded_at)."""
         ...
 
 

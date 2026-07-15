@@ -12,7 +12,7 @@ class AddressBookIndexerPlugin(IndexerPlugin):
 
     name: str = "address_book_indexer"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="address_book", range=">=0.2.0 <0.3.0"),
+        ModuleRequirement(name="address_book", range=">=0.1.0 <0.2.0"),
     ]
 
     def indexed_classes(self) -> list[str]:

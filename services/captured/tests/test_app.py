@@ -246,7 +246,11 @@ def test_healthz_modules_degraded(monkeypatch):
 def test_v1_capture_note_no_auth(monkeypatch):
     _patch_app(monkeypatch, handlers=[StubNoteHandler()])
     with _make_client(monkeypatch) as c:
-        resp = c.post("/v1/capture/note", json={"text": "hello"})
+        resp = c.post(
+            "/v1/capture/note",
+            content="hello",
+            headers={"Content-Type": "text/plain"},
+        )
     assert resp.status_code == 401
     assert resp.json()["detail"] == "unauthorized"
 
@@ -256,8 +260,11 @@ def test_v1_capture_note_malformed_auth(monkeypatch):
     with _make_client(monkeypatch) as c:
         resp = c.post(
             "/v1/capture/note",
-            json={"text": "hello"},
-            headers={"Authorization": "Token abc"},
+            content="hello",
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Token abc",
+            },
         )
     assert resp.status_code == 401
 
@@ -267,8 +274,11 @@ def test_v1_capture_note_wrong_token(monkeypatch):
     with _make_client(monkeypatch) as c:
         resp = c.post(
             "/v1/capture/note",
-            json={"text": "hello"},
-            headers={"Authorization": "Bearer wrong-token"},
+            content="hello",
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer wrong-token",
+            },
         )
     assert resp.status_code == 401
 
@@ -278,8 +288,11 @@ def test_v1_capture_note_valid_auth(monkeypatch):
     with _make_client(monkeypatch) as c:
         resp = c.post(
             "/v1/capture/note",
-            json={"text": "hello"},
-            headers={"Authorization": "Bearer test-token"},
+            content="hello",
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-token",
+            },
         )
     assert resp.status_code == 201
     data = resp.json()
@@ -297,78 +310,131 @@ def test_empty_token_bypass_blocked():
 # ---------------------------------------------------------------------------
 
 
-def test_note_capture_with_default_kind(monkeypatch):
+def test_note_capture_plain_text(monkeypatch):
     _patch_app(monkeypatch, handlers=[StubNoteHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
             "/v1/capture/note",
-            json={"text": "some note"},
-            headers={"Authorization": "Bearer test-token"},
+            content="some note",
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-token",
+            },
         )
     assert resp.status_code == 201
     assert resp.json()["kind"] == "note"
+    assert resp.json()["id"] == "stub-note-id"
 
 
-def test_note_capture_with_custom_kind(monkeypatch):
-    _patch_app(monkeypatch, handlers=[StubNoteHandler(), StubFileHandler()])
+def test_note_capture_with_captured_at_header(monkeypatch):
+    _patch_app(monkeypatch, handlers=[CapturedAtHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
             "/v1/capture/note",
-            json={"text": "some text", "kind": "image"},
-            headers={"Authorization": "Bearer test-token"},
+            content="hello",
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-token",
+                "X-Captured-At": "2026-07-05T14:00:00Z",
+            },
         )
     assert resp.status_code == 201
-    assert resp.json()["kind"] == "image"
+    assert resp.json()["id"] == "captured-at-id"
 
 
-def test_note_capture_with_metadata(monkeypatch):
+def test_note_capture_content_type_with_charset(monkeypatch):
+    """Content-Type: text/plain; charset=utf-8 should be accepted."""
     _patch_app(monkeypatch, handlers=[StubNoteHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
             "/v1/capture/note",
-            json={"text": "note with meta", "metadata": {"tags": ["a", "b"]}},
-            headers={"Authorization": "Bearer test-token"},
+            content="hello",
+            headers={
+                "Content-Type": "text/plain; charset=utf-8",
+                "Authorization": "Bearer test-token",
+            },
         )
     assert resp.status_code == 201
 
 
 # ---------------------------------------------------------------------------
-# Note capture with blob-requiring kind → 422
+# Note capture error cases
 # ---------------------------------------------------------------------------
 
 
-def test_note_capture_with_blob_kind_422(monkeypatch):
-    """kind='file' in /note → 422 because file requires a blob upload."""
-    _patch_app(monkeypatch, handlers=[StubNoteHandler(), StubFileHandler()])
+def test_note_capture_json_body_415(monkeypatch):
+    """Sending application/json to /note returns 415."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
             "/v1/capture/note",
-            json={"text": "hello", "kind": "file"},
+            json={"text": "hello"},
             headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 415
+    assert "text/plain" in resp.json()["detail"]
+
+
+def test_note_capture_no_content_type_415(monkeypatch):
+    """Missing Content-Type header returns 415."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            content="hello",
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 415
+
+
+def test_note_capture_empty_body_422(monkeypatch):
+    """Empty body returns 422."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            content="",
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-token",
+            },
         )
     assert resp.status_code == 422
-    detail = resp.json()["detail"]
-    assert "requires a file upload" in detail["message"]
+    assert "empty" in resp.json()["detail"]
 
 
-# ---------------------------------------------------------------------------
-# Unknown kind → 404
-# ---------------------------------------------------------------------------
+def test_note_capture_invalid_utf8_422(monkeypatch):
+    """Invalid UTF-8 bytes return 422."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
+    invalid_utf8 = b"\xff\xfe\xfd"
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            content=invalid_utf8,
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-token",
+            },
+        )
+    assert resp.status_code == 422
+    assert "UTF-8" in resp.json()["detail"]
 
 
-def test_unknown_kind_returns_404(monkeypatch):
+def test_note_capture_invalid_captured_at_422(monkeypatch):
+    """Invalid X-Captured-At header returns 422."""
     _patch_app(monkeypatch, handlers=[StubNoteHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
             "/v1/capture/note",
-            json={"text": "hi", "kind": "unknown-kind"},
-            headers={"Authorization": "Bearer test-token"},
+            content="hello",
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-token",
+                "X-Captured-At": "not-a-date",
+            },
         )
-    assert resp.status_code == 404
-    detail = resp.json()["detail"]
-    assert "no handler for kind" in detail["message"]
-    assert "known_kinds" in detail
-    assert "hint" in detail
+    assert resp.status_code == 422
+    assert "ISO 8601" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -406,8 +472,11 @@ def test_zero_handlers_app_starts_and_capture_404s(monkeypatch):
     with _make_client(monkeypatch) as c:
         resp = c.post(
             "/v1/capture/note",
-            json={"text": "hi"},
-            headers={"Authorization": "Bearer test-token"},
+            content="hi",
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-token",
+            },
         )
     assert resp.status_code == 404
 
@@ -564,12 +633,14 @@ class FailingHandler:
         raise ValueError("boom")
 
 
-def test_handler_exception_returns_500(monkeypatch):
+def test_handler_exception_returns_500(monkeypatch, tmp_path):
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     _patch_app(monkeypatch, handlers=[FailingHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
-            "/v1/capture/note",
-            json={"text": "trigger", "kind": "fail"},
+            "/v1/capture/file",
+            files={"file": ("test.txt", b"trigger", "text/plain")},
+            data={"kind": "fail"},
             headers={"Authorization": "Bearer test-token"},
         )
     assert resp.status_code == 500
@@ -585,12 +656,14 @@ class HttpExceptionHandler:
         raise HTTPException(status_code=400, detail="handler says no")
 
 
-def test_handler_http_exception_passes_through(monkeypatch):
+def test_handler_http_exception_passes_through(monkeypatch, tmp_path):
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
     _patch_app(monkeypatch, handlers=[HttpExceptionHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
-            "/v1/capture/note",
-            json={"text": "trigger", "kind": "fail"},
+            "/v1/capture/file",
+            files={"file": ("test.txt", b"trigger", "text/plain")},
+            data={"kind": "fail"},
             headers={"Authorization": "Bearer test-token"},
         )
     assert resp.status_code == 400
@@ -617,6 +690,28 @@ def test_file_capture_invalid_metadata_json(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Unknown kind → 404 (via file endpoint)
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_kind_file_returns_404(monkeypatch, tmp_path):
+    monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/file",
+            files={"file": ("test.txt", b"hi", "text/plain")},
+            data={"kind": "unknown-kind"},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 404
+    detail = resp.json()["detail"]
+    assert "no handler for kind" in detail["message"]
+    assert "known_kinds" in detail
+    assert "hint" in detail
+
+
+# ---------------------------------------------------------------------------
 # captured_at round-trips to handler
 # ---------------------------------------------------------------------------
 
@@ -636,11 +731,12 @@ def test_captured_at_roundtrips_to_handler(monkeypatch):
     with _make_client(monkeypatch) as c:
         resp = c.post(
             "/v1/capture/note",
-            json={
-                "text": "hello",
-                "captured_at": "2026-07-05T14:00:00Z",
+            content="hello",
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-token",
+                "X-Captured-At": "2026-07-05T14:00:00Z",
             },
-            headers={"Authorization": "Bearer test-token"},
         )
     assert resp.status_code == 201
     assert resp.json()["id"] == "captured-at-id"

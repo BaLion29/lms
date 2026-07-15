@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`firnline-ext-time-management` 0.2.0 merges planning + routines.** The
+- **`firnline-ext-time-management` merges planning + routines.** The
   `firnline-ext-planning` and `firnline-ext-routines` extensions are combined
   into a single `time_management` schema module (9 classes: Task, TaskSpec,
   Event, TaskStatus, EventStatus, Routine, RoutineStep, Activity, ActivitySpec).
@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   explicitly (triggerd logs `trigger_dormant`).
 - **`Remindable` removed from core.** Reminders are an extension concern;
   extensions use `Triggerable` (from triggers) or define their own markers.
+- **`created_at` / `updated_at` removed from Entity base.** Timestamps on
+  documents are obsolete — provenance (`prov`) metadata and the TerminusDB
+  commit-graph cover creation and update tracking. All schema, models,
+  production code, and tests updated. Sorting in effectd now uses document
+  `@id` (deterministic). Ingestd merge identity keys use `@id`, `@type`,
+  `provenance` only.
 - **Provenance layering.** `Entity.provenance` is now REQUIRED (exactly one) —
   the birth certificate (agent, at, method, confidence). `Provenance.source` is
   gone; multi-source derivation lives in `Entity.derived_from: Set<Source>`

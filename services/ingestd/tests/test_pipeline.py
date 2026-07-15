@@ -176,8 +176,6 @@ def _captured_text(iri: str, content: str, status: str = "new") -> dict:
         "content_type": "text/plain",
         "status": status,
         "captured_at": "2026-07-05T14:00:00Z",
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
     }
 
 
@@ -190,8 +188,6 @@ def _captured_audio(iri: str, transcription: str, status: str = "transcribed") -
         "transcription": transcription,
         "captured_at": "2026-07-05T14:00:00Z",
         "status": status,
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
     }
 
 
@@ -1120,8 +1116,6 @@ async def test_missing_captured_at_logs_warning_defaults_now():
         "content": "Buy milk",
         "content_type": "text/plain",
         "status": "new",
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
     }
     tdb = _fake_tdb(captured_docs=[note])
 
@@ -1300,8 +1294,6 @@ async def test_empty_text_skipped_no_status_flip():
         "transcription": None,
         "captured_at": "2026-07-05T14:00:00Z",
         "status": "new",
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
     }
     tdb = AsyncMock()
     tdb.get_documents = AsyncMock(return_value=[])
@@ -1378,8 +1370,6 @@ class TestEnsureEntityUpdatePath:
             return {
                 "@type": "Person",
                 "name": "Bob Smith",
-                "created_at": now,
-                "updated_at": now,
                 "derived_from": ["Captured/new"],
                 "provenance": {"agent": "test"},
             }
@@ -1433,7 +1423,7 @@ class TestEnsureEntityUpdatePath:
         iri = await ensure(
             "Location",
             "NewPlace",
-            lambda: {"@type": "Location", "name": "NewPlace", "created_at": now, "updated_at": now},
+            lambda: {"@type": "Location", "name": "NewPlace"},
         )
 
         assert iri is not None
@@ -1464,12 +1454,12 @@ class TestEnsureEntityUpdatePath:
         # First reference
         iri1 = await ensure(
             "Person", "Bob Smith",
-            lambda: {"@type": "Person", "name": "Bob Smith", "email": "bob@example.com", "derived_from": ["Captured/src1"], "created_at": now, "updated_at": now},
+            lambda: {"@type": "Person", "name": "Bob Smith", "email": "bob@example.com", "derived_from": ["Captured/src1"]},
         )
         # Second reference — should merge
         iri2 = await ensure(
             "Person", "Bob Smith",
-            lambda: {"@type": "Person", "name": "Bob Smith", "phone": "555-1234", "derived_from": ["Captured/src2"], "created_at": now, "updated_at": now},
+            lambda: {"@type": "Person", "name": "Bob Smith", "phone": "555-1234", "derived_from": ["Captured/src2"]},
         )
 
         assert iri1 == "Person/bob"
@@ -1487,15 +1477,13 @@ class TestMergeUpdate:
     """Tests for _merge_update fetch+merge+replace logic."""
 
     @pytest.mark.asyncio
-    async def test_merge_update_preserves_created_at_and_provenance(self):
-        """_merge_update keeps the existing doc's created_at and provenance."""
+    async def test_merge_update_preserves_provenance(self):
+        """_merge_update keeps the existing doc's provenance."""
         tdb = _fake_tdb(people=[{
             "@id": "Person/bob",
             "@type": "Person",
             "name": "Bob Old",
-            "created_at": "2020-01-01T00:00:00Z",
             "provenance": {"agent": "initial", "at": "2020-01-01T00:00:00Z", "method": "manual"},
-            "updated_at": "2020-01-01T00:00:00Z",
         }])
         pipeline = _make_pipeline(tdb)
 
@@ -1503,20 +1491,16 @@ class TestMergeUpdate:
             "@id": "Person/bob",
             "@type": "Person",
             "name": "Bob New",
-            "created_at": "2025-01-01T00:00:00Z",  # should be ignored
             "provenance": {"agent": "ingestd"},  # should be ignored
-            "updated_at": "2025-07-01T00:00:00Z",
             "email": "bob@example.com",
         }
 
         merged = await pipeline._merge_update(new_doc, "main", "Captured/src")
 
         tdb.get_document.assert_called_once_with("Person/bob", branch="main")
-        assert merged["created_at"] == "2020-01-01T00:00:00Z"  # preserved
         assert merged["provenance"] == {"agent": "initial", "at": "2020-01-01T00:00:00Z", "method": "manual"}  # preserved
         assert merged["name"] == "Bob New"  # overwritten
         assert merged["email"] == "bob@example.com"  # added
-        assert merged["updated_at"] == "2025-07-01T00:00:00Z"
 
     @pytest.mark.asyncio
     async def test_merge_update_unions_derived_from_and_aliases(self):
@@ -1527,9 +1511,7 @@ class TestMergeUpdate:
             "name": "Bob",
             "derived_from": ["Captured/old1"],
             "aliases": ["Bobby"],
-            "created_at": "2020-01-01T00:00:00Z",
             "provenance": {"agent": "test"},
-            "updated_at": "2020-01-01T00:00:00Z",
         }])
         pipeline = _make_pipeline(tdb)
 
@@ -1539,7 +1521,6 @@ class TestMergeUpdate:
             "name": "Bob",
             "derived_from": ["Captured/old1", "Captured/new1"],
             "aliases": ["Bobby", "Robert"],
-            "updated_at": "2025-07-01T00:00:00Z",
         }
 
         merged = await pipeline._merge_update(new_doc, "main", "Captured/src")
@@ -1556,9 +1537,7 @@ class TestMergeUpdate:
             "name": "Bob",
             "email": "old@example.com",
             "phone": "555-0000",
-            "created_at": "2020-01-01T00:00:00Z",
             "provenance": {"agent": "test"},
-            "updated_at": "2020-01-01T00:00:00Z",
         }])
         pipeline = _make_pipeline(tdb)
 
@@ -1568,7 +1547,6 @@ class TestMergeUpdate:
             "name": "Bob",
             "email": None,  # should be skipped
             "phone": [],  # should be skipped
-            "updated_at": "2025-07-01T00:00:00Z",
         }
 
         merged = await pipeline._merge_update(new_doc, "main", "Captured/src")
@@ -1586,7 +1564,6 @@ class TestMergeUpdate:
             "@id": "Person/bob",
             "@type": "Person",
             "name": "Bob",
-            "updated_at": "2025-07-01T00:00:00Z",
         }
 
         merged = await pipeline._merge_update(new_doc, "main", "Captured/inbox42")
@@ -1603,9 +1580,7 @@ class TestMergeUpdate:
             "@type": "Person",
             "name": "Bob",
             "contact": {"email": "a@b.c", "phone": "123"},
-            "created_at": "2020-01-01T00:00:00Z",
             "provenance": {"agent": "test"},
-            "updated_at": "2020-01-01T00:00:00Z",
         }])
         pipeline = _make_pipeline(tdb)
 
@@ -1614,7 +1589,6 @@ class TestMergeUpdate:
             "@type": "Person",
             "name": "Bob",
             "contact": {"email": "new@b.c", "domicile": "Location/x"},
-            "updated_at": "2025-07-01T00:00:00Z",
         }
 
         merged = await pipeline._merge_update(new_doc, "main", "Captured/src")
@@ -1636,9 +1610,7 @@ class TestProcessOneSplit:
             "@id": "Person/bob",
             "@type": "Person",
             "name": "Bob Smith",
-            "created_at": "2020-01-01T00:00:00Z",
             "provenance": {"agent": "manual", "at": "2020-01-01T00:00:00Z", "method": "manual"},
-            "updated_at": "2020-01-01T00:00:00Z",
         }
         tdb = _fake_tdb(
             captured_docs=[note],
@@ -1694,9 +1666,7 @@ class TestProcessOneSplit:
             "@id": "Person/bob",
             "@type": "Person",
             "name": "Bob Smith",
-            "created_at": "2020-01-01T00:00:00Z",
             "provenance": {"agent": "manual", "at": "2020-01-01T00:00:00Z", "method": "manual"},
-            "updated_at": "2020-01-01T00:00:00Z",
         }
         tdb = _fake_tdb(
             captured_docs=[note],
@@ -1735,17 +1705,13 @@ class TestProcessOneSplit:
             "@id": "Person/bob",
             "@type": "Person",
             "name": "Bob Smith",
-            "created_at": "2020-01-01T00:00:00Z",
             "provenance": {"agent": "manual", "at": "2020-01-01T00:00:00Z", "method": "manual"},
-            "updated_at": "2020-01-01T00:00:00Z",
         }
         existing_location = {
             "@id": "Location/office",
             "@type": "Location",
             "name": "Office",
-            "created_at": "2020-01-01T00:00:00Z",
             "provenance": {"agent": "manual", "at": "2020-01-01T00:00:00Z", "method": "manual"},
-            "updated_at": "2020-01-01T00:00:00Z",
         }
         tdb = _fake_tdb(
             captured_docs=[note],

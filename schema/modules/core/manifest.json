@@ -1,6 +1,6 @@
 {
   "name": "core",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "depends_on": [],
   "models_target": "firnline_core.generated.core",
   "models_import": "firnline_core.models",

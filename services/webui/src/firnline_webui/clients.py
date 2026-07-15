@@ -46,7 +46,7 @@ def class_display_fields(class_def: dict) -> list[str]:
     """Return up-to-5 preferred display field names for a class definition.
 
     Prefers ``@metadata.label_field`` if present, then in order: name, title,
-    text, status, kind, created_at, updated_at.  Fills remaining slots (up to
+    text, status, kind.  Fills remaining slots (up to
     5) with other non-``@`` keys alphabetically.
     """
     # Schema-driven label field takes priority
@@ -54,11 +54,11 @@ def class_display_fields(class_def: dict) -> list[str]:
     if isinstance(meta, dict):
         lf = meta.get("label_field")
         if isinstance(lf, str) and lf and lf in class_def:
-            preferred = [lf, "name", "title", "text", "status", "kind", "created_at", "updated_at"]
+            preferred = [lf, "name", "title", "text", "status", "kind"]
         else:
-            preferred = ["name", "title", "text", "status", "kind", "created_at", "updated_at"]
+            preferred = ["name", "title", "text", "status", "kind"]
     else:
-        preferred = ["name", "title", "text", "status", "kind", "created_at", "updated_at"]
+        preferred = ["name", "title", "text", "status", "kind"]
 
     fields: list[str] = []
 
@@ -146,16 +146,15 @@ class CapturedClient:
     async def capture_note(
         self,
         text: str,
-        kind: str = "note",
-        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """POST /v1/capture/note — returns 201 JSON."""
-        payload: dict[str, Any] = {"text": text, "kind": kind}
-        if metadata is not None:
-            payload["metadata"] = metadata
+        """POST /v1/capture/note — sends text/plain body, returns 201 JSON."""
         async with _make_client(self._base_url, self._token, self._timeout, self._transport) as client:
             try:
-                resp = await client.post("/v1/capture/note", json=payload)
+                resp = await client.post(
+                    "/v1/capture/note",
+                    content=text,
+                    headers={"Content-Type": "text/plain"},
+                )
             except httpx.RequestError as exc:
                 raise WebuiClientError(None, f"transport error: {exc!s}") from exc
             if resp.status_code == 201:

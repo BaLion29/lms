@@ -997,8 +997,7 @@ def _core_with_entity_anchored() -> tuple[dict, list[dict]]:
     ctx = {"@base": "terminusdb:///data/", "@schema": "terminusdb:///schema#", "@type": "@context"}
     classes = [
         {"@abstract": [], "@id": "Entity", "@type": "Class",
-         "@documentation": {"@comment": "Universal base"},
-         "created_at": "xsd:dateTime", "updated_at": "xsd:dateTime"},
+         "@documentation": {"@comment": "Universal base"}},
         {"@abstract": [], "@id": "Anchored", "@type": "Class",
          "@documentation": {"@comment": "Temporal anchor marker"}},
         {"@id": "SchemaModule", "@type": "Class", "@key": {"@type": "Lexical", "@fields": ["name"]},

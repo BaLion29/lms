@@ -27,14 +27,12 @@ __all__ = [
 class AddressBookGeocoderAction(TdbDocument):
     type_: Literal["AddressBookGeocoderAction"] = Field(alias="@type", default="AddressBookGeocoderAction")
     label_field: ClassVar[str | None] = "name"
-    created_at: TdbDateTime
     enabled: bool
     executor: str
     mode: ActionMode
     name: str
     provenance: Provenance
     trigger: str
-    updated_at: TdbDateTime
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)
@@ -76,10 +74,8 @@ class Contact(TdbDocument):
 class Location(TdbDocument):
     type_: Literal["Location"] = Field(alias="@type", default="Location")
     label_field: ClassVar[str | None] = "name"
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
-    updated_at: TdbDateTime
     address: str | None = None
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
@@ -96,10 +92,8 @@ class Location(TdbDocument):
 class Organization(TdbDocument):
     type_: Literal["Organization"] = Field(alias="@type", default="Organization")
     label_field: ClassVar[str | None] = "name"
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
-    updated_at: TdbDateTime
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
     contact: Contact | None = None
@@ -116,10 +110,8 @@ class Organization(TdbDocument):
 class Person(TdbDocument):
     type_: Literal["Person"] = Field(alias="@type", default="Person")
     label_field: ClassVar[str | None] = "name"
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
-    updated_at: TdbDateTime
     affiliations: list[Affiliation] = Field(default_factory=list)
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None

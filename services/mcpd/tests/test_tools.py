@@ -20,6 +20,7 @@ from mcpd.main import (
     _tool_get_schema,
     _tool_graphql_query,
     _tool_list_modules,
+    _tool_update_document,
 )
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -274,6 +275,108 @@ async def test_create_document_error_never_leaks_token(monkeypatch, respx_mock: 
         await _tool_create_document(
             class_name="Task", fields={"name": "test"}
         )
+    error_msg = str(exc_info.value)
+    assert "q-token" not in error_msg
+    assert "Bearer" not in error_msg
+    assert "Internal server error" in error_msg
+
+
+# ── update_document ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_document_success(monkeypatch, respx_mock: respx.MockRouter):
+    """PUT /v1/documents/{iri} with valid fields → 200, returns iri."""
+    _configure_default_env(monkeypatch)
+    route = respx_mock.put("http://test-queryd/v1/documents/Task/abc").respond(
+        status_code=200, json={"iri": "Task/abc"}
+    )
+    result = await _tool_update_document(
+        iri="Task/abc", fields={"name": "Updated", "priority": 2}
+    )
+    assert result["iri"] == "Task/abc"
+    assert route.call_count == 1
+    req = route.calls.last.request
+    assert req.headers["X-Firnline-Agent"] == "ext:mcp"
+    assert json.loads(req.read()) == {"name": "Updated", "priority": 2}
+
+
+@pytest.mark.asyncio
+async def test_update_document_custom_agent(monkeypatch, respx_mock: respx.MockRouter):
+    """Explicit agent overrides the default ext:mcp header."""
+    _configure_default_env(monkeypatch)
+    route = respx_mock.put("http://test-queryd/v1/documents/Task/xyz").respond(
+        status_code=200, json={"iri": "Task/xyz"}
+    )
+    result = await _tool_update_document(
+        iri="Task/xyz",
+        fields={"name": "test"},
+        agent="user:basti",
+    )
+    assert result["iri"] == "Task/xyz"
+    req = route.calls.last.request
+    assert req.headers["X-Firnline-Agent"] == "user:basti"
+
+
+@pytest.mark.asyncio
+async def test_update_document_strips_leading_trailing_slash(monkeypatch, respx_mock: respx.MockRouter):
+    """Leading/trailing slashes on the IRI are stripped."""
+    _configure_default_env(monkeypatch)
+    route = respx_mock.put("http://test-queryd/v1/documents/Task/abc").respond(
+        status_code=200, json={"iri": "Task/abc"}
+    )
+    result = await _tool_update_document(
+        iri="/Task/abc/", fields={"name": "test"}
+    )
+    assert result["iri"] == "Task/abc"
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_update_document_404_not_found(monkeypatch, respx_mock: respx.MockRouter):
+    """404 from queryd propagates to ToolError with detail."""
+    _configure_default_env(monkeypatch)
+    respx_mock.put("http://test-queryd/v1/documents/Task/nope").respond(
+        404, json={"detail": "Document not found: Task/nope"}
+    )
+    with pytest.raises(ToolError, match="Document not found"):
+        await _tool_update_document(iri="Task/nope", fields={"name": "test"})
+
+
+@pytest.mark.asyncio
+async def test_update_document_422_propagates_detail(monkeypatch, respx_mock: respx.MockRouter):
+    """422 body invalid detail reaches the calling agent."""
+    _configure_default_env(monkeypatch)
+    detail_msg = 'Field "priority" must be an integer, got string'
+    respx_mock.put("http://test-queryd/v1/documents/Task/abc").respond(
+        422, json={"detail": detail_msg}
+    )
+    with pytest.raises(ToolError, match=detail_msg):
+        await _tool_update_document(
+            iri="Task/abc", fields={"priority": "high"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_document_connection_error(monkeypatch, respx_mock: respx.MockRouter):
+    """Connection errors are caught and raised as ToolError."""
+    _configure_default_env(monkeypatch)
+    respx_mock.put("http://test-queryd/v1/documents/Task/abc").mock(
+        side_effect=httpx.ConnectError("Connection refused")
+    )
+    with pytest.raises(ToolError, match="Connection refused"):
+        await _tool_update_document(iri="Task/abc", fields={"name": "test"})
+
+
+@pytest.mark.asyncio
+async def test_update_document_error_never_leaks_token(monkeypatch, respx_mock: respx.MockRouter):
+    """When update_document fails with a 500, the queryd token must never leak."""
+    _configure_default_env(monkeypatch)
+    respx_mock.put("http://test-queryd/v1/documents/Task/abc").respond(
+        500, json={"detail": "Internal server error"}
+    )
+    with pytest.raises(ToolError) as exc_info:
+        await _tool_update_document(iri="Task/abc", fields={"name": "test"})
     error_msg = str(exc_info.value)
     assert "q-token" not in error_msg
     assert "Bearer" not in error_msg

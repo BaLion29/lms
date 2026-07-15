@@ -32,7 +32,7 @@ class AddressBookGeocoderExecutor:
 
     name: str = "address_book_geocoder"
     requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="address_book", range=">=0.2.0 <0.3.0"),
+        ModuleRequirement(name="address_book", range=">=0.1.0 <0.2.0"),
     ]
     kinds: tuple[str, ...] = ("address_book_geocoder",)
 
@@ -116,7 +116,6 @@ class AddressBookGeocoderExecutor:
 
         updated: dict[str, Any] = dict(subject)
         updated["coordinates"] = list(coords)
-        updated["updated_at"] = now_str
 
         try:
             await ctx.tdb.insert_documents(

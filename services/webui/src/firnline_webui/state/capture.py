@@ -87,8 +87,6 @@ class CaptureState(BaseState):
             try:
                 result = await client.capture_note(
                     text=self.note_text.strip(),
-                    kind=self.kind.strip() or "note",
-                    metadata=metadata if metadata else None,
                 )
             finally:
                 await client.aclose()

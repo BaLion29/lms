@@ -21,10 +21,8 @@ __all__ = [
 class Reminder(TdbDocument):
     type_: Literal["Reminder"] = Field(alias="@type", default="Reminder")
     label_field: ClassVar[str | None] = "name"
-    created_at: TdbDateTime
     name: str
     provenance: Provenance
-    updated_at: TdbDateTime
     aliases: list[str] = Field(default_factory=list)
     archived_at: TdbDateTime | None = None
     contexts: list[str] = Field(default_factory=list)

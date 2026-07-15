@@ -104,9 +104,9 @@ How it works:
 
 Accepted specifier formats:
 
-- PyPI name: `firnline_ext_address_book>=0.2.0`
+- PyPI name: `firnline_ext_address_book>=0.1.0`
 - Git URL: `git+https://github.com/user/firnline-ext-foo.git`
-- Wheel filename: `firnline_ext_address_book-0.2.0-py3-none-any.whl` (resolved
+- Wheel filename: `firnline_ext_address_book-0.1.0-py3-none-any.whl` (resolved
   against `/extensions/` in the image; first-party wheels are baked into
   service images at build time).
 

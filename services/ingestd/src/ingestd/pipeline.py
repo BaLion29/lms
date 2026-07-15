@@ -404,14 +404,14 @@ class Pipeline:
         def _merge_factory_outputs(base: dict[str, Any], incoming: dict[str, Any]) -> None:
             """Merge *incoming* into *base* in-place.
 
-            Identity keys (``@id``, ``@type``, ``provenance``, ``created_at``)
+            Identity keys (``@id``, ``@type``, ``provenance``)
             are never overwritten.  Plain values: later wins.  List-valued keys
             ``derived_from`` and ``aliases`` are unioned preserving order and
             deduplication.  IRI entries are normalized to their short string
             form before comparison.
             """
             for key, value in incoming.items():
-                if key in ("@id", "@type", "provenance", "created_at"):
+                if key in ("@id", "@type", "provenance"):
                     continue
                 if key in ("derived_from", "aliases") and isinstance(value, list):
                     existing_list: list = base.setdefault(key, [])
@@ -579,7 +579,6 @@ class Pipeline:
 
         now = datetime.now(timezone.utc)
         doc["status"] = status
-        doc["updated_at"] = _format_datetime(now)
 
         await self.tdb.replace_document(
             doc,
@@ -599,7 +598,7 @@ class Pipeline:
     ) -> dict[str, Any]:
         """Fetch the existing document, merge in *new_doc* values.
 
-        Preserves ``created_at`` and ``provenance`` (the "birth certificate")
+        Preserves ``provenance`` (the "birth certificate")
         from the existing document.  ``derived_from`` and ``aliases`` lists
         are unioned (order-preserving, deduplicated, IRI-normalized).
         ``None`` and empty-list values from *new_doc* are skipped to avoid
@@ -630,7 +629,7 @@ class Pipeline:
         merged = dict(existing)
 
         for key, value in new_doc.items():
-            if key in ("created_at", "provenance", "@id", "@type"):
+            if key in ("provenance", "@id", "@type"):
                 continue  # preserve birth certificate + identity
             if key in ("derived_from", "aliases"):
                 if isinstance(value, list):
@@ -651,7 +650,6 @@ class Pipeline:
             else:
                 merged[key] = value
 
-        merged["updated_at"] = new_doc.get("updated_at", merged.get("updated_at"))
         return merged
 
     # ------------------------------------------------------------------

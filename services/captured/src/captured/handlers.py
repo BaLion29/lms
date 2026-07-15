@@ -21,8 +21,6 @@ class CapturedNoteHandler:
             content=payload.text or "",
             captured_at=now,
             status=CapturedStatus.NEW,
-            created_at=now,
-            updated_at=now,
             provenance=Provenance(
                 agent=agent_id("service", "captured"),
                 at=ctx.now(),
@@ -34,23 +32,23 @@ class CapturedNoteHandler:
         return iris[0] if iris else ""
 
 
-class CapturedAudioHandler:
-    """Handle ``file`` captures → ``Captured`` with ``content_type`` from payload, status ``new``.
+class CapturedFileHandler:
+    """Handle any file capture (not just audio) → ``Captured`` with ``content_type`` from payload, status ``new``.
 
-    Requires ``payload.blob_sha256`` to be set by captured.
+    Requires ``payload.blob_sha256`` to be set by the captured service.
     """
 
-    name: str = "captured_audio"
+    name: str = "captured_file"
     kinds: tuple[str, ...] = ("file",)
     requires: list[ModuleRequirement] = [ModuleRequirement(name="capture", range=">=0.1.0 <0.2.0")]
 
     async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
         if not payload.blob_sha256:
-            raise ValueError("Audio capture requires blob_sha256 (file upload)")
+            raise ValueError("Capture handler requires blob_sha256 (file upload)")
 
         if ctx.blob_store is None:
             raise RuntimeError(
-                "Audio handler requires a BlobStore; the captured service "
+                "Capture handler requires a BlobStore; the captured service "
                 "guarantees the blob was stored before handler dispatch — but "
                 "no BlobStore is available in the CaptureContext."
             )
@@ -70,8 +68,6 @@ class CapturedAudioHandler:
             transcription=None,
             captured_at=now,
             status=CapturedStatus.NEW,
-            created_at=now,
-            updated_at=now,
             provenance=Provenance(
                 agent=agent_id("service", "captured"),
                 at=ctx.now(),
@@ -85,4 +81,4 @@ class CapturedAudioHandler:
 
 # Module-level instances for entry-point discovery
 captured_note_handler = CapturedNoteHandler()
-captured_audio_handler = CapturedAudioHandler()
+captured_file_handler = CapturedFileHandler()

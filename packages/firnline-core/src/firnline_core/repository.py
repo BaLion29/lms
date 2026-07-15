@@ -49,10 +49,11 @@ class Repository:
         confidence: float | None = None,
         branch: str = "main",
     ) -> str:
-        """Insert *doc*, stamping provenance and timestamps.
+        """        Insert *doc*, stamping provenance.
 
         Validates the *agent* grammar.  Overwrites any existing
-        ``provenance``, ``created_at``, or ``updated_at`` on *doc*.
+        ``provenance`` on *doc*.  Timestamps are covered by prov and
+        the TerminusDB commit graph.
 
         Returns the full IRI of the created document.
         """
@@ -72,8 +73,6 @@ class Repository:
         prov_dict.pop("@id", None)
 
         doc["provenance"] = prov_dict
-        doc["created_at"] = now_str
-        doc["updated_at"] = now_str
 
         iris = await self._tdb.insert_documents(
             [doc],
@@ -81,6 +80,72 @@ class Repository:
             message=f"repo: create {doc.get('@type', '?')}",
         )
         return iris[0]
+
+    # ------------------------------------------------------------------
+    # Update
+    # ------------------------------------------------------------------
+
+    async def update(
+        self,
+        iri: str,
+        fields: dict[str, Any],
+        *,
+        agent: str,
+        branch: str = "main",
+    ) -> str:
+        """Update an existing document, merging *fields* into it.
+
+        Disallows changing ``@type`` and ``@id``.  Stamps provenance
+        the same way :meth:`create` does.  Timestamps are covered by
+        prov and the TerminusDB commit graph.
+
+        Returns the full IRI of the updated document.
+        """
+        parse_agent(agent)
+        short = short_iri(iri)
+        now = utc_now()
+        now_str = _format_datetime(now)
+
+        # Fetch existing document
+        doc = await self._tdb.get_document(short, branch=branch)
+
+        existing_type = doc.get("@type")
+        existing_id = doc.get("@id")
+
+        # Disallow @type / @id changes
+        if "@type" in fields and fields.get("@type") != existing_type:
+            raise ValueError(
+                f"Cannot change @type from {existing_type!r} to {fields['@type']!r}"
+            )
+        if "@id" in fields and fields.get("@id") != existing_id:
+            raise ValueError(
+                f"Cannot change @id from {existing_id!r} to {fields['@id']!r}"
+            )
+
+        # Shallow merge
+        doc.update(fields)
+
+        # Restore @type / @id to their original values (in case fields
+        # contained the same values — harmless — or were popped)
+        doc["@type"] = existing_type
+        doc["@id"] = existing_id
+
+        # Provenance stamp (same pattern as create)
+        prov = Provenance(
+            agent=agent,
+            at=now,
+        )
+        prov_dict = prov.to_tdb()
+        prov_dict.pop("@type", None)
+        prov_dict.pop("@id", None)
+        doc["provenance"] = prov_dict
+
+        await self._tdb.replace_document(
+            doc,
+            branch=branch,
+            message=f"repo: update {short}",
+        )
+        return iri
 
     # ------------------------------------------------------------------
     # Transition
@@ -128,7 +193,6 @@ class Repository:
             )
 
         doc[field] = to_status
-        doc["updated_at"] = now_str
 
         transition_doc: dict[str, Any] = {
             "@type": "Transition",
@@ -175,7 +239,6 @@ class Repository:
 
         doc = await self._tdb.get_document(short, branch=branch)
         doc["archived_at"] = now_str
-        doc["updated_at"] = now_str
 
         archive_doc: dict[str, Any] = {
             "@type": "Transition",

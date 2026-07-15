@@ -281,8 +281,8 @@ class TestPluginMetadata:
     def test_requires(self):
         reqs = {r.name: r.range for r in self.plugin.requires}
         assert reqs == {
-            "time_management": ">=0.2.0 <0.3.0",
-            "address_book": ">=0.2.0 <0.3.0",
+            "time_management": ">=0.1.0 <0.2.0",
+            "address_book": ">=0.1.0 <0.2.0",
         }
 
     def test_proposal_models_count(self):
@@ -378,7 +378,6 @@ class TestBuildDocuments:
         assert doc["@type"] == "Task"
         assert doc["name"] == "Buy milk"
         assert doc["status"] == "open"
-        assert doc["created_at"] == "2026-07-07T12:00:00Z"
         assert doc["due_date"] == "2026-07-10T17:00:00Z"
         assert doc["derived_from"] == ["InboxNote/test123"]
         assert doc["provenance"] == {
@@ -605,7 +604,6 @@ class TestBuildDocuments:
         doc = docs[0]
         assert doc["@type"] == "Activity"
         assert doc["name"] == "Morning yoga"
-        assert doc["created_at"] == "2026-07-07T12:00:00Z"
         assert doc["derived_from"] == ["InboxNote/test123"]
         assert doc["provenance"]["agent"] == "ingestd"
         assert "routine" not in doc
@@ -678,7 +676,6 @@ class TestBuildDocuments:
         assert doc["@type"] == "Project"
         assert doc["name"] == "Garden redesign"
         assert doc["status"] == "active"
-        assert doc["created_at"] == "2026-07-07T12:00:00Z"
         assert doc["derived_from"] == ["InboxNote/test123"]
         assert doc["provenance"]["agent"] == "ingestd"
 
@@ -770,7 +767,6 @@ class TestBuildDocuments:
         assert doc["@type"] == "Goal"
         assert doc["name"] == "Run a marathon"
         assert doc["status"] == "active"
-        assert doc["created_at"] == "2026-07-07T12:00:00Z"
         assert doc["derived_from"] == ["InboxNote/test123"]
 
     async def test_goal_proposal_full(self):

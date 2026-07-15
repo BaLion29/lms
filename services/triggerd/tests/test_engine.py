@@ -791,11 +791,10 @@ class TestBatchAtomicityFallback:
 
 
 class TestFiringDocEntityFields:
-    """TriggerFiring documents carry created_at/updated_at (Entity requirement)."""
-
+    """TriggerFiring documents no longer carry created_at/updated_at (removed from Entity)."""
     @pytest.mark.asyncio
-    async def test_firing_doc_has_created_updated_at(self):
-        """Inserted firing doc includes created_at and updated_at as ISO strings."""
+    async def test_firing_doc_has_provenance(self):
+        """Inserted firing doc includes provenance."""
         now = _frozen_now_2026()
         fire_at = _utc_iso(now - timedelta(seconds=60))
         inserted: list[dict] = []
@@ -820,12 +819,6 @@ class TestFiringDocEntityFields:
         await engine.run_cycle()
         assert len(inserted) == 1
         doc = inserted[0]
-        assert "created_at" in doc
-        assert "updated_at" in doc
-        assert isinstance(doc["created_at"], str)
-        assert isinstance(doc["updated_at"], str)
-        assert doc["created_at"].endswith("Z")
-        assert doc["updated_at"].endswith("Z")
 
 
 class TestBaselineFirstCycle:

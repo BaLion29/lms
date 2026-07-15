@@ -325,6 +325,82 @@ def create_component(
         return JSONResponse(content=doc)
 
     # ------------------------------------------------------------------
+    # PUT /v1/documents/{iri:path} (auth)
+    # ------------------------------------------------------------------
+
+    @router.put(
+        "/v1/documents/{iri:path}",
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_document_put(request: Request, iri: str):
+        """Update an existing document by IRI."""
+        s: Settings = state.settings
+
+        # Validate IRI
+        _validate_doc_iri(iri)
+
+        # Gate: writes must be enabled
+        if not s.enable_writes:
+            raise HTTPException(status_code=403, detail="Writes are disabled")
+
+        # Parse body
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=422,
+                detail="Request body must be valid JSON",
+            )
+
+        if not isinstance(body, dict):
+            raise HTTPException(
+                status_code=422,
+                detail="Request body must be a JSON object",
+            )
+
+        if "@type" in body:
+            raise HTTPException(
+                status_code=422,
+                detail="@type must not be present in body; document type cannot change",
+            )
+
+        if "@id" in body:
+            raise HTTPException(
+                status_code=422,
+                detail="@id must not be present in body; document identifier cannot change",
+            )
+
+        # Agent identity
+        agent = request.headers.get("X-Firnline-Agent", "service:queryd")
+        try:
+            _ = parse_agent(agent)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        repo = Repository(state.tdb)
+        try:
+            iri = await repo.update(
+                iri,
+                dict(body),
+                agent=agent,
+                branch=s.tdb_branch,
+            )
+        except TdbConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except TdbError as exc:
+            if exc.status == 404:
+                raise HTTPException(
+                    status_code=404, detail=f"Document not found: {iri}"
+                )
+            if exc.status == 400:
+                raise HTTPException(status_code=422, detail=exc.body)
+            raise HTTPException(status_code=502, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        return JSONResponse(content={"iri": iri})
+
+    # ------------------------------------------------------------------
     # /v1/graphql (auth)
     # ------------------------------------------------------------------
 

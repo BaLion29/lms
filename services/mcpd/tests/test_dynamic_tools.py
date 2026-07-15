@@ -459,7 +459,7 @@ def test_build_tool_function_sanitises_hyphenated_name():
 
 
 def test_create_app_registers_dynamic_tools(monkeypatch, respx_mock: respx.MockRouter):
-    """With 2 queryd tool specs, the MCP instance lists 9+2=11 tools."""
+    """With 2 queryd tool specs, the MCP instance lists 10+2=12 tools."""
     _configure_env(monkeypatch)
     respx_mock.get("http://test-queryd/v1/tools").respond(
         json={
@@ -475,8 +475,8 @@ def test_create_app_registers_dynamic_tools(monkeypatch, respx_mock: respx.MockR
     tools = mcp._tool_manager.list_tools()
     tool_names = {t.name for t in tools}
 
-    # 9 static + 2 dynamic = 11
-    assert len(tools) == 11, f"Expected 11 tools, got {len(tools)}: {tool_names}"
+    # 10 static + 2 dynamic = 12
+    assert len(tools) == 12, f"Expected 12 tools, got {len(tools)}: {tool_names}"
     assert "create_task" in tool_names
     assert "toggle_feature" in tool_names
 
@@ -493,11 +493,12 @@ def test_create_app_queryd_down_still_starts(monkeypatch, respx_mock: respx.Mock
     tools = mcp._tool_manager.list_tools()
     tool_names = {t.name for t in tools}
 
-    assert len(tools) == 9, f"Expected 9 static tools, got {len(tools)}: {tool_names}"
+    assert len(tools) == 10, f"Expected 10 static tools, got {len(tools)}: {tool_names}"
     # Static tools are registered under their function names
     for name in ("_tool_graphql_query", "_tool_get_document", "_tool_find_entity",
                  "_tool_find_class", "_tool_find_field", "_tool_get_schema",
-                 "_tool_list_modules", "_tool_capture"):
+                 "_tool_list_modules", "_tool_capture", "_tool_create_document",
+                 "_tool_update_document"):
         assert name in tool_names
 
 
@@ -526,8 +527,8 @@ def test_create_app_name_collision_skipped(monkeypatch, respx_mock: respx.MockRo
     tools = mcp._tool_manager.list_tools()
     tool_names = [t.name for t in tools]
 
-    # 9 static + 1 dynamic (_tool_capture skipped) = 10
-    assert len(tools) == 10, f"Expected 10 tools, got {len(tools)}: {tool_names}"
+    # 10 static + 1 dynamic (_tool_capture skipped) = 11
+    assert len(tools) == 11, f"Expected 11 tools, got {len(tools)}: {tool_names}"
     assert "create_task" in tool_names
     # The original static _tool_capture is still there; the colliding
     # dynamic tool was not registered.
@@ -547,7 +548,7 @@ def test_create_app_disabled_via_setting(monkeypatch, respx_mock: respx.MockRout
     tools = mcp._tool_manager.list_tools()
 
     # Only the static tools; no HTTP call to queryd was made.
-    assert len(tools) == 9
+    assert len(tools) == 10
 
 
 def test_create_app_dynamic_tool_metadata(monkeypatch, respx_mock: respx.MockRouter):
@@ -583,7 +584,7 @@ def test_create_app_does_not_call_queryd_when_disabled(monkeypatch, respx_mock: 
     app = create_app()
     mcp = app.state.mcp
     tools = mcp._tool_manager.list_tools()
-    assert len(tools) == 9
+    assert len(tools) == 10
 
 
 # ── _register_dynamic_tools_with_retry unit tests ────────────────────────────

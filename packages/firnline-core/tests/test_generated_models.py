@@ -47,8 +47,6 @@ def test_captured_round_trip():
         "content_type": "text/plain",
         "status": "new",
         "captured_at": "2026-07-05T14:00:00Z",
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
         "provenance": {
             "@type": "Provenance",
             "agent": "service:ingestd",
@@ -66,8 +64,6 @@ def test_captured_round_trip():
     assert cap.content_type == "text/plain"
     assert cap.status == CapturedStatus.NEW
     assert cap.captured_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
-    assert cap.created_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
-    assert cap.updated_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
     assert cap.contexts == []
     assert cap.external_refs == []
     assert cap.derived_from == []
@@ -94,8 +90,6 @@ def test_captured_with_external_refs():
         "content_type": "text/plain",
         "status": "new",
         "captured_at": "2026-07-06T08:00:00Z",
-        "created_at": "2026-07-06T08:00:00Z",
-        "updated_at": "2026-07-06T08:00:00Z",
         "provenance": {
             "@type": "Provenance",
             "agent": "service:ingestd",
@@ -129,8 +123,6 @@ def test_tag_round_trip():
         "@id": "Tag/learning",
         "@type": "Tag",
         "name": "learning",
-        "created_at": "2026-07-06T08:00:00Z",
-        "updated_at": "2026-07-06T08:00:00Z",
         "provenance": {
             "@type": "Provenance",
             "agent": "user:basti",
@@ -274,8 +266,6 @@ def test_entity_defaults_on_construction():
         content_type="text/plain",
         status=CapturedStatus.NEW,
         captured_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
-        created_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
-        updated_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
         provenance=Provenance(
             agent="service:test",
             at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
@@ -298,8 +288,6 @@ def test_entity_has_archived_at():
         content_type="text/plain",
         status=CapturedStatus.NEW,
         captured_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
-        created_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
-        updated_at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
         provenance=Provenance(
             agent="service:test",
             at=datetime(2026, 7, 6, 8, 0, 0, tzinfo=UTC),
@@ -333,16 +321,12 @@ def test_datetime_on_model_field():
         content_type="text/plain",
         status=CapturedStatus.NEW,
         captured_at=dt,
-        created_at=dt,
-        updated_at=dt,
         provenance=Provenance(
             agent="service:test",
             at=dt,
         ),
     )
     result = cap.to_tdb()
-    assert result["created_at"] == "2026-07-05T14:00:00Z"
-    assert result["updated_at"] == "2026-07-05T14:00:00Z"
 
 
 # ========================================================================
@@ -358,16 +342,12 @@ def test_datetime_with_microseconds_serializes_without_them():
         content_type="text/plain",
         status=CapturedStatus.NEW,
         captured_at=dt,
-        created_at=dt,
-        updated_at=dt,
         provenance=Provenance(
             agent="service:test",
             at=dt,
         ),
     )
     result = cap.to_tdb()
-    assert result["created_at"] == "2026-07-05T14:00:00Z"
-    assert result["updated_at"] == "2026-07-05T14:00:00Z"
 
 
 # ========================================================================
@@ -383,8 +363,6 @@ def test_captured_wrong_at_type_raises_validation_error():
         "content_type": "text/plain",
         "status": "new",
         "captured_at": "2026-07-05T14:00:00Z",
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
         "provenance": {
             "@type": "Provenance",
             "agent": "service:test",
@@ -410,8 +388,6 @@ def test_extra_fields_preserved():
         "content_type": "text/plain",
         "status": "new",
         "captured_at": "2026-07-05T14:00:00Z",
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
         "provenance": {
             "@type": "Provenance",
             "agent": "service:test",
@@ -438,8 +414,6 @@ def test_oneshot_trigger_round_trip():
         "@type": "OneShotTrigger",
         "name": "one-shot-sale",
         "enabled": True,
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
         "fire_at": "2026-07-06T09:00:00Z",
         "renotify_every": "PT30M",
         "max_renotifications": 3,
@@ -465,8 +439,6 @@ def test_oneshot_trigger_round_trip():
         "@type": "OneShotTrigger",
         "name": "one-shot-sale",
         "enabled": True,
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
         "fire_at": "2026-07-06T09:00:00Z",
         "renotify_every": "PT30M",
         "max_renotifications": 3,
@@ -489,8 +461,6 @@ def test_oneshot_trigger_excludes_none_optionals():
         name="boom",
         enabled=True,
         fire_at=datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC),
-        created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
-        updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
         provenance=Provenance(
             agent="service:test",
             at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
@@ -524,8 +494,6 @@ def test_schedule_trigger_with_timezone():
         "dtstart": "2026-07-06T09:00:00Z",
         "rrule": "FREQ=DAILY",
         "timezone": "Europe/Berlin",
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
         "provenance": {
             "@type": "Provenance",
             "agent": "service:scheduler",
@@ -550,8 +518,6 @@ def test_schedule_trigger_without_timezone():
         enabled=True,
         dtstart=datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC),
         rrule="FREQ=DAILY",
-        created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
-        updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
         provenance=Provenance(
             agent="service:test",
             at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
@@ -583,8 +549,6 @@ def test_trigger_firing_round_trip_all_fields():
         "snoozed_until": "2026-07-06T10:00:00Z",
         "last_notified_at": "2026-07-06T09:00:01Z",
         "notification_count": 1,
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
         "provenance": {
             "@type": "Provenance",
             "agent": "service:scheduler",
@@ -608,8 +572,6 @@ def test_trigger_firing_round_trip_all_fields():
     assert firing.snoozed_until == datetime(2026, 7, 6, 10, 0, 0, tzinfo=UTC)
     assert firing.last_notified_at == datetime(2026, 7, 6, 9, 0, 1, tzinfo=UTC)
     assert firing.notification_count == 1
-    assert firing.created_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
-    assert firing.updated_at == datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC)
 
 
 def test_trigger_firing_minimal_excludes_none():
@@ -620,8 +582,6 @@ def test_trigger_firing_minimal_excludes_none():
         scheduled_for=datetime(2026, 7, 6, 9, 0, 0, tzinfo=UTC),
         fired_at=datetime(2026, 7, 6, 9, 0, 1, tzinfo=UTC),
         status=FiringStatus.PENDING,
-        created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
-        updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
         provenance=Provenance(
             agent="service:test",
             at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
@@ -651,8 +611,6 @@ def test_trigger_firing_all_statuses():
             "scheduled_for": "2026-07-06T09:00:00Z",
             "fired_at": "2026-07-06T09:00:01Z",
             "status": value,
-            "created_at": "2026-07-05T14:00:00Z",
-            "updated_at": "2026-07-05T14:00:00Z",
             "provenance": {
                 "@type": "Provenance",
                 "agent": "service:test",
@@ -687,8 +645,6 @@ def test_webhook_action_round_trip():
         "max_attempts": 3,
         "retry_backoff": "PT10S",
         "params": '{"headers": {"X-Token": "{{TOKEN}}"}}',
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
         "provenance": {
             "@type": "Provenance",
             "agent": "user:basti",
@@ -729,8 +685,6 @@ def test_webhook_action_minimal():
         executor="webhook",
         mode=ActionMode.AUTO,
         url="https://example.com/hook",
-        created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
-        updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
         provenance=Provenance(
             agent="service:test",
             at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
@@ -767,8 +721,6 @@ def test_action_execution_round_trip():
         "external_ref": "github:deploy/42",
         "approved_at": "2026-07-06T08:55:00Z",
         "approved_by": "user:alice",
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
         "provenance": {
             "@type": "Provenance",
             "agent": "service:effectd",
@@ -805,8 +757,6 @@ def test_action_execution_minimal():
         status=ExecutionStatus.PENDING_APPROVAL,
         idempotency_key="WebhookAction/alert#ScheduleTrigger/repeat1/2026-07-06T09:00:00Z",
         attempt=0,
-        created_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
-        updated_at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
         provenance=Provenance(
             agent="service:effectd",
             at=datetime(2026, 7, 5, 14, 0, 0, tzinfo=UTC),
@@ -834,8 +784,6 @@ def test_action_execution_all_statuses():
             "status": value,
             "idempotency_key": "WebhookAction/alert#ScheduleTrigger/repeat1/2026-07-06T09:00:00Z",
             "attempt": 0,
-            "created_at": "2026-07-05T14:00:00Z",
-            "updated_at": "2026-07-05T14:00:00Z",
             "provenance": {
                 "@type": "Provenance",
                 "agent": "service:test",
@@ -880,8 +828,6 @@ def test_action_execution_extra_fields_preserved():
         "status": "pending",
         "idempotency_key": "WebhookAction/alert#f1",
         "attempt": 0,
-        "created_at": "2026-07-05T14:00:00Z",
-        "updated_at": "2026-07-05T14:00:00Z",
         "provenance": {
             "@type": "Provenance",
             "agent": "service:test",

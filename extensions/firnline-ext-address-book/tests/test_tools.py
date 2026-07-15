@@ -83,7 +83,7 @@ def test_plugin_name_and_requires():
     reqs = plugin.requires
     assert len(reqs) == 1
     assert reqs[0].name == "address_book"
-    assert reqs[0].range == ">=0.2.0 <0.3.0"
+    assert reqs[0].range == ">=0.1.0 <0.2.0"
 
 
 def test_plugin_tool_specs():
@@ -461,10 +461,9 @@ async def test_geocode_by_location_id_persists():
     assert result["ok"] is True
     assert result["coordinates"] == [40.7128, -74.0060]
     assert tdb.insert_documents.called
-    # Verify updated_at was refreshed
+    # Verify coordinates were persisted
     sent_docs = tdb.insert_documents.call_args[0][0]
-    assert "updated_at" in sent_docs[0]
-    assert sent_docs[0]["updated_at"] is not None
+    assert sent_docs[0]["coordinates"] == [40.7128, -74.0060]
 
 
 async def test_geocode_by_location_id_already_has_coordinates():

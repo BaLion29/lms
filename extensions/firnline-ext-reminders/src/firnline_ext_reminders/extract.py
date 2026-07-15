@@ -78,8 +78,6 @@ class ReminderExtractPlugin(ExtractorPlugin):
                 name=f"Reminder: {proposal.name}",
                 enabled=True,
                 fire_at=proposal.fire_at,
-                created_at=now,
-                updated_at=now,
                 provenance={
                     "agent": "ext:reminders",
                     "at": now,
@@ -94,8 +92,6 @@ class ReminderExtractPlugin(ExtractorPlugin):
             description=proposal.description,
             refers_to=None,
             trigger=trigger_iri,
-            created_at=now,
-            updated_at=now,
             provenance={
                 "agent": "ext:reminders",
                 "at": now,

@@ -60,7 +60,6 @@ def abstract_class_def() -> dict:
         "@id": "AbstractBase",
         "@type": "Class",
         "@abstract": True,
-        "created_at": "xsd:dateTime",
     }
 
 
@@ -209,7 +208,7 @@ def test_calendarable_classes_title_fallback():
         "@id": "Note",
         "@type": "Class",
         "text": "xsd:string",
-        "created_at": "xsd:dateTime",
+        "due_date": "xsd:dateTime",
     }
     result = calendarable_classes([class_def])
     assert result[0]["title_field"] == "@id"
@@ -221,7 +220,7 @@ def test_calendarable_classes_title_prefers_name_over_title():
         "@type": "Class",
         "name": "xsd:string",
         "title": "xsd:string",
-        "updated_at": "xsd:dateTime",
+        "due_date": "xsd:dateTime",
     }
     result = calendarable_classes([class_def])
     assert result[0]["title_field"] == "name"
@@ -232,7 +231,7 @@ def test_calendarable_classes_title_uses_title():
         "@id": "Item",
         "@type": "Class",
         "title": "xsd:string",
-        "created_at": "xsd:dateTime",
+        "due_date": "xsd:dateTime",
     }
     result = calendarable_classes([class_def])
     assert result[0]["title_field"] == "title"

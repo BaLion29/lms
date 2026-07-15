@@ -115,8 +115,6 @@ async def _do_create_reminder(
         name=name,
         description=description,
         refers_to=refers_to,
-        created_at=now,
-        updated_at=now,
     ).to_tdb()
 
     log.info("queryd: create_reminder", doc=reminder)

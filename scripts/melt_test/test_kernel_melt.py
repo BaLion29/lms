@@ -143,14 +143,6 @@ class TestQuerydMelt:
                             {"name": "_id", "type": {"name": "ID", "kind": "SCALAR"}},
                             {"name": "content", "type": {"name": "String", "kind": "SCALAR"}},
                             {"name": "status", "type": {"name": "CapturedStatus", "kind": "ENUM"}},
-                            {
-                                "name": "created_at",
-                                "type": {"name": "DateTime", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "updated_at",
-                                "type": {"name": "DateTime", "kind": "SCALAR"},
-                            },
                         ],
                     },
                     # --- TriggerFiring ---
@@ -264,15 +256,18 @@ class TestCapturedMelt:
             # Note capture succeeds
             resp = client.post(
                 "/v1/capture/note",
-                json={"text": "melt test note"},
-                headers={"Authorization": "Bearer melt-token"},
+                content="melt test note",
+                headers={
+                    "Content-Type": "text/plain",
+                    "Authorization": "Bearer melt-token",
+                },
             )
             assert resp.status_code == 201
             data = resp.json()
             assert data["kind"] == "note"
             assert "id" in data
 
-    def test_unknown_kind_returns_404_with_hint(self, monkeypatch) -> None:
+    def test_unknown_kind_returns_404_with_hint(self, monkeypatch, tmp_path) -> None:
         from unittest.mock import AsyncMock
 
         from fastapi.testclient import TestClient
@@ -284,6 +279,8 @@ class TestCapturedMelt:
             DiscoveryResult,
             PluginSelection,
         )
+
+        monkeypatch.setenv("FIRNLINE_BLOB_ROOT", str(tmp_path))
 
         fake_tdb = AsyncMock()
         fake_tdb.insert_documents = AsyncMock(return_value=["fake-iri"])
@@ -319,8 +316,9 @@ class TestCapturedMelt:
 
         with TestClient(app) as client:
             resp = client.post(
-                "/v1/capture/note",
-                json={"text": "hi", "kind": "unknown-kind"},
+                "/v1/capture/file",
+                files={"file": ("test.txt", b"hi", "text/plain")},
+                data={"kind": "unknown-kind"},
                 headers={"Authorization": "Bearer melt-token"},
             )
             assert resp.status_code == 404

@@ -34,7 +34,7 @@ def test_plugin_name_requires_kinds() -> None:
     assert plugin.kinds == ("address_book_geocoder",)
     assert len(plugin.requires) == 1
     assert plugin.requires[0].name == "address_book"
-    assert plugin.requires[0].range == ">=0.2.0 <0.3.0"
+    assert plugin.requires[0].range == ">=0.1.0 <0.2.0"
 
 
 def test_validate_plugin_returns_empty() -> None:
@@ -163,7 +163,6 @@ async def test_geocode_success_updates_document() -> None:
         "name": "Bern",
         "address": "Bern, Switzerland",
         "coordinates": None,
-        "updated_at": "2026-01-01T00:00:00Z",
     }
 
     # Replace the internal client with a mock
@@ -185,7 +184,6 @@ async def test_geocode_success_updates_document() -> None:
     updated = docs[0]
     assert updated["@id"] == "Location/loc1"
     assert updated["coordinates"] == [46.948, 7.4474]
-    assert updated["updated_at"] != "2026-01-01T00:00:00Z"
 
     # Verify geocoding call used address (not name)
     mock_client.geocode.assert_called_once_with("Bern, Switzerland")
@@ -205,7 +203,6 @@ async def test_geocode_falls_back_to_name() -> None:
         "name": "Zürich",
         "address": None,
         "coordinates": None,
-        "updated_at": "2026-01-01T00:00:00Z",
     }
 
     mock_client = MagicMock()
@@ -237,7 +234,6 @@ async def test_geocode_no_result_returns_retryable() -> None:
         "name": "Narnia",
         "address": "Wardrobe",
         "coordinates": None,
-        "updated_at": "2026-01-01T00:00:00Z",
     }
 
     mock_client = MagicMock()
@@ -271,7 +267,6 @@ async def test_tdb_write_failure_returns_retryable() -> None:
         "name": "Paris",
         "address": "Paris, France",
         "coordinates": None,
-        "updated_at": "2026-01-01T00:00:00Z",
     }
 
     mock_client = MagicMock()
@@ -336,7 +331,6 @@ async def test_empty_address_falls_back_to_name() -> None:
         "name": "Geneva",
         "address": "",
         "coordinates": None,
-        "updated_at": "2026-01-01T00:00:00Z",
     }
 
     mock_client = MagicMock()
