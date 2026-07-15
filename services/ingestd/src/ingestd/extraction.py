@@ -17,7 +17,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, get_args, get_origin
+from typing import Any, Literal, get_args, get_origin
 
 import structlog
 from pydantic import BaseModel, Field, ValidationError
@@ -108,25 +108,116 @@ Return ONLY valid JSON in a markdown code block (```json ... ```). The JSON must
 this exact schema:"""
 
 
+def _type_repr(annotation: Any) -> str:
+    """Return a clean short name for *annotation* when possible.
+
+    For plain types such as ``str``, ``int``, ``datetime`` the ``__name__``
+    is used; everything else falls back to angle-bracket-wrapped ``repr()``.
+    """
+    name = getattr(annotation, "__name__", None)
+    if name:
+        return name
+    return f"<{repr(annotation)}>"
+
+
+def _render_field_value(
+    annotation: Any, _seen: set[type] | None = None, _depth: int = 0
+) -> Any:
+    """Recursively render a type annotation for the schema entry.
+
+    Returns a string for base / Literal types, a dict for nested
+    :class:`BaseModel` fields, or a list-of-dict for ``list[BaseModel]``.
+    Guards against infinite recursion via cycle detection (``_seen``) and
+    a *max-depth* cap.
+    """
+    if _seen is None:
+        _seen = set()
+    _MAX_DEPTH = 5
+    if _depth > _MAX_DEPTH:
+        return _type_repr(annotation)
+
+    args = get_args(annotation)
+    origin = get_origin(annotation)
+
+    # ── Optional: X | None  or  Optional[X] ───────────────────────
+    non_none = [a for a in args if a is not type(None)]  # noqa: E721
+    if len(non_none) < len(args):
+        # The annotation contains NoneType — treat the whole thing as optional.
+        if len(non_none) == 1:
+            inner = _render_field_value(non_none[0], _seen, _depth)
+            if isinstance(inner, str):
+                return f"{inner} or null"
+            if isinstance(inner, dict):
+                inner["__optional__"] = True
+            elif isinstance(inner, list):
+                for item in inner:
+                    if isinstance(item, dict):
+                        item["__optional__"] = True
+            return inner
+        return _type_repr(annotation)
+
+    # ── list[BaseModel] ───────────────────────────────────────────
+    if origin is list and args:
+        inner_annotation = args[0]
+        inner_args = get_args(inner_annotation)
+        inner_origin = get_origin(inner_annotation)
+
+        # Handle list[Model | None] / list[Optional[Model]]
+        if inner_origin is not None and inner_args:
+            non_none_inner = [a for a in inner_args if a is not type(None)]
+            if len(non_none_inner) == 1 and isinstance(non_none_inner[0], type) and issubclass(
+                non_none_inner[0], BaseModel
+            ):
+                return [_model_fields_dict(non_none_inner[0], _seen, _depth + 1)]
+
+        if isinstance(inner_annotation, type) and issubclass(
+            inner_annotation, BaseModel
+        ):
+            return [_model_fields_dict(inner_annotation, _seen, _depth + 1)]
+        return _type_repr(annotation)
+
+    # ── direct BaseModel ──────────────────────────────────────────
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return _model_fields_dict(annotation, _seen, _depth + 1)
+
+    # ── Literal ───────────────────────────────────────────────────
+    if origin is Literal:
+        return " | ".join(repr(a) for a in args)
+
+    # ── fallback: clean name or repr of the annotation ────────────
+    return _type_repr(annotation)
+
+
+def _model_fields_dict(
+    model_cls: type[BaseModel], _seen: set[type], _depth: int
+) -> dict[str, Any]:
+    """Build a ``{field_name: rendered_type}`` dict for *model_cls*.
+
+    Detects cycles and falls back to a compact reference string.
+    """
+    if model_cls in _seen:
+        return {"__cyclic__": model_cls.__name__}
+    _seen.add(model_cls)
+
+    result: dict[str, Any] = {}
+    for fname, finfo in model_cls.model_fields.items():
+        result[fname] = _render_field_value(finfo.annotation, _seen, _depth)
+    return result
+
+
 def _model_schema_entry(model_cls: type[BaseModel]) -> dict[str, Any]:
     """Render a human-readable JSON-schema entry for one proposal model.
 
     Inspects ``model_fields``; skips the ``kind`` discriminant (set from
-    default).  Returns a dict suitable for inclusion in the union schema
-    array — e.g. ``{"kind":"task","name":"<string>",...}``.
+    default).  Recurses into nested Pydantic models so that the LLM sees
+    every leaf field, its type, and whether it is required or optional.
     """
     entry: dict[str, object] = {}
     for fname, finfo in model_cls.model_fields.items():
         if fname == "kind":
             entry["kind"] = finfo.default
             continue
-        _origin = get_origin(finfo.annotation)
-        args = get_args(finfo.annotation)
-        is_optional = type(None) in args if args else False
-        if is_optional:
-            entry[fname] = f"<{finfo.annotation!r} or null>"
-        else:
-            entry[fname] = f"<{finfo.annotation!r}>"
+        entry[fname] = _render_field_value(finfo.annotation)
     # Ensure kind is first
     items = list(entry.items())
     items.sort(key=lambda kv: (0 if kv[0] == "kind" else 1))

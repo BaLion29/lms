@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from pydantic import BaseModel
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -16,6 +17,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from ingestd.extraction import (
     ExtractionError,
     ExtractionResult,
+    _model_schema_entry,
     build_agent,
     build_extraction_context,
     extract,
@@ -562,12 +564,15 @@ def test_composed_prompt_covers_all_six_kinds():
     # The schema fence uses ```json\\n (not ```json space as in the prose example)
     assert "```json\n" in prompt
     assert "\n```" in prompt
-    # Union schema lists all six kinds (time_management: 5 + reminders: 1)
+    # Union schema lists all nine kinds (time_management: 8 + reminders: 1)
     assert '"kind": "task"' in prompt
     assert '"kind": "event"' in prompt
     assert '"kind": "person"' in prompt
     assert '"kind": "routine"' in prompt
     assert '"kind": "activity"' in prompt
+    assert '"kind": "project"' in prompt
+    assert '"kind": "area"' in prompt
+    assert '"kind": "goal"' in prompt
     assert '"kind": "reminder"' in prompt
     # Plugin fields
     assert "estimated_duration" in prompt
@@ -578,8 +583,11 @@ def test_composed_prompt_covers_all_six_kinds():
     assert "reasoning" in prompt
     assert "confidence" in prompt
 
-    # Kind map has all six kinds (time_management: 5 + reminders: 1)
-    assert set(_FULL_KIND_MAP.keys()) == {"task", "event", "person", "routine", "activity", "reminder"}
+    # Kind map has all nine kinds (time_management: 8 + reminders: 1)
+    assert set(_FULL_KIND_MAP.keys()) == {
+        "task", "event", "person", "routine", "activity",
+        "project", "area", "goal", "reminder",
+    }
 
 
 def test_mixed_batch_parse_all_six_kinds():
@@ -610,3 +618,109 @@ def test_mixed_batch_parse_all_six_kinds():
     assert result.proposals[3].name == "Morning routine"
     assert result.proposals[4].name == "Yoga session"
     assert result.proposals[5].name == "Call doctor"
+
+
+# ---------------------------------------------------------------------------
+# Test 16 — recursive schema rendering for nested BaseModel fields
+# ---------------------------------------------------------------------------
+
+
+def test_model_schema_entry_recurses_into_nested_models():
+    """_model_schema_entry recurses into nested Pydantic models so that
+    fields inside ``list[BaseModel]`` are visible to the LLM."""
+    entry = _model_schema_entry(RoutineProposal)
+
+    assert entry["kind"] == "routine"
+    assert "name" in entry
+    assert "required_context" in entry
+    assert "steps" in entry
+
+    # steps must be a list containing a dict with nested field info
+    steps = entry["steps"]
+    assert isinstance(steps, list)
+    assert len(steps) == 1
+    step_schema = steps[0]
+    assert isinstance(step_schema, dict)
+
+    # All RoutineStepSpec fields must be visible
+    assert "name" in step_schema
+    assert "cadence_days" in step_schema
+    assert "step_type" in step_schema
+    assert "description" in step_schema
+    assert "priority" in step_schema
+    assert "estimated_duration" in step_schema
+
+    # step_type is a Literal — rendered as human-readable alternatives
+    assert "'activity'" in step_schema["step_type"]
+    assert "'task'" in step_schema["step_type"]
+
+
+# ---------------------------------------------------------------------------
+# Test 17 — cycle detection / max-depth for self-referencing models
+# ---------------------------------------------------------------------------
+
+
+class _TreeNode(BaseModel):
+    """Simple self-referencing model to exercise cycle detection."""
+    name: str
+    children: list["_TreeNode"] | None = None
+
+
+def test_self_referencing_model_renders_cyclic_marker():
+    """A self-referencing model must produce a __cyclic__ marker and not
+    recurse infinitely."""
+    entry = _model_schema_entry(_TreeNode)
+    assert entry["name"] == "str"
+    children = entry["children"]
+    assert isinstance(children, list)
+    assert len(children) == 1
+    child_schema = children[0]
+    assert isinstance(child_schema, dict)
+    # The nested children field inside children is list[_TreeNode] | None,
+    # so it renders as a one-element list whose item is the cyclic marker
+    # dict (with __optional__ because the outer union includes None).
+    nested_children = child_schema.get("children")
+    assert isinstance(nested_children, list)
+    assert len(nested_children) == 1
+    assert nested_children[0] == {"__cyclic__": "_TreeNode", "__optional__": True}
+
+
+def test_five_level_deep_nesting_hits_max_depth():
+    """Deeply nested non-cyclic models hit the _MAX_DEPTH guard without
+    crashing or exhausting stack."""
+
+    class _L5(BaseModel):
+        name: str = "l5"
+
+    class _L4(BaseModel):
+        l5: _L5
+
+    class _L3(BaseModel):
+        l4: _L4
+
+    class _L2(BaseModel):
+        l3: _L3
+
+    class _L1(BaseModel):
+        l2: _L2
+
+    class _L0(BaseModel):
+        l1: _L1
+
+    entry = _model_schema_entry(_L0)
+    # _L0.l1 → _L1.l2 → _L2.l3 → _L3.l4 → _L4.l5 → _L5.name
+    # depth goes: 1, 2, 3, 4, 5 — at depth 5 _render_field_value for
+    # _L5 should still process since d=5 ≤ MAX_DEPTH=5, and _L5's
+    # field 'name' at d=6 hits the guard.
+    l1 = entry["l1"]
+    assert isinstance(l1, dict)
+    l2 = l1["l2"]
+    assert isinstance(l2, dict)
+    l3 = l2["l3"]
+    assert isinstance(l3, dict)
+    l4 = l3["l4"]
+    assert isinstance(l4, dict)
+    l5 = l4["l5"]
+    assert isinstance(l5, dict)
+    # name at depth 6 should be rendered normally (str → "str")
+    assert l5["name"] == "str"

@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from firnline_core.plugins import (
     HostPolicy,
@@ -43,6 +43,7 @@ class FindEntityRequest(BaseModel):
 
 
 class FindEntityCandidate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     iri: str
     class_name: str = Field(alias="class")
     name: str
@@ -62,6 +63,7 @@ class FindClassRequest(BaseModel):
 
 
 class FindClassCandidate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     class_name: str = Field(alias="class")
     description: str
     score: float
@@ -72,12 +74,14 @@ class FindClassResponse(BaseModel):
 
 
 class FindFieldRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     text: str = Field(min_length=1)
     class_name: str | None = Field(default=None, alias="class")
     k: int = Field(default=5, ge=1, le=50)
 
 
 class FindFieldCandidate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     class_name: str = Field(alias="class")
     field: str
     type: str
