@@ -30,6 +30,35 @@ from firnline_core.tdb import TdbClient, TdbError, short_iri
 logger = structlog.get_logger(__name__)
 
 
+def _normalize_iri_entry(entry: Any) -> str:
+    """Normalize an IRI reference to its short string form for comparison.
+
+    Handles plain strings (already short IRIs) and dict representations
+    like ``{"@id": "Captured/x"}``.
+    """
+    if isinstance(entry, dict):
+        raw = entry.get("@id", "")
+    else:
+        raw = str(entry) if entry is not None else ""
+    return short_iri(raw) if raw else ""
+
+
+def _deep_merge_dict(base: dict[str, Any], incoming: dict[str, Any]) -> None:
+    """Deep-merge *incoming* into *base* in-place.
+
+    New keys override.  Existing keys absent from *incoming* survive.
+    ``None`` values in *incoming* are skipped.
+    Nested dicts are merged recursively; all other types overwrite whole.
+    """
+    for key, value in incoming.items():
+        if value is None:
+            continue
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            _deep_merge_dict(base[key], value)
+        else:
+            base[key] = value
+
+
 class Pipeline:
     """Main extraction pipeline: fetch inbox docs, run extraction, insert results.
 
@@ -275,11 +304,18 @@ class Pipeline:
         self,
         index: EntityIndex,
         batch: list[dict[str, Any]],
+        existing_ids: set[str],
     ) -> Any:
         """Return an async ``ensure_entity`` callable for ``BuildContext``.
 
         When ``INGESTD_INDEXED_ENABLED`` is true, entity linking consults
         the indexed service on exact-match miss before creating a new entity.
+
+        On an existing-entity hit (exact match or indexed fallback) the
+        *factory* is still called so that new links (e.g. a freshly created
+        Location for a Person's domicile) are merged into the existing
+        document via a later fetch+merge+replace step instead of being
+        silently dropped.
         """
         config = LinkingConfig(
             enabled=self.settings.indexed_enabled,
@@ -291,6 +327,7 @@ class Pipeline:
         )
 
         index_ref = index
+        created_this_batch: set[str] = set()
 
         async def _ensure_entity(
             type_name: str,
@@ -300,14 +337,14 @@ class Pipeline:
             # 1. Exact index lookup
             iri = match(index_ref, type_name, name)
             if iri:
-                return iri
+                return _handle_existing(iri, factory, type_name, name)
 
             # 2. Indexed fallback
             if config.enabled and config.url:
                 try:
                     iri = await async_match(index_ref, type_name, name, config)
                     if iri:
-                        return iri
+                        return _handle_existing(iri, factory, type_name, name)
                 except Exception:
                     logger.warning(
                         "ensure_entity_indexed_failed",
@@ -324,8 +361,68 @@ class Pipeline:
             if "@id" not in doc:
                 doc["@id"] = f"{type_name}/{uuid4().hex}"
             batch.append(doc)
+            # Register in the in-memory index immediately so that subsequent
+            # ensure_entity calls in the same batch find this IRI (dedup).
+            # The IRI stays registered even if the batch write fails: on
+            # LLM-retry the entity flows through the update path where its
+            # 404 fallback recreates it with the same @id — no duplicates.
             index_ref.register(type_name, name, doc["@id"])
+            created_this_batch.add(doc["@id"])
             return doc["@id"]
+
+        def _handle_existing(iri: str, factory: Any, type_name: str, name: str) -> str | None:
+            doc = factory() if callable(factory) else factory
+            if doc is None:
+                # Lookup-only pattern (lambda: None) — no update needed
+                return iri
+
+            # Always stamp the existing IRI so the factory cannot change it
+            doc["@id"] = iri
+
+            if iri in created_this_batch:
+                # Created this batch — dedup into the earlier batch entry
+                # but do NOT mark as needing a DB update (it's still new).
+                for prev in batch:
+                    if prev.get("@id") == iri:
+                        _merge_factory_outputs(prev, doc)
+                        break
+                return iri
+
+            if iri in existing_ids:
+                # Dedup: same IRI already batched for update — merge new
+                # factory output into the previously batched doc.
+                for prev in batch:
+                    if prev.get("@id") == iri:
+                        _merge_factory_outputs(prev, doc)
+                        break
+            else:
+                batch.append(doc)
+                existing_ids.add(iri)
+
+            return iri
+
+        def _merge_factory_outputs(base: dict[str, Any], incoming: dict[str, Any]) -> None:
+            """Merge *incoming* into *base* in-place.
+
+            Identity keys (``@id``, ``@type``, ``provenance``, ``created_at``)
+            are never overwritten.  Plain values: later wins.  List-valued keys
+            ``derived_from`` and ``aliases`` are unioned preserving order and
+            deduplication.  IRI entries are normalized to their short string
+            form before comparison.
+            """
+            for key, value in incoming.items():
+                if key in ("@id", "@type", "provenance", "created_at"):
+                    continue
+                if key in ("derived_from", "aliases") and isinstance(value, list):
+                    existing_list: list = base.setdefault(key, [])
+                    existing_norms = {_normalize_iri_entry(e) for e in existing_list}
+                    for item in value:
+                        norm = _normalize_iri_entry(item)
+                        if norm not in existing_norms:
+                            existing_list.append(item)
+                            existing_norms.add(norm)
+                else:
+                    base[key] = value
 
         return _ensure_entity
 
@@ -389,15 +486,20 @@ class Pipeline:
             # Build documents via plugin dispatch — one batch per item
             now = datetime.now(timezone.utc)
 
-            batch, success = await self._build_and_dispatch(
+            batch, existing_ids, success = await self._build_and_dispatch(
                 result.proposals, doc_iri, index, now
             )
+
+            create_docs = [d for d in batch if d.get("@id") not in existing_ids]
+            update_docs = [d for d in batch if d.get("@id") in existing_ids]
 
             if self.settings.dry_run:
                 logger.info(
                     "dry_run_would_insert",
                     iri=doc_iri,
                     documents=batch,
+                    creates=len(create_docs),
+                    updates=len(update_docs),
                 )
                 return
 
@@ -412,15 +514,30 @@ class Pipeline:
                 continue
 
             try:
-                if batch:
-                    inserted = await self.tdb.insert_documents(
-                        batch,
+                # Merge all updates first (fetch + merge, no writes yet)
+                merged_updates: list[dict[str, Any]] = []
+                for upd_doc in update_docs:
+                    merged = await self._merge_update(upd_doc, branch, doc_iri)
+                    merged_updates.append(merged)
+
+                all_docs = create_docs + merged_updates
+
+                if all_docs:
+                    await self.tdb.replace_documents(
+                        all_docs,
                         branch=branch,
                         message=f"ingestd: extracted from {doc_iri}",
+                        create=True,
                     )
-                    logger.info("inserted_documents", iri=doc_iri, count=len(inserted))
+                    logger.info(
+                        "written_documents",
+                        iri=doc_iri,
+                        creates=len(create_docs),
+                        updates=len(merged_updates),
+                    )
                 else:
                     logger.info("no_documents_to_insert", iri=doc_iri)
+
                 break  # success → exit retry loop
 
             except TdbError as e:
@@ -471,6 +588,73 @@ class Pipeline:
         )
 
     # ------------------------------------------------------------------
+    # Merge update — fetch existing doc, merge factory output, replace
+    # ------------------------------------------------------------------
+
+    async def _merge_update(
+        self,
+        new_doc: dict[str, Any],
+        branch: str,
+        source_iri: str,
+    ) -> dict[str, Any]:
+        """Fetch the existing document, merge in *new_doc* values.
+
+        Preserves ``created_at`` and ``provenance`` (the "birth certificate")
+        from the existing document.  ``derived_from`` and ``aliases`` lists
+        are unioned (order-preserving, deduplicated, IRI-normalized).
+        ``None`` and empty-list values from *new_doc* are skipped to avoid
+        clobbering existing data.  Sub-documents (dict-valued fields) are
+        deep-merged so existing keys survive when absent from the factory
+        output.
+
+        If the existing document cannot be found (404 — stale index), the
+        new document is returned as-is so it can be created atomically.
+
+        Returns the merged document dict (does NOT write to the database).
+        """
+        short = short_iri(new_doc["@id"])
+
+        try:
+            existing = await self.tdb.get_document(short, branch=branch)
+        except TdbError as e:
+            if e.status == 404:
+                logger.warning(
+                    "merge_update_not_found_fallback_create",
+                    iri=short,
+                    doc_type=new_doc.get("@type"),
+                    source=source_iri,
+                )
+                return new_doc
+            raise
+
+        merged = dict(existing)
+
+        for key, value in new_doc.items():
+            if key in ("created_at", "provenance", "@id", "@type"):
+                continue  # preserve birth certificate + identity
+            if key in ("derived_from", "aliases"):
+                if isinstance(value, list):
+                    existing_list: list = merged.setdefault(key, [])
+                    existing_norms = {_normalize_iri_entry(e) for e in existing_list}
+                    for item in value:
+                        norm = _normalize_iri_entry(item)
+                        if norm not in existing_norms:
+                            existing_list.append(item)
+                            existing_norms.add(norm)
+                continue
+            if value is None or value == []:
+                continue  # never clobber existing data with empty factory output
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                # Deep-merge sub-documents: new keys override, existing keys
+                # survive when absent from the factory output; skip None values.
+                _deep_merge_dict(merged[key], value)
+            else:
+                merged[key] = value
+
+        merged["updated_at"] = new_doc.get("updated_at", merged.get("updated_at"))
+        return merged
+
+    # ------------------------------------------------------------------
     # Document building — plugin-aware path
     # ------------------------------------------------------------------
 
@@ -480,14 +664,18 @@ class Pipeline:
         doc_iri: str,
         index: EntityIndex,
         now: datetime,
-    ) -> tuple[list[dict[str, Any]], bool]:
+    ) -> tuple[list[dict[str, Any]], set[str], bool]:
         """Build documents by dispatching each proposal to its owning plugin.
 
-        Returns ``(batch_docs, success)`` — *success* is ``False`` when
-        any plugin's ``build_documents`` raises (partial-build detection).
+        Returns ``(batch_docs, existing_ids, success)`` — *existing_ids*
+        tracks which documents in the batch correspond to already-persisted
+        entities (they need an update rather than a create).  *success* is
+        ``False`` when any plugin's ``build_documents`` raises (partial-build
+        detection).
         """
         batch: list[dict[str, Any]] = []
-        ensure_entity = self._make_ensure_entity(index, batch)
+        existing_ids: set[str] = set()
+        ensure_entity = self._make_ensure_entity(index, batch, existing_ids)
         success = True
 
         for prop in proposals:
@@ -526,4 +714,4 @@ class Pipeline:
 
             batch.extend(docs)
 
-        return batch, success
+        return batch, existing_ids, success

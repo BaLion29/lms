@@ -86,7 +86,9 @@ def _fake_tdb(
     tdb.get_documents_by_status = AsyncMock()
     tdb.insert_documents = AsyncMock()
     tdb.replace_document = AsyncMock()
+    tdb.replace_documents = AsyncMock()
     tdb.graphql = AsyncMock()
+    tdb.get_document = AsyncMock()
 
     doc_map: dict[str, list[dict]] = dict(documents or {})
     if people:
@@ -111,6 +113,39 @@ def _fake_tdb(
         return []
 
     tdb.get_documents_by_status.side_effect = _get_by_status
+
+    # Flat IRI→doc lookup for get_document (merges all document types)
+    _all_docs: dict[str, dict] = {}
+    for docs in doc_map.values():
+        for d in docs:
+            _all_docs[d.get("@id", "")] = d
+
+    async def _get_document(iri: str, branch: str = "main"):
+        # Try the short IRI directly, and also with and without the prefix
+        from firnline_core.tdb import short_iri
+        key = short_iri(iri)
+        doc = _all_docs.get(key)
+        if doc is None:
+            raise TdbError(404, f"Document not found: {iri}")
+        return doc
+
+    tdb.get_document.side_effect = _get_document
+
+    # Track inserted/replaced docs so merge-update can find them
+    async def _replace_docs(docs, branch="main", message="ingestd", *, create=False):
+        for d in docs:
+            _all_docs[d.get("@id", "")] = d
+        return [f"terminusdb:///data/{d.get('@type', 'Unknown')}/{d.get('@id', 'new')}" for d in docs]
+
+    tdb.replace_documents.side_effect = _replace_docs
+
+    # Keep insert_documents for backward compat in tests that mock it directly
+    async def _insert_docs(docs, branch="main", message="ingestd"):
+        for d in docs:
+            _all_docs[d.get("@id", "")] = d
+        return [f"terminusdb:///data/{d.get('@type', 'Unknown')}/{d.get('@id', 'new')}" for d in docs]
+
+    tdb.insert_documents.side_effect = _insert_docs
 
     _graphql_error_used = False
 
@@ -220,8 +255,8 @@ async def test_happy_path_inserts_task_and_flips_status():
 
     await pipeline.run_cycle()
 
-    tdb.insert_documents.assert_called_once()
-    call_args = tdb.insert_documents.call_args
+    tdb.replace_documents.assert_called_once()
+    call_args = tdb.replace_documents.call_args
     docs = call_args[0][0]
     assert len(docs) == 1
     task = docs[0]
@@ -268,7 +303,7 @@ async def test_idempotency_per_item_graphql_skip():
     await pipeline.run_cycle()
 
     assert not extract_called
-    tdb.insert_documents.assert_not_called()
+    tdb.replace_documents.assert_not_called()
     tdb.replace_document.assert_called_once()
     replaced = tdb.replace_document.call_args[0][0]
     assert replaced["status"] == "processed"
@@ -311,7 +346,7 @@ async def test_idempotency_per_item_graphql_no_match():
 
     await pipeline.run_cycle()
 
-    tdb.insert_documents.assert_called_once()
+    tdb.replace_documents.assert_called_once()
     tdb.replace_document.assert_called_once()
     replaced = tdb.replace_document.call_args[0][0]
     assert replaced["status"] == "processed"
@@ -542,7 +577,7 @@ async def test_nothing_actionable_flips_to_processed():
 
     await pipeline.run_cycle()
 
-    tdb.insert_documents.assert_not_called()
+    tdb.replace_documents.assert_not_called()
     tdb.replace_document.assert_called_once()
     replaced = tdb.replace_document.call_args[0][0]
     assert replaced["status"] == "processed"
@@ -563,14 +598,14 @@ async def test_tdberror_retry_with_error_feedback():
     error_body = "SchemaCheckFailure: bad field"
     call_count = 0
 
-    async def insert_stub(docs, branch="main", message="ingestd"):
+    async def replace_stub(docs, branch="main", message="ingestd", *, create=False):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise TdbError(400, error_body)
         return ["terminusdb:///data/Task/new1"]
 
-    tdb.insert_documents.side_effect = insert_stub
+    tdb.replace_documents.side_effect = replace_stub
 
     extract_calls = []
 
@@ -622,14 +657,14 @@ async def test_retry_exhaustion_flips_to_failed():
 
     insert_call = 0
 
-    async def insert_stub(docs, branch="main", message="ingestd"):
+    async def replace_stub(docs, branch="main", message="ingestd", *, create=False):
         nonlocal insert_call
         insert_call += 1
         if insert_call <= 2:
             raise TdbError(400, "persistent failure")
         return ["terminusdb:///data/Task/ok"]
 
-    tdb.insert_documents.side_effect = insert_stub
+    tdb.replace_documents.side_effect = replace_stub
 
     async def fake_extract(
         agent, text, reference_dt, context_block, error_feedback=None,
@@ -697,7 +732,7 @@ async def test_dry_run_no_inserts_no_flips():
 
     await pipeline.run_cycle()
 
-    tdb.insert_documents.assert_not_called()
+    tdb.replace_documents.assert_not_called()
     tdb.replace_document.assert_not_called()
 
 
@@ -740,8 +775,8 @@ async def test_ensure_entity_links_known_person_and_location():
 
     await pipeline.run_cycle()
 
-    tdb.insert_documents.assert_called_once()
-    docs = tdb.insert_documents.call_args[0][0]
+    tdb.replace_documents.assert_called_once()
+    docs = tdb.replace_documents.call_args[0][0]
     event_docs = [d for d in docs if d.get("@type") == "Event"]
     assert len(event_docs) == 1
     event = event_docs[0]
@@ -782,8 +817,8 @@ async def test_ensure_entity_creates_new_location_in_same_batch():
 
     await pipeline.run_cycle()
 
-    tdb.insert_documents.assert_called_once()
-    docs = tdb.insert_documents.call_args[0][0]
+    tdb.replace_documents.assert_called_once()
+    docs = tdb.replace_documents.call_args[0][0]
 
     loc_docs = [d for d in docs if d.get("@type") == "Location"]
     event_docs = [d for d in docs if d.get("@type") == "Event"]
@@ -841,8 +876,8 @@ async def test_ensure_entity_dedup_two_mentions_same_cycle():
 
     await pipeline.run_cycle()
 
-    tdb.insert_documents.assert_called_once()
-    docs = tdb.insert_documents.call_args[0][0]
+    tdb.replace_documents.assert_called_once()
+    docs = tdb.replace_documents.call_args[0][0]
 
     loc_docs = [d for d in docs if d.get("@type") == "Location"]
     event_docs = [d for d in docs if d.get("@type") == "Event"]
@@ -967,7 +1002,7 @@ async def test_exact_retry_accounting_max_retries_3():
     """max_llm_retries=3, insert always raises TdbError → extract called 3x, status=failed."""
     note = _captured_text("Captured/abc", "Buy milk")
     tdb = _fake_tdb(captured_docs=[note])
-    tdb.insert_documents.side_effect = TdbError(400, "boom")
+    tdb.replace_documents.side_effect = TdbError(400, "boom")
 
     extract_calls = []
 
@@ -1066,7 +1101,7 @@ async def test_dry_run_extract_called_but_zero_writes():
 
     tdb.get_documents.assert_called()
     tdb.get_documents_by_status.assert_called()
-    tdb.insert_documents.assert_not_called()
+    tdb.replace_documents.assert_not_called()
     tdb.replace_document.assert_not_called()
 
 
@@ -1211,10 +1246,10 @@ async def test_build_documents_mid_batch_isolation():
     note = _captured_text("Captured/abc", "Test isolation")
     tdb = _fake_tdb(captured_docs=[note])
 
-    async def insert_stub(docs, branch="main", message="ingestd"):
+    async def replace_stub(docs, branch="main", message="ingestd", *, create=False):
         return [f"terminusdb:///data/{d['@type']}/new" for d in docs]
 
-    tdb.insert_documents.side_effect = insert_stub
+    tdb.replace_documents.side_effect = replace_stub
 
     async def fake_extract(
         agent, text, reference_dt, context_block, error_feedback=None,
@@ -1307,3 +1342,448 @@ async def test_empty_text_skipped_no_status_flip():
     assert not extract_called
     # Status should NOT be flipped
     tdb.replace_document.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Entity-update ("fetch+merge") path tests
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureEntityUpdatePath:
+    """Tests for the new entity-update behaviour in _make_ensure_entity."""
+
+    @pytest.mark.asyncio
+    async def test_existing_entity_runs_factory_and_appends_to_batch(self):
+        """Index hit now calls factory, stamps @id, and appends to batch + existing_ids."""
+        from ingestd.linking import EntityIndex
+
+        tdb = _fake_tdb(people=[{"@id": "Person/bob", "name": "Bob Smith"}])
+        pipeline = _make_pipeline(tdb)
+
+        index = EntityIndex()
+        index.register("Person", "Bob Smith", "Person/bob")
+
+        batch: list[dict[str, Any]] = []
+        existing_ids: set[str] = set()
+        ensure = pipeline._make_ensure_entity(index, batch, existing_ids)
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+
+        factory_called = False
+
+        def factory():
+            nonlocal factory_called
+            factory_called = True
+            return {
+                "@type": "Person",
+                "name": "Bob Smith",
+                "created_at": now,
+                "updated_at": now,
+                "derived_from": ["Captured/new"],
+                "provenance": {"agent": "test"},
+            }
+
+        iri = await ensure("Person", "Bob Smith", factory)
+
+        assert factory_called
+        assert iri == "Person/bob"
+        assert len(batch) == 1
+        assert batch[0]["@id"] == "Person/bob"
+        assert batch[0]["@type"] == "Person"
+        assert "Person/bob" in existing_ids
+
+    @pytest.mark.asyncio
+    async def test_existing_entity_lambda_none_returns_iri_without_batch(self):
+        """Lookup-only pattern (lambda: None) still works — no update triggered."""
+        from ingestd.linking import EntityIndex
+
+        tdb = _fake_tdb(people=[{"@id": "Person/bob", "name": "Bob Smith"}])
+        pipeline = _make_pipeline(tdb)
+
+        index = EntityIndex()
+        index.register("Person", "Bob Smith", "Person/bob")
+
+        batch: list[dict[str, Any]] = []
+        existing_ids: set[str] = set()
+        ensure = pipeline._make_ensure_entity(index, batch, existing_ids)
+
+        iri = await ensure("Person", "Bob Smith", lambda: None)
+
+        assert iri == "Person/bob"
+        assert len(batch) == 0
+        assert "Person/bob" not in existing_ids
+
+    @pytest.mark.asyncio
+    async def test_miss_still_creates_regression(self):
+        """Unknown entity still goes through the create path."""
+        from ingestd.linking import EntityIndex
+
+        tdb = _fake_tdb()
+        pipeline = _make_pipeline(tdb)
+
+        index = EntityIndex()
+        batch: list[dict[str, Any]] = []
+        existing_ids: set[str] = set()
+        ensure = pipeline._make_ensure_entity(index, batch, existing_ids)
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+
+        iri = await ensure(
+            "Location",
+            "NewPlace",
+            lambda: {"@type": "Location", "name": "NewPlace", "created_at": now, "updated_at": now},
+        )
+
+        assert iri is not None
+        assert iri.startswith("Location/")
+        assert len(batch) == 1
+        assert batch[0]["@type"] == "Location"
+        assert batch[0]["name"] == "NewPlace"
+        assert iri not in existing_ids  # create path does NOT add to existing_ids
+
+    @pytest.mark.asyncio
+    async def test_existing_entity_dedup_two_references(self):
+        """Two proposals referencing same existing entity → one batch entry, merged."""
+        from ingestd.linking import EntityIndex
+
+        tdb = _fake_tdb(people=[{"@id": "Person/bob", "name": "Bob Smith"}])
+        pipeline = _make_pipeline(tdb)
+
+        index = EntityIndex()
+        index.register("Person", "Bob Smith", "Person/bob")
+
+        batch: list[dict[str, Any]] = []
+        existing_ids: set[str] = set()
+        ensure = pipeline._make_ensure_entity(index, batch, existing_ids)
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+
+        # First reference
+        iri1 = await ensure(
+            "Person", "Bob Smith",
+            lambda: {"@type": "Person", "name": "Bob Smith", "email": "bob@example.com", "derived_from": ["Captured/src1"], "created_at": now, "updated_at": now},
+        )
+        # Second reference — should merge
+        iri2 = await ensure(
+            "Person", "Bob Smith",
+            lambda: {"@type": "Person", "name": "Bob Smith", "phone": "555-1234", "derived_from": ["Captured/src2"], "created_at": now, "updated_at": now},
+        )
+
+        assert iri1 == "Person/bob"
+        assert iri2 == "Person/bob"
+        assert len(batch) == 1  # deduplicated
+        merged = batch[0]
+        assert merged["email"] == "bob@example.com"
+        assert merged["phone"] == "555-1234"
+        assert "Captured/src1" in merged["derived_from"]
+        assert "Captured/src2" in merged["derived_from"]
+        assert "Person/bob" in existing_ids
+
+
+class TestMergeUpdate:
+    """Tests for _merge_update fetch+merge+replace logic."""
+
+    @pytest.mark.asyncio
+    async def test_merge_update_preserves_created_at_and_provenance(self):
+        """_merge_update keeps the existing doc's created_at and provenance."""
+        tdb = _fake_tdb(people=[{
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob Old",
+            "created_at": "2020-01-01T00:00:00Z",
+            "provenance": {"agent": "initial", "at": "2020-01-01T00:00:00Z", "method": "manual"},
+            "updated_at": "2020-01-01T00:00:00Z",
+        }])
+        pipeline = _make_pipeline(tdb)
+
+        new_doc = {
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob New",
+            "created_at": "2025-01-01T00:00:00Z",  # should be ignored
+            "provenance": {"agent": "ingestd"},  # should be ignored
+            "updated_at": "2025-07-01T00:00:00Z",
+            "email": "bob@example.com",
+        }
+
+        merged = await pipeline._merge_update(new_doc, "main", "Captured/src")
+
+        tdb.get_document.assert_called_once_with("Person/bob", branch="main")
+        assert merged["created_at"] == "2020-01-01T00:00:00Z"  # preserved
+        assert merged["provenance"] == {"agent": "initial", "at": "2020-01-01T00:00:00Z", "method": "manual"}  # preserved
+        assert merged["name"] == "Bob New"  # overwritten
+        assert merged["email"] == "bob@example.com"  # added
+        assert merged["updated_at"] == "2025-07-01T00:00:00Z"
+
+    @pytest.mark.asyncio
+    async def test_merge_update_unions_derived_from_and_aliases(self):
+        """_merge_update unions derived_from and aliases lists."""
+        tdb = _fake_tdb(people=[{
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob",
+            "derived_from": ["Captured/old1"],
+            "aliases": ["Bobby"],
+            "created_at": "2020-01-01T00:00:00Z",
+            "provenance": {"agent": "test"},
+            "updated_at": "2020-01-01T00:00:00Z",
+        }])
+        pipeline = _make_pipeline(tdb)
+
+        new_doc = {
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob",
+            "derived_from": ["Captured/old1", "Captured/new1"],
+            "aliases": ["Bobby", "Robert"],
+            "updated_at": "2025-07-01T00:00:00Z",
+        }
+
+        merged = await pipeline._merge_update(new_doc, "main", "Captured/src")
+
+        assert merged["derived_from"] == ["Captured/old1", "Captured/new1"]
+        assert merged["aliases"] == ["Bobby", "Robert"]
+
+    @pytest.mark.asyncio
+    async def test_merge_update_skips_none_and_empty_values(self):
+        """_merge_update does not clobber existing data with None or empty list."""
+        tdb = _fake_tdb(people=[{
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob",
+            "email": "old@example.com",
+            "phone": "555-0000",
+            "created_at": "2020-01-01T00:00:00Z",
+            "provenance": {"agent": "test"},
+            "updated_at": "2020-01-01T00:00:00Z",
+        }])
+        pipeline = _make_pipeline(tdb)
+
+        new_doc = {
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob",
+            "email": None,  # should be skipped
+            "phone": [],  # should be skipped
+            "updated_at": "2025-07-01T00:00:00Z",
+        }
+
+        merged = await pipeline._merge_update(new_doc, "main", "Captured/src")
+
+        assert merged["email"] == "old@example.com"  # preserved
+        assert merged["phone"] == "555-0000"  # preserved
+
+    @pytest.mark.asyncio
+    async def test_merge_update_404_falls_back_to_create(self):
+        """_merge_update returns new_doc as-is when get_document 404s (stale index)."""
+        tdb = _fake_tdb()  # no docs → get_document will 404
+        pipeline = _make_pipeline(tdb)
+
+        new_doc = {
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob",
+            "updated_at": "2025-07-01T00:00:00Z",
+        }
+
+        merged = await pipeline._merge_update(new_doc, "main", "Captured/inbox42")
+
+        # Returns new_doc as-is — no merge, no exception
+        assert merged is new_doc
+        tdb.get_document.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_merge_update_deep_merges_subdocuments(self):
+        """Sub-documents are deep-merged: existing keys survive if absent from factory."""
+        tdb = _fake_tdb(people=[{
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob",
+            "contact": {"email": "a@b.c", "phone": "123"},
+            "created_at": "2020-01-01T00:00:00Z",
+            "provenance": {"agent": "test"},
+            "updated_at": "2020-01-01T00:00:00Z",
+        }])
+        pipeline = _make_pipeline(tdb)
+
+        new_doc = {
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob",
+            "contact": {"email": "new@b.c", "domicile": "Location/x"},
+            "updated_at": "2025-07-01T00:00:00Z",
+        }
+
+        merged = await pipeline._merge_update(new_doc, "main", "Captured/src")
+
+        assert merged["contact"]["email"] == "new@b.c"  # overridden
+        assert merged["contact"]["phone"] == "123"      # preserved
+        assert merged["contact"]["domicile"] == "Location/x"  # added
+
+
+class TestProcessOneSplit:
+    """Tests for the create-vs-update split in _process_one."""
+
+    @requires_extensions
+    @pytest.mark.asyncio
+    async def test_mixed_create_and_update_routes_correctly(self):
+        """Batch with one new + one existing doc: insert for new, merge for existing."""
+        note = _captured_text("Captured/abc", "Bob works at NewOffice")
+        existing_person = {
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob Smith",
+            "created_at": "2020-01-01T00:00:00Z",
+            "provenance": {"agent": "manual", "at": "2020-01-01T00:00:00Z", "method": "manual"},
+            "updated_at": "2020-01-01T00:00:00Z",
+        }
+        tdb = _fake_tdb(
+            captured_docs=[note],
+            people=[existing_person],
+        )
+
+        async def fake_extract(
+            agent, text, reference_dt, context_block, error_feedback=None,
+            extraction_ctx=None,
+        ):
+            return ExtractionResult(
+                proposals=[
+                    # Event with NEW location → should create Location + Event
+                    EventProposal(
+                        name="Meeting",
+                        description=None,
+                        start_datetime=None,
+                        end_datetime=None,
+                        location_name="NewOffice",
+                    ),
+                ],
+                reasoning="event with new location",
+                confidence=0.9,
+            )
+
+        pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
+
+        await pipeline.run_cycle()
+
+        # replace_documents should be called atomically with create=True
+        tdb.replace_documents.assert_called_once()
+        docs = tdb.replace_documents.call_args[0][0]
+        call_kwargs = tdb.replace_documents.call_args.kwargs
+        assert call_kwargs.get("create") is True
+        doc_types = [d.get("@type") for d in docs]
+        assert "Event" in doc_types
+        assert "Location" in doc_types
+
+        # replace_document called for: status flip (1x)
+        # Verify the status flip has processed status
+        status_flips = [
+            call for call in tdb.replace_document.call_args_list
+            if call[0][0].get("status") == "processed"
+        ]
+        assert len(status_flips) == 1
+
+    @requires_extensions
+    @pytest.mark.asyncio
+    async def test_existing_person_gets_merged_update(self):
+        """PersonProposal for known Person → factory runs, doc goes to update path."""
+        note = _captured_text("Captured/abc", "Bob Smith has new email bob@test.com")
+        existing_person = {
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob Smith",
+            "created_at": "2020-01-01T00:00:00Z",
+            "provenance": {"agent": "manual", "at": "2020-01-01T00:00:00Z", "method": "manual"},
+            "updated_at": "2020-01-01T00:00:00Z",
+        }
+        tdb = _fake_tdb(
+            captured_docs=[note],
+            people=[existing_person],
+        )
+
+        async def fake_extract(
+            agent, text, reference_dt, context_block, error_feedback=None,
+            extraction_ctx=None,
+        ):
+            return ExtractionResult(
+                proposals=[
+                    PersonProposal(name="Bob Smith", email="bob@test.com", phone=None),
+                ],
+                reasoning="person update",
+                confidence=0.9,
+            )
+
+        pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
+
+        await pipeline.run_cycle()
+
+        # The Person doc should be merged+updated atomically via replace_documents
+        tdb.get_document.assert_called()  # called by _merge_update
+        # replace_documents should have been called with all docs + create=True
+        tdb.replace_documents.assert_called_once()
+        call_kwargs = tdb.replace_documents.call_args.kwargs
+        assert call_kwargs.get("create") is True
+
+    @requires_extensions
+    @pytest.mark.asyncio
+    async def test_dry_run_reports_creates_and_updates(self):
+        """dry_run logs both creates= and updates= counts."""
+        note = _captured_text("Captured/abc", "Bob works at Office")
+        existing_person = {
+            "@id": "Person/bob",
+            "@type": "Person",
+            "name": "Bob Smith",
+            "created_at": "2020-01-01T00:00:00Z",
+            "provenance": {"agent": "manual", "at": "2020-01-01T00:00:00Z", "method": "manual"},
+            "updated_at": "2020-01-01T00:00:00Z",
+        }
+        existing_location = {
+            "@id": "Location/office",
+            "@type": "Location",
+            "name": "Office",
+            "created_at": "2020-01-01T00:00:00Z",
+            "provenance": {"agent": "manual", "at": "2020-01-01T00:00:00Z", "method": "manual"},
+            "updated_at": "2020-01-01T00:00:00Z",
+        }
+        tdb = _fake_tdb(
+            captured_docs=[note],
+            people=[existing_person],
+            locations=[existing_location],
+        )
+
+        async def fake_extract(
+            agent, text, reference_dt, context_block, error_feedback=None,
+            extraction_ctx=None,
+        ):
+            return ExtractionResult(
+                proposals=[
+                    PersonProposal(name="Bob Smith", email="bob@test.com", phone=None),
+                    EventProposal(
+                        name="Meeting",
+                        description=None,
+                        start_datetime=None,
+                        end_datetime=None,
+                        location_name="Office",
+                    ),
+                ],
+                reasoning="person + event",
+                confidence=0.9,
+            )
+
+        settings = _settings(dry_run=True)
+        pipeline = _make_pipeline(tdb, settings=settings, extract_fn=fake_extract)
+
+        from structlog.testing import capture_logs
+        with capture_logs() as captured:
+            await pipeline.run_cycle()
+
+        dry_run_logs = [e for e in captured if e.get("event") == "dry_run_would_insert"]
+        assert len(dry_run_logs) == 1
+        log_entry = dry_run_logs[0]
+        assert "creates" in log_entry
+        assert "updates" in log_entry
+        # Person and Location are existing → updates; Event is new → create
+        assert log_entry["updates"] >= 2  # Person + Location
+        assert log_entry["creates"] >= 1  # Event

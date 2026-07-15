@@ -344,6 +344,38 @@ class TdbClient:
         )
         await self._raise_on_error(response)
 
+    async def replace_documents(
+        self,
+        docs: list[dict[str, Any]],
+        branch: str = "main",
+        message: str = "ingestd",
+        *,
+        create: bool = False,
+    ) -> list[str]:
+        """Atomically insert-or-replace a batch of documents.
+
+        When *create* is ``True`` the TerminusDB ``create`` parameter is
+        set to ``"true"``, which means: insert-if-absent, replace-if-present
+        — all in a single atomic request.
+
+        Returns the list of full IRIs of the written documents.
+        """
+        params: dict[str, str] = {
+            "graph_type": "instance",
+            "author": self._author,
+            "message": message,
+        }
+        if create:
+            params["create"] = "true"
+
+        response = await self._client.put(
+            self._doc_path(branch),
+            params=params,
+            json=docs,
+        )
+        await self._raise_on_error(response)
+        return response.json()  # type: ignore[no-any-return]
+
     async def delete_document(
         self,
         iri: str,

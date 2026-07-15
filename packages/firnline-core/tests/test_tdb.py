@@ -344,6 +344,66 @@ async def test_replace_document_custom_author(respx_mock):
 
 
 # ---------------------------------------------------------------------------
+# replace_documents (batch atomic insert-or-replace)
+# ---------------------------------------------------------------------------
+
+
+async def test_replace_documents_basic(client, respx_mock):
+    """PUT with list body and create=false (default) replaces existing docs."""
+    route = respx_mock.put(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json=["terminusdb:///data/Task/abc", "terminusdb:///data/Task/def"])
+
+    docs = [
+        {"@id": "Task/abc", "@type": "Task", "name": "A"},
+        {"@id": "Task/def", "@type": "Task", "name": "B"},
+    ]
+    result = await client.replace_documents(docs)
+
+    assert route.called
+    req = route.calls.last.request
+    assert req.url.params["author"] == "service:ingestd"
+    assert req.url.params["graph_type"] == "instance"
+    assert "create" not in req.url.params  # not set when create=False
+
+    sent = json.loads(req.read())
+    assert isinstance(sent, list)
+    assert len(sent) == 2
+    assert sent[0]["@id"] == "Task/abc"
+    assert sent[1]["name"] == "B"
+
+    assert result == ["terminusdb:///data/Task/abc", "terminusdb:///data/Task/def"]
+
+
+async def test_replace_documents_create_true(client, respx_mock):
+    """When create=True, the 'create' param is set to 'true'."""
+    route = respx_mock.put(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json=["terminusdb:///data/Task/new"])
+
+    docs = [{"@id": "Task/new", "@type": "Task", "name": "New"}]
+    result = await client.replace_documents(docs, create=True)
+
+    assert route.called
+    req = route.calls.last.request
+    assert req.url.params["create"] == "true"
+    assert len(result) == 1
+
+
+async def test_replace_documents_custom_message_and_branch(client, respx_mock):
+    """Branch and message are forwarded correctly."""
+    route = respx_mock.put(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/develop",
+    ).respond(json=[])
+
+    await client.replace_documents([], branch="develop", message="batch insert")
+
+    assert route.called
+    req = route.calls.last.request
+    assert req.url.params["message"] == "batch insert"
+
+
+# ---------------------------------------------------------------------------
 # get_document
 # ---------------------------------------------------------------------------
 
