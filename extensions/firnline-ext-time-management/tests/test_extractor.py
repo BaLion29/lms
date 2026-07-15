@@ -470,7 +470,7 @@ class TestBuildDocuments:
         doc = docs[0]
         assert doc["@type"] == "Routine"
         assert doc["name"] == "Morning routine"
-        assert doc["required_context"] == ["health"]
+        assert doc["required_context"] == ["Project/health"]
         assert "steps" in doc
 
         steps = doc["steps"]
@@ -538,6 +538,63 @@ class TestBuildDocuments:
         """Default step_type is 'activity' — no step_type specified should map to activity."""
         spec = RoutineStepSpec(name="Default step")
         assert spec.step_type == "activity"
+
+    async def test_routine_required_context_fallback_to_tag(self):
+        """Routine with required_context where no Project/Area/Goal matches → creates Tag."""
+        # Simulate: Project, Area, Goal not found, but Tag creation works
+        class _TagFallbackCtx(_FakeBuildContext):
+            async def ensure_entity(self, type_name: str, name: str, factory):
+                self.ensure_entity_calls.append((type_name, name, factory))
+                if type_name == "Tag":
+                    return "Tag/home"
+                return None  # Project, Area, Goal — all not found
+
+        ctx = _TagFallbackCtx()
+        proposal = RoutineProposal(
+            name="Home routine",
+            required_context=["home"],
+            steps=[RoutineStepSpec(name="Stretch", step_type="activity")],
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc["required_context"] == ["Tag/home"]
+        # Verify Tag factory was called (not lambda: None from _resolve_context)
+        tag_call = [c for c in ctx.ensure_entity_calls if c[0] == "Tag"]
+        assert len(tag_call) == 1
+        factory_doc = tag_call[0][2]()
+        assert factory_doc["@type"] == "Tag"
+        assert factory_doc["name"] == "home"
+
+    async def test_routine_required_context_resolves_existing_area(self):
+        """Routine with required_context where Area matches → uses Area IRI, no Tag."""
+
+        class _AreaOnlyCtx(_FakeBuildContext):
+            async def ensure_entity(self, type_name: str, name: str, factory):
+                self.ensure_entity_calls.append((type_name, name, factory))
+                if type_name == "Area":
+                    return "Area/home"
+                return None  # Project, Goal — not found
+
+        ctx = _AreaOnlyCtx()
+        proposal = RoutineProposal(
+            name="Home routine",
+            required_context=["home"],
+            steps=[RoutineStepSpec(name="Stretch", step_type="activity")],
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc["required_context"] == ["Area/home"]
+
+    async def test_routine_no_required_context_defaults_empty(self):
+        """Routine without required_context keeps the field empty."""
+        ctx = _FakeBuildContext()
+        proposal = RoutineProposal(
+            name="Simple routine",
+            steps=[RoutineStepSpec(name="Step", step_type="activity")],
+        )
+        docs = await self.plugin.build_documents(proposal, ctx)
+        doc = docs[0]
+        assert doc["required_context"] == []
 
     # ── Activity ──────────────────────────────────────────────────────
 

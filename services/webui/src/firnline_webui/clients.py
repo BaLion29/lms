@@ -6,12 +6,13 @@ All clients raise :class:`WebuiClientError` on failure.
 
 from __future__ import annotations
 
+from datetime import datetime as _datetime
 from typing import Any
 
 import httpx
 
 from firnline_core.tdb import TdbClient as _CoreTdbClient
-from firnline_core.tdb import TdbError
+from firnline_core.tdb import TdbError, short_iri
 
 
 class WebuiClientError(Exception):
@@ -305,13 +306,66 @@ class TdbBrowser:
         """Fetch SchemaModule documents."""
         return await self._call(self._tdb.get_documents("SchemaModule", branch=self._branch))
 
-    async def get_documents(self, type_: str) -> list[dict[str, Any]]:
-        """Fetch all documents of *type_*."""
-        return await self._call(self._tdb.get_documents(type_, branch=self._branch))
+    async def get_documents(
+        self, type_: str, *, skip: int | None = None, count: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Fetch documents of *type_*, optionally paginated."""
+        return await self._call(
+            self._tdb.get_documents(type_, branch=self._branch, skip=skip, count=count)
+        )
+
+    async def count_documents(self, type_: str) -> int:
+        """Return total document count for *type_*."""
+        return await self._call(self._tdb.count_documents(type_, branch=self._branch))
 
     async def get_document(self, iri: str) -> dict[str, Any]:
         """Fetch a single document by IRI."""
         return await self._call(self._tdb.get_document(iri, branch=self._branch))
+
+    async def get_commit_log(
+        self, count: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return commit log for the configured branch, newest first.
+
+        Each entry is a dict with keys ``id`` (full identifier),
+        ``short_id`` (first 10 chars), ``author``, ``message``, and
+        ``timestamp`` (float POSIX timestamp or ``None``).
+        """
+        raw = await self._call(
+            self._tdb.get_branch_log(self._branch, count=count)
+        )
+        result: list[dict[str, Any]] = []
+        for entry in raw:
+            identifier = str(entry.get("identifier", ""))
+            result.append(
+                {
+                    "id": identifier,
+                    "short_id": identifier[:10] if identifier else "",
+                    "author": str(entry.get("author", "")),
+                    "message": str(entry.get("message", "")),
+                    "timestamp": _parse_tdb_timestamp(entry.get("timestamp")),
+                }
+            )
+        return result
+
+    async def get_commit_changes(
+        self, commit_id: str
+    ) -> dict[str, list[str]]:
+        """Return ``{"inserted": [...], "updated": [...], "deleted": [...]}``
+        for a single commit on the configured branch.
+
+        Document IDs are normalised to short-IRI form (``Type/id``) so they
+        are directly compatible with :meth:`get_document` and suitable for
+        display to users.
+        """
+        inserted, updated, deleted = await self._call(
+            self._tdb.get_commit_diff(commit_id, branch=self._branch)
+        )
+        return {
+            "inserted": [short_iri(i) for i in inserted],
+            "updated": [short_iri(u) for u in updated],
+            "deleted": [short_iri(d) for d in deleted],
+        }
 
     async def aclose(self) -> None:
         await self._tdb.aclose()
@@ -366,3 +420,24 @@ def _safe_detail(resp: httpx.Response) -> str:
         return resp.text[:500]
     except ValueError:
         return resp.text[:500]
+
+
+def _parse_tdb_timestamp(raw: object) -> float | None:
+    """Normalise a TerminusDB log timestamp into a float POSIX timestamp.
+
+    Handles ISO 8601 strings (including ``Z`` suffix) and raw numeric
+    values.  Returns ``None`` when the value is missing or unparseable.
+    """
+    if raw is None:
+        return None
+    try:
+        if isinstance(raw, str):
+            ts = raw
+            if ts.endswith("Z"):
+                ts = ts[:-1] + "+00:00"
+            return _datetime.fromisoformat(ts).timestamp()
+        if isinstance(raw, (int, float)):
+            return float(raw)
+    except (ValueError, TypeError):
+        pass
+    return None

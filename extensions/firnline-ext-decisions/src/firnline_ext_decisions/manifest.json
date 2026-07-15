@@ -1,0 +1,8 @@
+{
+  "name": "decisions",
+  "version": "0.1.0",
+  "depends_on": [{"name": "core", "range": ">=0.1.0 <0.2.0"}],
+  "models_target": "firnline_ext_decisions.models",
+  "exports": ["Decision", "ConsideredOption", "DecisionStatus"],
+  "description": "ADR-style decision records: context, decision, consequences, considered options, and lifecycle status."
+}

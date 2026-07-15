@@ -12,23 +12,10 @@ import structlog
 
 from triggerd.engine import Engine
 from triggerd.settings import Settings
+from firnline_core.logging import configure_logging
 from firnline_core.plugins import HostPolicy, PluginHost, TriggerEvaluator
 from firnline_core.repository import Repository
 from firnline_core.tdb import TdbClient
-
-
-def _configure_logging() -> None:
-    structlog.configure(
-        processors=[
-            structlog.stdlib.add_log_level,
-            structlog.dev.set_exc_info,
-            structlog.dev.ConsoleRenderer(),
-        ],
-        wrapper_class=structlog.stdlib.BoundLogger,
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
 
 
 async def run_cycle_safe(engine: Engine, should_stop: asyncio.Event | None) -> bool:
@@ -81,8 +68,10 @@ async def async_main(
     once: bool,
     dry_run: bool,
     should_stop: asyncio.Event,
+    settings: Settings | None = None,
 ) -> None:
-    settings = Settings()  # type: ignore[call-arg]
+    if settings is None:
+        settings = Settings()  # type: ignore[call-arg]
     if dry_run:
         settings = settings.model_copy(update={"dry_run": True})
 
@@ -145,7 +134,8 @@ async def async_main(
 
 
 def main() -> None:
-    _configure_logging()
+    settings = Settings()  # type: ignore[call-arg]
+    configure_logging(settings.log_level)
     logger = structlog.get_logger(__name__)
 
     parser = argparse.ArgumentParser(description="triggerd — trigger evaluation daemon")
@@ -176,7 +166,7 @@ def main() -> None:
             pass
 
     try:
-        loop.run_until_complete(async_main(args.once, args.dry_run, should_stop))
+        loop.run_until_complete(async_main(args.once, args.dry_run, should_stop, settings))
     except Exception:
         logger.exception("fatal_error")
         sys.exit(1)

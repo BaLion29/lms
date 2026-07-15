@@ -12,18 +12,19 @@ TerminusDB graph database — the single source of truth.
 ## Quickstart
 
 ```bash
-cp .env.example .env && vim .env      # set TDB_URL + secrets
-docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-docker compose up -d
+git clone https://github.com/davidsouther/firnline.git
+cd firnline
+cp .env.example .env && vim .env      # set the 4 required values
+docker compose up -d                   # bootstrap auto-runs (idempotent), then all services
 ```
 
-The stack starts on ports 8087 (queryd), 8088 (captured), 8089 (indexed),
-8090 (mcpd), and 3000 (WebUI — visit <http://localhost:3000> for the Reflex dashboard).
+The stack starts on port 8080 (apid — unified API: captured, queryd, indexed, mcpd)
+and 3000 (WebUI — visit <http://localhost:3000> for the Reflex dashboard).
 
 Then capture a note:
 
 ```bash
-curl -s -X POST http://localhost:8088/v1/capture/note \
+curl -s -X POST http://localhost:8080/v1/capture/note \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"text": "Buy milk on the way home", "kind": "note"}'
@@ -32,7 +33,7 @@ curl -s -X POST http://localhost:8088/v1/capture/note \
 Query your data (GraphQL):
 
 ```bash
-curl -s -X POST http://localhost:8087/v1/graphql \
+curl -s -X POST http://localhost:8080/v1/graphql \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"query": "{ Task { id name done } }"}'
@@ -41,9 +42,13 @@ curl -s -X POST http://localhost:8087/v1/graphql \
 List available write tools:
 
 ```bash
-curl -s http://localhost:8087/v1/tools \
+curl -s http://localhost:8080/v1/tools \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+Bring your own TerminusDB or LLM?  See [docs/getting-started.md](docs/getting-started.md) —
+instructions for removing the bundled TerminusDB block and for running a
+LiteLLM proxy inside Docker (commented-out block in compose.yaml).
 
 Full guide: [docs/getting-started.md](docs/getting-started.md).
 
@@ -54,6 +59,7 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `packages/firnline-core/` | Shared library: TerminusDB client, models, plugin protocols |
 | `packages/firnline-schema/` | Schema CLI: compose, diff, apply, codegen |
 | `services/captured/` | Capture-ingress daemon (`POST /v1/capture/note`, `/v1/capture/file`) |
+| `services/apid/` | Combined deployment daemon (captured + queryd + indexed + mcpd on port 8080) — default for compose |
 | `services/ingestd/` | AI ingestion polling worker (LLM extraction + entity linking) |
 | `services/indexed/` | Search index sidecar: entity and schema lookup over TerminusDB (SQLite + embeddings) |
 | `services/queryd/` | GraphQL read proxy + document lookup, find/entity|class|field, schema introspection, write-tool endpoints |
@@ -66,8 +72,7 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `schema/modules/triggers/` | Kernel schema module (abstract Trigger and concrete trigger types) |
 | `schema/modules/capture/` | Kernel schema module (Captured) |
 | `docker/` | Entrypoint script for extension overlay management |
-| `compose.yaml` | Docker Compose deployment (external TerminusDB) |
-| `compose.bundled-tdb.yaml` | Overlay adding a bundled TerminusDB v12 container |
+| `compose.yaml` | Docker Compose deployment (bundled TerminusDB included, removable) |
 
 ## Documentation
 

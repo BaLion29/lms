@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from indexed.app import FindClassCandidate
 from indexed.store import (
     Store,
     _cosine,
@@ -587,3 +588,26 @@ def test_cosine_zero_vector():
 
 def test_norm():
     assert _norm([3.0, 4.0]) == pytest.approx(5.0)
+
+
+# ---------------------------------------------------------------------------
+# 14. FindClassCandidate regression — alias / serialise / validate
+# ---------------------------------------------------------------------------
+
+
+def test_find_class_candidate_construct_serialize_validate():
+    """``FindClassCandidate`` uses ``class`` alias; construct, dump, validate."""
+    c = FindClassCandidate(class_name="Foo", description="d", score=0.5)
+    assert c.class_name == "Foo"
+    assert c.description == "d"
+    assert c.score == 0.5
+
+    dumped = c.model_dump(by_alias=True)
+    assert "class" in dumped
+    assert dumped["class"] == "Foo"
+    assert "class_name" not in dumped
+
+    loaded = FindClassCandidate.model_validate({"class": "Bar", "description": "x", "score": 0.9})
+    assert loaded.class_name == "Bar"
+    assert loaded.description == "x"
+    assert loaded.score == 0.9

@@ -13,7 +13,7 @@ from typing import Any, Literal
 import structlog
 from pydantic import BaseModel
 
-from firnline_core.models import Provenance
+from firnline_core.models import Provenance, Tag
 from firnline_core.plugins import BuildContext, ExtractorPlugin, ModuleRequirement
 from firnline_core.tdb import short_iri
 from firnline_ext_address_book.models import Contact, Location, Person
@@ -180,8 +180,12 @@ class TimeManagementPlugin(ExtractorPlugin):
         return (
             "When the text describes a recurring practice, checklist, or set of steps "
             "(e.g. 'every morning I…', 'my gym routine is…'), propose a Routine with "
-            "one or more steps.  Each step must have a step_type ('activity' or 'task') "
-            "and can include a cadence_days interval.  "
+            "one or more steps.  Each step MUST have a 'name' (a short label for the "
+            "step).  Optional step fields: 'description', 'cadence_days' (interval in "
+            "days), 'priority' (integer), 'estimated_duration' (minutes as integer), "
+            "and 'step_type' ('activity' or 'task', defaults to 'activity').  "
+            "A Routine's 'required_context' field, if present, is a list of context "
+            "name strings (e.g. ['Home', 'Work']).  "
             "When the text describes a concrete performed or planned session of a routine "
             "or an ad-hoc activity, propose an Activity.  Link activities to existing "
             "routines by name via routine_name when applicable.\n\n"
@@ -406,9 +410,38 @@ class TimeManagementPlugin(ExtractorPlugin):
                     )
                 steps.append(step)
 
+            # Resolve required_context names → IRIs (Context references)
+            required_iri_list: list[str] = []
+            for ctx_name in (proposal.required_context or []):
+                iri: str | None = None
+                for ctx_type in ("Project", "Area", "Goal"):
+                    iri = await _resolve_context(ctx_type, ctx_name)
+                    if iri:
+                        break
+                if not iri:
+                    # Fall back to Tag (most generic Context subclass)
+                    iri = await ctx.ensure_entity(
+                        "Tag",
+                        ctx_name,
+                        lambda n=ctx_name: Tag(
+                            name=n,
+                            created_at=now,
+                            updated_at=now,
+                            derived_from=[source_iri],
+                            provenance=Provenance(
+                                agent="ingestd",
+                                at=now,
+                                method="llm_extraction",
+                                confidence=confidence,
+                            ),
+                        ).to_tdb(),
+                    )
+                if iri:
+                    required_iri_list.append(iri)
+
             routine = Routine(
                 name=proposal.name,
-                required_context=proposal.required_context or [],
+                required_context=required_iri_list,
                 steps=steps,
                 created_at=now,
                 updated_at=now,

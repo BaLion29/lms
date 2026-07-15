@@ -13,9 +13,10 @@ class Settings(TdbSettings):
 
     model_config = SettingsConfigDict(env_prefix="TRIGGERD_")
 
+    log_level: str = "INFO"
     poll_interval_seconds: int = 60
     lookback_seconds: int = 900
-    default_timezone: str = "Europe/Zurich"
+    default_timezone: str = "UTC"
     dry_run: bool = False
     strict_plugins: bool = False
     liveness_file: str = "/tmp/triggerd-alive"

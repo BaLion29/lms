@@ -17,6 +17,7 @@ class Settings(TdbSettings):
 
     # Operational
     listen_addr: str = "0.0.0.0:8088"
+    log_level: str = "INFO"
     strict_plugins: bool = False
 
     # Upload limits

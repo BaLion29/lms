@@ -13,6 +13,7 @@ class Settings(TdbSettings):
     llm_model: str = ""
 
     # Operational
+    log_level: str = "INFO"
     poll_interval_seconds: int = 60
     max_llm_retries: int = 3
     dry_run: bool = False

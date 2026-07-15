@@ -4,22 +4,23 @@ from __future__ import annotations
 
 import functools
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from firnline_core.settings import FirnlineBaseSettings
+from pydantic_settings import SettingsConfigDict
 
 
-class Settings(BaseSettings):
+class Settings(FirnlineBaseSettings):
     """Application settings loaded from environment variables prefixed with WEBUI_."""
 
     model_config = SettingsConfigDict(env_prefix="WEBUI_")
 
     # Service URLs
-    captured_url: str = "http://captured:8088"
+    captured_url: str = "http://apid:8080"
     captured_api_token: str = ""
-    queryd_url: str = "http://queryd:8087"
+    queryd_url: str = "http://apid:8080"
     queryd_api_token: str = ""
-    indexed_url: str = "http://indexed:8089"
+    indexed_url: str = "http://apid:8080"
     indexed_api_token: str = ""
-    mcpd_url: str = "http://mcpd:8090"
+    mcpd_url: str = "http://apid:8080/mcp"
 
     # TerminusDB
     tdb_url: str = "http://terminusdb:6363"

@@ -34,10 +34,21 @@ RUN useradd -m -u 1000 mcpd
 COPY --from=builder --chown=mcpd:mcpd /app /app
 
 # Put the workspace venv on PATH so the mcpd console script is found directly.
+# PYTHONPATH makes the extension overlay visible to importlib.metadata.
+# This image does NOT bake first-party extension wheels — extensions are
+# provided at runtime via the shared firnline_ext_venv overlay volume
+# (populated by the bootstrap service).
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/firnline-ext-venv/lib
+
+# Shared extension-installer entrypoint (verify-only mode)
+COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
 
 WORKDIR /app/services/mcpd
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=10s \
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/healthz',timeout=5)"]
 
 EXPOSE 8090
 
@@ -46,4 +57,5 @@ USER mcpd
 # All configuration is supplied via environment variables (MCPD_ prefix).
 # See src/mcpd/settings.py for the full list.
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["mcpd"]

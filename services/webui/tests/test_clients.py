@@ -292,10 +292,16 @@ class _FakeTdb:
             raise TdbError(500, "schema boom")
         return [{"@type": "Class", "@id": "Person"}]
 
-    async def get_documents(self, type_: str, branch: str = "main") -> list[dict]:
+    async def get_documents(self, type_: str, branch: str = "main",
+                            skip: int | None = None, count: int | None = None) -> list[dict]:
         if self._raise_on == "docs":
             raise TdbError(404, "docs not found")
         return [{"@type": type_, "@id": f"{type_}/1"}]
+
+    async def count_documents(self, type_: str, branch: str = "main") -> int:
+        if self._raise_on == "count":
+            raise TdbError(500, "count boom")
+        return 1
 
     async def get_document(self, iri: str, branch: str = "main") -> dict:
         if self._raise_on == "doc":
@@ -349,3 +355,37 @@ async def test_tdb_browser_aclose():
     browser = TdbBrowser("http://x", "o", "d", "u", "p", tdb=fake)
     await browser.aclose()
     assert fake.aclose_called
+
+
+async def test_tdb_browser_get_documents_with_skip_count():
+    """skip and count are forwarded to the underlying TdbClient."""
+    fake = _FakeTdb()
+    browser = TdbBrowser("http://x", "o", "d", "u", "p", tdb=fake)
+    result = await browser.get_documents("Person", skip=10, count=5)
+    assert result == [{"@type": "Person", "@id": "Person/1"}]
+
+
+async def test_tdb_browser_get_documents_no_pagination():
+    """Default call (no skip/count) still works."""
+    fake = _FakeTdb()
+    browser = TdbBrowser("http://x", "o", "d", "u", "p", tdb=fake)
+    result = await browser.get_documents("Person")
+    assert result == [{"@type": "Person", "@id": "Person/1"}]
+
+
+async def test_tdb_browser_count_documents():
+    """count_documents wraps TdbError into WebuiClientError."""
+    fake = _FakeTdb()
+    browser = TdbBrowser("http://x", "o", "d", "u", "p", tdb=fake)
+    result = await browser.count_documents("Person")
+    assert result == 1
+
+
+async def test_tdb_browser_count_documents_error_wrapping():
+    """count_documents wraps TdbError into WebuiClientError."""
+    fake = _FakeTdb(raise_on="count")
+    browser = TdbBrowser("http://x", "o", "d", "u", "p", tdb=fake)
+    with pytest.raises(WebuiClientError) as exc_info:
+        await browser.count_documents("Person")
+    assert exc_info.value.status == 500
+    assert exc_info.value.detail == "count boom"

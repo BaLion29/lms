@@ -17,7 +17,7 @@ def test_settings_from_kwargs():
     assert s.tdb_user == "admin"
     assert s.poll_interval_seconds == 60
     assert s.lookback_seconds == 900
-    assert s.default_timezone == "Europe/Zurich"
+    assert s.default_timezone == "UTC"
     assert s.dry_run is False
     assert s.strict_plugins is False
 
