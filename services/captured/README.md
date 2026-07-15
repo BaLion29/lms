@@ -18,8 +18,7 @@ All capture endpoints require `Authorization: Bearer <CAPTURED_API_TOKEN>`.
 From the monorepo root:
 
 ```bash
-docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-docker compose up -d                           # starts captured on port 8088
+docker compose up -d                           # bootstrap auto-runs, then starts captured on port 8088
 curl http://localhost:8088/healthz             # verify
 ```
 

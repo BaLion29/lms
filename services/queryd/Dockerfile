@@ -55,13 +55,16 @@ COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
 
 WORKDIR /app/services/queryd
 
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=10s \
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8087/healthz',timeout=5)"]
+
 EXPOSE 8087
 
 USER queryd
 
 # All configuration is supplied via environment variables (QUERYD_ prefix).
 # See src/queryd/settings.py for the full list.
-
+#
 # The entrypoint script handles extension installation, then execs CMD.
 # NOTE: With ENTRYPOINT + CMD, additional docker-run args REPLACE CMD.
 # To pass extra args:  docker run firnline/queryd queryd <extra-args>

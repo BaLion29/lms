@@ -63,12 +63,16 @@ check "No tracked __pycache__ / .pyc / .pytest_cache / node_modules" \
 check "LICENSE exists and contains 'Apache License'" \
     bash -c 'test -f LICENSE && grep -q "Apache License" LICENSE'
 
-# ── 5. All pyproject.toml versions are 0.1.0 ─────────────────────────────
+# ── 5. All pyproject.toml versions are 0.1.0 (except extensions) ─────────
+# packages/ and services/ must all match the release version.
+# extensions/*/pyproject.toml may version independently.
 check "All pyproject.toml versions are 0.1.0" \
     bash -c '
         all_ok=true
         while IFS= read -r f; do
             if [ ! -f "$f" ]; then continue; fi
+            # Skip extensions — they version independently
+            case "$f" in extensions/*) continue ;; esac
             ver=$(grep -E "^version\s*=\s*\"[^\"]+\"" "$f" | head -1 | grep -oP "\"[^\"]+\"" | tr -d "\"")
             if [ "$ver" != "0.1.0" ]; then
                 echo "FAIL: $f has version=$ver" >&2
@@ -129,17 +133,13 @@ fi
 
 # ── 14. Docker compose config valid ────────────────────────────────────────
 if command -v docker &>/dev/null; then
-    # base config
-    check "docker compose -f compose.yaml config -q" \
-        docker compose -f compose.yaml config -q
-    # bundled config (needs TDB_PASSWORD)
-    check "docker compose -f compose.yaml -f compose.bundled-tdb.yaml config -q" \
-        bash -c 'TDB_PASSWORD=test docker compose -f compose.yaml -f compose.bundled-tdb.yaml config -q'
+    check "docker compose config -q" \
+        bash -c 'TDB_PASSWORD=test CAPTURED_API_TOKEN=test QUERYD_API_TOKEN=test FIRNLINE_LLM_BASE_URL=http://x docker compose config -q'
 else
     echo "  docker compose config check: SKIPPED (docker not installed)"
 fi
 
-# ── 14. Docs link check ────────────────────────────────────────────────────
+# ── 15. Docs link check ────────────────────────────────────────────────────
 check "All relative markdown links point to existing files" \
     bash -c '
         all_ok=true
