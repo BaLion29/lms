@@ -67,7 +67,8 @@ class _FakeTdb:
             raise TdbError(*self._tdb_error)
         return self._schema
 
-    async def get_documents(self, type_: str, branch: str = "main") -> list[dict]:
+    async def get_documents(self, type_: str, branch: str = "main",
+                            skip: int | None = None, count: int | None = None) -> list[dict]:
         if self._raise_runtime_on == "docs":
             raise RuntimeError("docs boom")
         if self._raise_tdb_error_on == "docs":
@@ -76,6 +77,9 @@ class _FakeTdb:
 
     async def get_document(self, iri: str, branch: str = "main") -> dict:
         return {"@id": iri}
+
+    async def count_documents(self, type_: str, branch: str = "main") -> int:
+        return len(self._docs)
 
     async def aclose(self) -> None:
         self.aclose_called = True

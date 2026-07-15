@@ -113,6 +113,128 @@ async def test_get_documents_custom_branch(client, respx_mock):
     assert route.called
 
 
+async def test_get_documents_with_skip_and_count(client, respx_mock):
+    """skip and count are forwarded as query params."""
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"@id": "Captured/abc"},
+        ],
+    )
+
+    result = await client.get_documents("Captured", skip=10, count=5)
+
+    assert route.called
+    req = route.calls.last.request
+    assert req.url.params["skip"] == "10"
+    assert req.url.params["count"] == "5"
+    assert req.url.params["type"] == "Captured"
+    assert req.url.params["as_list"] == "true"
+    assert len(result) == 1
+
+
+async def test_get_documents_skip_count_omitted_when_none(client, respx_mock):
+    """When skip/count are None, the params are absent from the request."""
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json=[])
+
+    await client.get_documents("Captured")
+
+    assert route.called
+    req = route.calls.last.request
+    assert "skip" not in req.url.params
+    assert "count" not in req.url.params
+
+
+# ---------------------------------------------------------------------------
+# count_documents
+# ---------------------------------------------------------------------------
+
+
+async def test_count_documents_bare_integer(client, respx_mock):
+    """TerminusDB returns a bare integer when count=true is supported."""
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(text="42")
+
+    result = await client.count_documents("Captured")
+
+    assert route.called
+    req = route.calls.last.request
+    assert req.url.params["count"] == "true"
+    assert req.url.params["type"] == "Captured"
+    assert req.url.params["graph_type"] == "instance"
+    assert result == 42
+
+
+async def test_count_documents_json_count_key(client, respx_mock):
+    """If the response is a JSON object with a 'count' key, extract it."""
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json={"count": 7, "@type": "api:CountResponse"})
+
+    result = await client.count_documents("Task")
+
+    assert route.called
+    assert result == 7
+
+
+async def test_count_documents_fallback_list_len(client, respx_mock):
+    """If the server returns a list (e.g. no count=true support), use len()."""
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(
+        json=[
+            {"@id": "Cap/1"},
+            {"@id": "Cap/2"},
+            {"@id": "Cap/3"},
+        ],
+    )
+
+    result = await client.count_documents("Captured")
+
+    assert route.called
+    assert result == 3
+
+
+async def test_count_documents_json_string_body(client, respx_mock):
+    """If the server returns a JSON-encoded string like "42", parse it."""
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(text='"42"')  # JSON string, not bare integer
+
+    result = await client.count_documents("Captured")
+
+    assert route.called
+    assert result == 42
+
+
+async def test_count_documents_non_2xx_raises_tdberror(client, respx_mock):
+    """Non-2xx responses propagate as TdbError."""
+    respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(status_code=500, text="boom")
+
+    with pytest.raises(TdbError) as exc_info:
+        await client.count_documents("Captured")
+
+    assert exc_info.value.status == 500
+
+
+async def test_count_documents_custom_branch(client, respx_mock):
+    """Branch parameter is forwarded."""
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/develop",
+    ).respond(text="0")
+
+    result = await client.count_documents("Task", branch="develop")
+
+    assert route.called
+    assert result == 0
+
+
 # ---------------------------------------------------------------------------
 # insert_documents
 # ---------------------------------------------------------------------------
