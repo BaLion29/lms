@@ -24,6 +24,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcpd._http import build_client as _build_client
 from mcpd._http import raise_for_status as _raise_for_status
 from mcpd.dynamic_tools import build_tool_function, fetch_tool_specs
+from firnline_core.logging import configure_logging
 from mcpd.settings import McpdSettings
 
 __all__ = [
@@ -287,27 +288,109 @@ async def _resource_modules() -> str:
         return resp.text
 
 
+# ── Dynamic tool registration helpers ────────────────────────────────────────
+
+
+def _register_dynamic_tools(mcp: Any, settings: McpdSettings, specs: list[dict[str, Any]]) -> int:
+    """Register dynamic tool specs with *mcp*.  Returns count of newly registered tools.
+
+    Skips specs whose names collide with already-registered tools (static or
+    previously-registered dynamic).
+    """
+    existing_names = {t.name for t in mcp._tool_manager.list_tools()}
+    registered = 0
+    for spec in specs:
+        tool_name = spec.get("name", "")
+        if not tool_name:
+            logger.warning("Skipping dynamic tool spec without a name")
+            continue
+        if tool_name in existing_names:
+            logger.warning(
+                "Skipping dynamic tool %s: name collides with existing tool",
+                tool_name,
+            )
+            continue
+        try:
+            fn = build_tool_function(spec, settings)
+        except Exception:
+            logger.warning(
+                "Failed to build function for dynamic tool %s",
+                tool_name,
+                exc_info=True,
+            )
+            continue
+        mcp.tool(name=tool_name, description=spec.get("description", ""))(fn)
+        existing_names.add(tool_name)
+        logger.info("Registered dynamic tool: %s", tool_name)
+        registered += 1
+    return registered
+
+
+async def _register_dynamic_tools_with_retry(
+    mcp: Any,
+    settings: McpdSettings,
+    *,
+    max_attempts: int = 5,
+    base_delay: float = 2.0,
+) -> None:
+    """Fetch and register queryd write tools with retry-backoff.
+
+    Only called via a background task from the lifespan.  Logs a warning
+    if all attempts are exhausted without a successful fetch.
+    """
+    for attempt in range(max_attempts):
+        try:
+            specs = await fetch_tool_specs(settings)
+        except Exception:  # pragma: no cover — safety net
+            logger.warning(
+                "Dynamic tool fetch attempt %d/%d raised",
+                attempt + 1,
+                max_attempts,
+                exc_info=True,
+            )
+            if attempt == max_attempts - 1:
+                logger.warning(
+                    "Failed to fetch dynamic tools after %d attempts",
+                    max_attempts,
+                )
+                return
+        else:
+            if specs:
+                registered = _register_dynamic_tools(mcp, settings, specs)
+                if registered:
+                    logger.info(
+                        "Registered %d dynamic tool(s) via background fetch",
+                        registered,
+                    )
+            return  # success — empty list is still success
+
+        if attempt < max_attempts - 1:
+            delay = base_delay * (2 ** attempt)
+            await asyncio.sleep(delay)
+
+
 # ── App construction ────────────────────────────────────────────────────────
 
 
-def create_app() -> Starlette:
-    """Build the Starlette application with MCP + healthz."""
-    global _settings
-    settings = McpdSettings()  # type: ignore[call-arg]
-    _settings = settings
+def create_mcp_component(
+    settings: McpdSettings | None = None,
+) -> tuple[Any, Any, Any]:
+    """Build the MCP sub-application for embedding in a combined app.
 
-    # ── Configure structlog ─────────────────────────────────────────────────
-    structlog.configure(
-        processors=[
-            structlog.stdlib.add_log_level,
-            structlog.dev.set_exc_info,
-            structlog.dev.ConsoleRenderer(),
-        ],
-        wrapper_class=structlog.stdlib.BoundLogger,
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
+    Returns ``(asgi_app, lifespan, mcp)`` where *asgi_app* is a Starlette
+    app containing a ``/healthz`` route and the MCP streamable HTTP
+    application mounted at the root, *lifespan* is an async context
+    manager that runs the MCP session manager and starts a background
+    task for dynamic tool registration, and *mcp* is the FastMCP
+    instance (useful for tests that inspect registered tools).
+
+    Does **not** call ``configure_logging`` — the host is responsible
+    for configuring logging.
+    """
+    global _settings
+    if settings is None:
+        settings = McpdSettings()  # type: ignore[call-arg]
+    _settings = settings
 
     mcp = FastMCP(
         "firnline",
@@ -335,68 +418,96 @@ def create_app() -> Starlette:
     mcp.tool()(_tool_capture)
     mcp.tool()(_tool_create_document)
 
-    # Register dynamic tools from queryd (when enabled)
+    # Register resources (static — no async deps needed)
+    mcp.resource("firnline://schema")(_resource_schema)
+    mcp.resource("firnline://schema/introspection")(_resource_schema_introspection)
+    mcp.resource("firnline://modules")(_resource_modules)
+
+    # ── Best-effort synchronous dynamic tool fetch ────────────────────────
+    # Works when queryd is already reachable (standalone mode, tests).
+    # Falls back to the lifespan retry on ConnectError (in-process apid mode).
+    _dynamic_registered = False
     if settings.enable_queryd_tools:
         try:
             specs = asyncio.run(fetch_tool_specs(settings))
         except RuntimeError:
-            # Event loop already running (e.g. inside a test fixture or
-            # nested app construction).  Skip dynamic registration gracefully
-            # instead of crashing.
             logger.warning(
                 "Cannot fetch dynamic tools: event loop already running. "
                 "Skipping queryd tool registration."
             )
             specs = []
+        else:
+            if specs:
+                _register_dynamic_tools(mcp, settings, specs)
+            _dynamic_registered = True
 
-        # Query the ToolManager for names already registered so we never
-        # accidentally overwrite (or warn-duplicate) a static tool.
-        existing_names = {t.name for t in mcp._tool_manager.list_tools()}
+    # ── Build the inner ASGI app (MCP + healthz) ─────────────────────────
+    mcp_streamable = mcp.streamable_http_app()
 
-        for spec in specs:
-            tool_name = spec.get("name", "")
-            if not tool_name:
-                logger.warning("Skipping dynamic tool spec without a name")
-                continue
-            if tool_name in existing_names:
-                logger.warning(
-                    "Skipping dynamic tool %s: name collides with existing tool",
-                    tool_name,
-                )
-                continue
-            try:
-                fn = build_tool_function(spec, settings)
-            except Exception:
-                logger.warning(
-                    "Failed to build function for dynamic tool %s",
-                    tool_name,
-                    exc_info=True,
-                )
-                continue
-            mcp.tool(name=tool_name, description=spec.get("description", ""))(fn)
-            existing_names.add(tool_name)
-            logger.info("Registered dynamic tool: %s", tool_name)
-
-    # Register resources
-    mcp.resource("firnline://schema")(_resource_schema)
-    mcp.resource("firnline://schema/introspection")(_resource_schema_introspection)
-    mcp.resource("firnline://modules")(_resource_modules)
-
-    # ── Health check ────────────────────────────────────────────────────────
+    # ── Health check endpoint ────────────────────────────────────────────
     async def healthz(request):
         return JSONResponse({"status": "ok"})
 
-    # ── Mount MCP + healthz on a Starlette app ──────────────────────────────
+    # ── Wrap MCP streamable + /healthz in a Starlette ────────────────────
+    wrapped = Starlette(
+        routes=[
+            Route("/healthz", healthz),
+            Mount("/", mcp_streamable),
+        ],
+    )
+
+    # ── Lifespan for the outer caller (includes session + dynamic tools) ──
     @contextlib.asynccontextmanager
-    async def lifespan(app: Starlette):
+    async def lifespan(app: Any):
         async with contextlib.AsyncExitStack() as stack:
             await stack.enter_async_context(mcp.session_manager.run())
+
+            # If the synchronous fetch didn't register any dynamic tools
+            # (e.g. in-process deployment where queryd isn't listening yet),
+            # start a background retry task.
+            _dynamic_task: asyncio.Task | None = None
+            if settings.enable_queryd_tools and not _dynamic_registered:
+                _dynamic_task = asyncio.create_task(
+                    _register_dynamic_tools_with_retry(mcp, settings)
+                )
+
+            try:
+                yield
+            finally:
+                if _dynamic_task is not None:
+                    _dynamic_task.cancel()
+                    try:
+                        await _dynamic_task
+                    except asyncio.CancelledError:
+                        pass
+
+    return wrapped, lifespan, mcp
+
+
+def create_app(settings: McpdSettings | None = None) -> Starlette:
+    """Build the Starlette application with MCP + healthz.
+
+    Accepts an optional *settings* instance.  When omitted a fresh
+    ``McpdSettings()`` is constructed so that the function remains usable
+    as a uvicorn ASGI factory (e.g. ``uvicorn.run("mcpd.main:create_app")``).
+    """
+    if settings is None:
+        settings = McpdSettings()  # type: ignore[call-arg]
+
+    # ── Configure structlog ─────────────────────────────────────────────────
+    configure_logging(settings.log_level)
+
+    asgi_app, mcp_lifespan, mcp = create_mcp_component(settings)
+
+    # ── Mount MCP + healthz (healthz is provided by create_mcp_component) ───
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette):
+        async with mcp_lifespan(app):
             yield
 
     app = Starlette(
         routes=[
-            Route("/healthz", healthz),
-            Mount("/", mcp.streamable_http_app()),
+            Mount("/", asgi_app),
         ],
         lifespan=lifespan,
     )
@@ -409,6 +520,6 @@ def main() -> None:
     """Run the MCP daemon via uvicorn."""
     import uvicorn
 
-    settings = _get_settings()
-    app = create_app()
-    uvicorn.run(app, host=settings.host, port=settings.port)
+    settings = McpdSettings()  # type: ignore[call-arg]
+    app = create_app(settings)
+    uvicorn.run(app, host=settings.host, port=settings.port, log_level=settings.log_level.lower())

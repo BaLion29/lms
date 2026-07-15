@@ -31,10 +31,14 @@ class TimeManagementIndexerPlugin(IndexerPlugin):
         return str(doc.get("name", ""))
 
     def entity_aliases(self, doc: dict[str, Any]) -> list[str]:
+        aliases: list[str] = []
         name = doc.get("name", "")
         if name:
-            return [name]
-        return []
+            aliases.append(name)
+        for alias in doc.get("aliases", []) or []:
+            if isinstance(alias, str) and alias.strip():
+                aliases.append(alias.strip())
+        return aliases
 
 
 plugin = TimeManagementIndexerPlugin()

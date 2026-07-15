@@ -18,27 +18,13 @@ cp .env.example .env && vim .env      # set the 4 required values
 docker compose up -d                   # bootstrap auto-runs (idempotent), then all services
 ```
 
-The bootstrap service waits for TerminusDB, creates the database (if missing),
-applies the schema, and installs extensions — all idempotent, so re-running is
-safe.
-
-Services available after startup:
-
-| Service | Port | Purpose |
-|---|---|---|
-| WebUI | `:3000` | Reflex dashboard — <http://localhost:3000> |
-| captured | `:8088` | Capture-ingress API (`POST /v1/capture/note`) |
-| queryd | `:8087` | GraphQL read proxy + document lookup (`POST /v1/graphql`) |
-| indexed | `:8089` | Precision grounding / entity search |
-| mcpd | `:8090` | MCP server for external AI agents |
-
-Check health: `docker compose ps` shows health states; `docker compose logs bootstrap`
-for bootstrap output.
+The stack starts on port 8080 (apid — unified API: captured, queryd, indexed, mcpd)
+and 3000 (WebUI — visit <http://localhost:3000> for the Reflex dashboard).
 
 Then capture a note:
 
 ```bash
-curl -s -X POST http://localhost:8088/v1/capture/note \
+curl -s -X POST http://localhost:8080/v1/capture/note \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"text": "Buy milk on the way home", "kind": "note"}'
@@ -47,10 +33,17 @@ curl -s -X POST http://localhost:8088/v1/capture/note \
 Query your data (GraphQL):
 
 ```bash
-curl -s -X POST http://localhost:8087/v1/graphql \
+curl -s -X POST http://localhost:8080/v1/graphql \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"query": "{ Task { id name done } }"}'
+```
+
+List available write tools:
+
+```bash
+curl -s http://localhost:8080/v1/tools \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 Bring your own TerminusDB or LLM?  See [docs/getting-started.md](docs/getting-started.md) —
@@ -66,6 +59,7 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `packages/firnline-core/` | Shared library: TerminusDB client, models, plugin protocols |
 | `packages/firnline-schema/` | Schema CLI: compose, diff, apply, codegen |
 | `services/captured/` | Capture-ingress daemon (`POST /v1/capture/note`, `/v1/capture/file`) |
+| `services/apid/` | Combined deployment daemon (captured + queryd + indexed + mcpd on port 8080) — default for compose |
 | `services/ingestd/` | AI ingestion polling worker (LLM extraction + entity linking) |
 | `services/indexed/` | Search index sidecar: entity and schema lookup over TerminusDB (SQLite + embeddings) |
 | `services/queryd/` | GraphQL read proxy + document lookup, find/entity|class|field, schema introspection, write-tool endpoints |

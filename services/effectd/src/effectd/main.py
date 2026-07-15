@@ -22,24 +22,11 @@ from firnline_core.plugins import (
     PluginHost,
 )
 from firnline_core.repository import Repository
+from firnline_core.logging import configure_logging
 from firnline_core.tdb import TdbClient
 
 _CHANNEL_GROUP = "firnline.notifyd.channels"
 _EXECUTOR_GROUP = "firnline.effectd.executors"
-
-
-def _configure_logging() -> None:
-    structlog.configure(
-        processors=[
-            structlog.stdlib.add_log_level,
-            structlog.dev.set_exc_info,
-            structlog.dev.ConsoleRenderer(),
-        ],
-        wrapper_class=structlog.stdlib.BoundLogger,
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
 
 
 async def run_cycle_safe(engine: EffectEngine, should_stop: asyncio.Event | None) -> bool:
@@ -175,9 +162,10 @@ def _check_merged_kind_collisions(
 async def async_main(
     once: bool,
     should_stop: asyncio.Event,
+    settings: EffectdSettings | None = None,
 ) -> None:
-    settings = EffectdSettings()  # type: ignore[call-arg]
-
+    if settings is None:
+        settings = EffectdSettings()  # type: ignore[call-arg]
     logger = structlog.get_logger(__name__)
     branch = settings.tdb_branch
 
@@ -288,7 +276,8 @@ async def async_main(
 
 
 def main() -> None:
-    _configure_logging()
+    settings = EffectdSettings()  # type: ignore[call-arg]
+    configure_logging(settings.log_level)
     logger = structlog.get_logger(__name__)
 
     parser = argparse.ArgumentParser(description="effectd — effect delivery daemon")
@@ -313,7 +302,7 @@ def main() -> None:
             pass
 
     try:
-        loop.run_until_complete(async_main(args.once, should_stop))
+        loop.run_until_complete(async_main(args.once, should_stop, settings))
     except Exception:
         logger.exception("fatal_error")
         sys.exit(1)

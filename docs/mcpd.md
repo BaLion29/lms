@@ -8,10 +8,10 @@ presents firnline's capabilities as MCP tools and resources.
 ## Architecture
 
 ```
-External AI agent ─► mcpd (streamable HTTP, :8090)
+External AI agent ─► mcpd (streamable HTTP, mounted at /mcp on apid:8080)
                         │
-                        ├─► queryd (:8087) — GraphQL, schema, find_*, documents, write tools
-                        └─► captured (:8088) — capture note
+                        ├─► queryd (in-process at localhost:8080) — GraphQL, schema, find_*, documents, write tools
+                        └─► captured (in-process at localhost:8080) — capture note
 ```
 
 mcpd is a **facade**: it translates MCP requests into REST calls to
@@ -25,11 +25,11 @@ All environment variables are prefixed with `MCPD_`:
 
 | Variable | Default | Required | Description |
 |---|---|---|---|
-| `MCPD_HOST` | `0.0.0.0` | no | Host to bind |
-| `MCPD_PORT` | `8090` | no | Port to bind |
-| `MCPD_QUERYD_URL` | `http://queryd:8087` | yes | Base URL of the queryd service |
+| `MCPD_HOST` | `0.0.0.0` | no | Host to bind (standalone only) |
+| `MCPD_PORT` | `8090` | no | Port to bind (standalone only; unused inside apid) |
+| `MCPD_QUERYD_URL` | `http://localhost:8080` | yes | Base URL of the queryd service |
 | `MCPD_QUERYD_TOKEN` | — | yes | Bearer token for queryd endpoints |
-| `MCPD_CAPTURED_URL` | `http://captured:8088` | yes | Base URL of the captured service |
+| `MCPD_CAPTURED_URL` | `http://localhost:8080` | yes | Base URL of the captured service |
 | `MCPD_CAPTURED_TOKEN` | — | yes | Bearer token for captured endpoints |
 
 ## Tools
@@ -78,12 +78,13 @@ queryd.
 
 ## Deployment
 
-mcpd runs as a standalone Docker container in the compose stack. It binds
-to port 8090 (configurable via `MCPD_PORT`). The service depends on
-queryd and captured (service_started).
+mcpd runs in-process within the **apid** daemon in the default compose stack.
+It is mounted at the ``/mcp`` path on port 8080.  Clients should connect to
+``http://<host>:8080/mcp`` instead of a separate port.
 
 ```bash
-docker compose up -d mcpd
+# MCP clients connect to the apid /mcp path:
+curl http://localhost:8080/mcp/healthz
 ```
 
 Health check: ``GET /healthz`` returns ``{"status": "ok"}`` with HTTP 200.
