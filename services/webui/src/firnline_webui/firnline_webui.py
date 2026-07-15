@@ -51,14 +51,6 @@ def _api_healthz(app):
 
 
 app = rx.App(
-    theme=rx.theme(
-        appearance="inherit",
-        accent_color="cyan",
-        gray_color="slate",
-        radius="large",
-        scaling="105%",
-        panel_background="translucent",
-    ),
     api_transformer=[_api_healthz],
 )
 

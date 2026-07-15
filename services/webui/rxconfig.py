@@ -8,4 +8,17 @@ config = rx.Config(
     # Set REFLEX_API_URL to the browser-facing URL in your deployment (e.g. http://server:3000).
     # In dev, reflex listens on port 8000.
     api_url=os.environ.get("REFLEX_API_URL") or "http://localhost:8000",
+    plugins=[
+        rx.plugins.SitemapPlugin(),
+        rx.plugins.RadixThemesPlugin(
+            theme=rx.theme(
+                appearance="inherit",
+                accent_color="cyan",
+                gray_color="slate",
+                radius="large",
+                scaling="105%",
+                panel_background="translucent",
+            ),
+        ),
+    ],
 )

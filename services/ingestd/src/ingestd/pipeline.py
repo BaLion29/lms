@@ -197,7 +197,7 @@ class Pipeline:
             try:
                 query = (
                     "query($src: String) {"
-                    "  Entity(filter: { derived_from: { someHave: { eq: $src } } }) {"
+                    "  Entity(filter: { derived_from: { eq: $src } }) {"
                     "    _id"
                     "  }"
                     "}"

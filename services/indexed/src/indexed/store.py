@@ -38,6 +38,19 @@ def _norm(vec: list[float]) -> float:
     return math.sqrt(sum(x * x for x in vec))
 
 
+def _fts5_escape(text: str) -> str:
+    """Escape user text for FTS5 MATCH by quoting each whitespace-delimited token.
+
+    Returns an empty string when *text* contains only whitespace or quote
+    characters — callers must skip the FTS query in that case.
+    """
+    tokens = text.split()
+    if not tokens:
+        return ""
+    escaped = " ".join('"' + tok.replace('"', '""') + '"' for tok in tokens)
+    return escaped
+
+
 class Candidate:
     __slots__ = ("iri", "class_name", "name", "aliases", "score", "commit_id")
 
@@ -367,15 +380,19 @@ class Store:
                 (branch,),
             ).fetchall()
         else:
-            fts_clause = "entities_fts MATCH ?"
             like_pattern = f"%{query_text}%"
-            lex_rows = {
-                r["iri"]
-                for r in self.conn.execute(
-                    f"SELECT e.iri FROM entities e JOIN entities_fts f ON e.rowid = f.rowid WHERE {fts_clause} AND e.branch = ?",
-                    (query_text, branch),
-                ).fetchall()
-            }
+            escaped = _fts5_escape(query_text)
+            if escaped:
+                lex_rows = {
+                    r["iri"]
+                    for r in self.conn.execute(
+                        "SELECT e.iri FROM entities e JOIN entities_fts f ON e.rowid = f.rowid"
+                        " WHERE entities_fts MATCH ? AND e.branch = ?",
+                        (escaped, branch),
+                    ).fetchall()
+                }
+            else:
+                lex_rows = set()
             name_rows = {
                 r["iri"]
                 for r in self.conn.execute(
@@ -452,15 +469,18 @@ class Store:
     ) -> list[SchemaCandidate]:
         """Hybrid search over schema items."""
         if query_text.strip():
-            fts_clause = "schema_items_fts MATCH ?"
-            lex_rows = {
-                (r["kind"], r["class"], r["field"], r["name"])
-                for r in self.conn.execute(
-                    f"SELECT s.kind, s.class, s.field, s.name FROM schema_items s "
-                    f"JOIN schema_items_fts f ON s.rowid = f.rowid WHERE {fts_clause}",
-                    (query_text,),
-                ).fetchall()
-            }
+            escaped = _fts5_escape(query_text)
+            if escaped:
+                lex_rows = {
+                    (r["kind"], r["class"], r["field"], r["name"])
+                    for r in self.conn.execute(
+                        "SELECT s.kind, s.class, s.field, s.name FROM schema_items s "
+                        "JOIN schema_items_fts f ON s.rowid = f.rowid WHERE schema_items_fts MATCH ?",
+                        (escaped,),
+                    ).fetchall()
+                }
+            else:
+                lex_rows = set()
             like_pattern = f"%{query_text}%"
             name_rows = {
                 (r["kind"], r["class"], r["field"], r["name"])

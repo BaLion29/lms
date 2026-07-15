@@ -896,10 +896,6 @@ async def remove_contexts(
 # Tool functions — Activity
 # ---------------------------------------------------------------------------
 
-
-@traced
-async def log_activity(
-    ctx: RunContext[Any],
 async def _do_log_activity(
     name: str,
     start_datetime: str | None = None,

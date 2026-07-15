@@ -9,6 +9,7 @@ import pytest
 from indexed.store import (
     Store,
     _cosine,
+    _fts5_escape,
     _norm,
     _pack_vector,
     _unpack_vector,
@@ -175,6 +176,40 @@ def test_search_entities_lexical_substring_in_name(tmp_path: Path):
         results = store.search_entities("Alice", _make_embedding(1.0))
         assert len(results) >= 1
         assert results[0].name == "Alice Anderson"
+    finally:
+        store.close()
+
+
+def test_search_entities_fts_special_chars_hyphen(tmp_path: Path):
+    """Search with a hyphenated name must not raise and must find the entity."""
+    store = Store(tmp_path / "store.db")
+    store.open()
+    try:
+        e1 = _entity_entry("test://1", name="Gian-Andrea Vögeli")
+        e2 = _entity_entry("test://2", name="Bob")
+        store.replace_all_entities_for_branch("main", [e1, e2])
+
+        results = store.search_entities("Gian-Andrea Vögeli", _make_embedding(1.0))
+        assert len(results) >= 1
+        assert results[0].name == "Gian-Andrea Vögeli"
+    finally:
+        store.close()
+
+
+def test_search_entities_fts_special_chars_quotes(tmp_path: Path):
+    """Search containing double quotes and FTS keywords must not raise."""
+    store = Store(tmp_path / "store.db")
+    store.open()
+    try:
+        e1 = _entity_entry("test://1", name='Alice "Wonderland" OR 1=1')
+        e2 = _entity_entry("test://2", name="Bob")
+        store.replace_all_entities_for_branch("main", [e1, e2])
+
+        results = store.search_entities(
+            'Alice "Wonderland" OR 1=1', _make_embedding(1.0)
+        )
+        assert len(results) >= 1
+        assert results[0].name == 'Alice "Wonderland" OR 1=1'
     finally:
         store.close()
 
@@ -351,6 +386,50 @@ def test_search_schema_lexical_name_match(tmp_path: Path):
         results = store.search_schema("Task", _make_embedding(1.0))
         assert len(results) >= 1
         assert results[0].name == "Task"
+    finally:
+        store.close()
+
+
+def test_fts5_escape_empty_and_whitespace():
+    assert _fts5_escape("") == ""
+    assert _fts5_escape("   ") == ""
+    # A single double-quote is a non-empty token after whitespace split,
+    # so it gets quoted (internal quotes doubled) — NOT empty.
+    assert _fts5_escape('"') == '""""'
+
+
+def test_fts5_escape_internal_quote_doubling():
+    # Internal double quotes must be doubled for FTS5
+    result = _fts5_escape('hello "world"')
+    # Token 'hello' → "hello", token '"world"' → '"""world"""'
+    assert result == '"hello" """world"""'
+
+
+def test_fts5_escape_fts_keywords_quoted():
+    # FTS keywords like OR, AND, NOT must be quoted so they aren't interpreted
+    result = _fts5_escape("Alice OR Bob")
+    assert result == '"Alice" "OR" "Bob"'
+
+
+def test_fts5_escape_hyphenated_name():
+    result = _fts5_escape("Gian-Andrea Vögeli")
+    assert result == '"Gian-Andrea" "Vögeli"'
+
+
+def test_search_schema_fts_special_chars_no_raise(tmp_path: Path):
+    """Hyphenated name in schema search must not crash."""
+    store = Store(tmp_path / "store.db")
+    store.open()
+    try:
+        items = [
+            _schema_entry("class", class_name="Task", name="Gian-Andrea-Vögeli"),
+            _schema_entry("class", class_name="Event", name="Event"),
+        ]
+        store.replace_all_schema_items(items)
+
+        results = store.search_schema("Gian-Andrea-Vögeli", _make_embedding(1.0))
+        assert len(results) >= 1
+        assert results[0].name == "Gian-Andrea-Vögeli"
     finally:
         store.close()
 

@@ -278,6 +278,8 @@ async def test_idempotency_per_item_graphql_skip():
     call_kwargs = tdb.graphql.call_args.kwargs
     assert call_kwargs["variables"] == {"src": "Captured/abc"}
     assert "derived_from" in tdb.graphql.call_args[0][0]
+    assert "someHave" not in tdb.graphql.call_args[0][0]
+    assert "derived_from: { eq: $src }" in tdb.graphql.call_args[0][0]
 
 
 # ---------------------------------------------------------------------------
