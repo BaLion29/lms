@@ -14,7 +14,7 @@ source of truth.
 ## Architecture
 
 ```
-TDB  ──► indexed (poller + HTTP :8089)  ──► ingestd linker
+TDB  ──► indexed (poller + HTTP within apid :8080)  ──► ingestd linker
    │         │                                 queryd find_* tools
    │         └─ sqlite file (/var/lib/firnline/index/index.db)
    │
@@ -64,7 +64,7 @@ GET  /healthz
 
 ### Ingestd
 
-Set `INGESTD_INDEXED_ENABLED=true` and `INDEXED_URL=http://indexed:8089`
+Set `INGESTD_INDEXED_ENABLED=true` and `INDEXED_URL=http://localhost:8080`
 (via the compose file).  When disabled (`false`, default), entity
 linking falls back to casefold-exact match only.
 

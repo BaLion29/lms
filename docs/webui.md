@@ -44,13 +44,13 @@ additionally uses `WEBUI_HOST_PORT`, `WEBUI_API_URL`, and `REFLEX_API_URL`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `WEBUI_CAPTURED_URL` | `http://captured:8088` | Base URL for the captured service |
+| `WEBUI_CAPTURED_URL` | `http://apid:8080` | Base URL for the captured service |
 | `WEBUI_CAPTURED_API_TOKEN` | (empty) | Bearer token for captured endpoints — **server-side only, never sent to the browser** |
-| `WEBUI_QUERYD_URL` | `http://queryd:8087` | Base URL for the queryd service |
+| `WEBUI_QUERYD_URL` | `http://apid:8080` | Base URL for the queryd service |
 | `WEBUI_QUERYD_API_TOKEN` | (empty) | Bearer token for queryd `/healthz` — server-side only |
-| `WEBUI_INDEXED_URL` | `http://indexed:8089` | Base URL for the indexed service |
+| `WEBUI_INDEXED_URL` | `http://apid:8080` | Base URL for the indexed service |
 | `WEBUI_INDEXED_API_TOKEN` | (empty) | Bearer token for indexed `/healthz` — server-side only |
-| `WEBUI_MCPD_URL` | `http://mcpd:8090` | Base URL for the mcpd service (healthz monitoring) |
+| `WEBUI_MCPD_URL` | `http://apid:8080/mcp` | Base URL for the mcpd service — mounted at /mcp on apid (healthz monitoring) |
 | `WEBUI_TDB_URL` | `http://terminusdb:6363` | TerminusDB base URL |
 | `WEBUI_TDB_ORG` | `admin` | TerminusDB organisation |
 | `WEBUI_TDB_DB` | `firnline` | TerminusDB database name |

@@ -1,16 +1,33 @@
-.venv/
+# Python
 __pycache__/
 *.pyc
+*.egg
+*.egg-info/
+
+# Build artifacts
+dist/
+build/
+
+# Caches
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-dist/
-build/
-*.egg-info/
-storage/
+
+# Coverage
+.coverage
+
+# Environment / secrets
 .env
 
+# Project data
+storage/
+
+# opencode
 opencode.json
 .opencode/
 
+# Node
 node_modules/
+
+# OS
+.DS_Store

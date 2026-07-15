@@ -21,6 +21,7 @@ class Settings(TdbSettings):
 
     api_token: str = ""
 
+    log_level: str = "INFO"
     poll_interval_seconds: int = 60
     listen_addr: str = "0.0.0.0:8089"
     dry_run: bool = False
