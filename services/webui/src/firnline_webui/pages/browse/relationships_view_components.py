@@ -148,11 +148,10 @@ def triples_table() -> rx.Component:
                                 on_click=RelationshipsState.select_endpoint(row["source_id"]),
                                 _hover={"color": rx.color("accent", 9)},
                             ),
-                            rx.badge(
+                            rx.text(
                                 row["source_type"].to(str),
-                                variant="surface",
-                                color_scheme="cyan",
                                 size="1",
+                                color=rx.color("gray", 11),
                             ),
                             spacing="2",
                             align="center",
@@ -162,7 +161,6 @@ def triples_table() -> rx.Component:
                         rx.code(
                             row["prop"].to(str),
                             variant="ghost",
-                            color_scheme="cyan",
                         ),
                     ),
                     rx.table.cell(
@@ -174,11 +172,10 @@ def triples_table() -> rx.Component:
                                 on_click=RelationshipsState.select_endpoint(row["target_id"]),
                                 _hover={"color": rx.color("accent", 9)},
                             ),
-                            rx.badge(
+                            rx.text(
                                 row["target_type"].to(str),
-                                variant="surface",
-                                color_scheme="cyan",
                                 size="1",
+                                color=rx.color("gray", 11),
                             ),
                             spacing="2",
                             align="center",
@@ -189,7 +186,7 @@ def triples_table() -> rx.Component:
                             rx.icon(tag="focus", size=14),
                             variant="ghost",
                             size="1",
-                            color_scheme="cyan",
+                            color_scheme="gray",
                             on_click=RelationshipsState.show_in_graph(row["source_id"]),
                             custom_attrs={"aria-label": "Show in graph"},
                         ),

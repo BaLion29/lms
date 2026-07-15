@@ -13,11 +13,11 @@ config = rx.Config(
         rx.plugins.RadixThemesPlugin(
             theme=rx.theme(
                 appearance="inherit",
-                accent_color="cyan",
+                accent_color="teal",
                 gray_color="slate",
                 radius="medium",
                 scaling="100%",
-                panel_background="translucent",
+                panel_background="solid",
             ),
         ),
     ],

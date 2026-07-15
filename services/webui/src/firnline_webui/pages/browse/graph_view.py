@@ -132,9 +132,10 @@ def _focus_panel() -> rx.Component:
         GraphState.focus_node_id != "",
         rx.card(
             rx.vstack(
-                rx.heading(
+                rx.text(
                     GraphState.focus_node_label,
                     size="3",
+                    weight="medium",
                 ),
                 rx.hstack(
                     rx.cond(
@@ -142,7 +143,7 @@ def _focus_panel() -> rx.Component:
                         rx.badge(
                             GraphState.focus_node_type,
                             variant="surface",
-                            color_scheme="cyan",
+                            color_scheme="gray",
                             size="1",
                         ),
                     ),
@@ -170,7 +171,6 @@ def _focus_panel() -> rx.Component:
                         rx.icon(tag="focus", size=14),
                         "Focus neighborhood",
                         variant="soft",
-                        color_scheme="cyan",
                         size="1",
                         on_click=GraphState.focus_current,
                     ),
@@ -216,7 +216,7 @@ def _focus_breadcrumb() -> rx.Component:
                 + " hops)",
                 size="1",
             ),
-            color_scheme="cyan",
+            color_scheme="gray",
             variant="soft",
             size="1",
         ),

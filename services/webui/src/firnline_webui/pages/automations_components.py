@@ -5,15 +5,15 @@ from __future__ import annotations
 import reflex as rx
 
 from firnline_webui.state.automations import AutomationsState
-from firnline_webui.ui.cards import status_badge
+from firnline_webui.ui.cards import status_dot_text
+from firnline_webui.ui.controls import filter_chip
 from firnline_webui.ui.feedback import empty_state as _empty_state
 from firnline_webui.ui.theme import TABLE_ROW_STYLE
 
 
 # ---------------------------------------------------------------------------
-# Status badge helpers
+# Status colour maps
 # ---------------------------------------------------------------------------
-
 
 _FIRING_STATUS_COLORS: dict[str, str] = {
     "pending": "amber",
@@ -31,33 +31,6 @@ _EXECUTION_STATUS_COLORS: dict[str, str] = {
     "dead": "red",
     "skipped": "gray",
 }
-
-
-def _firing_status_badge(status: str) -> rx.Component:
-    return status_badge(status, _FIRING_STATUS_COLORS)
-
-
-def _execution_status_badge(status: str) -> rx.Component:
-    return status_badge(status, _EXECUTION_STATUS_COLORS)
-
-
-# ---------------------------------------------------------------------------
-# Filter chips
-# ---------------------------------------------------------------------------
-
-
-def _filter_chip(label: str, value: str, is_active: rx.Var[bool], on_click) -> rx.Component:
-    return rx.badge(
-        rx.hstack(
-            rx.text(label, size="1"),
-            rx.cond(is_active, rx.icon(tag="check", size=12)),
-            spacing="1",
-        ),
-        variant=rx.cond(is_active, "solid", "soft"),
-        color_scheme="cyan",
-        cursor="pointer",
-        on_click=on_click(value),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +55,7 @@ def _firings_table() -> rx.Component:
                 AutomationsState.filtered_firing_rows,
                 lambda row: rx.table.row(
                     rx.table.cell(rx.text(row["trigger_name"], size="2", weight="medium")),
-                    rx.table.cell(_firing_status_badge(row["status"])),
+                    rx.table.cell(status_dot_text(row["status"], _FIRING_STATUS_COLORS)),
                     rx.table.cell(rx.text(row["scheduled_for"], size="2")),
                     rx.table.cell(rx.text(row["fired_at"], size="2")),
                     rx.table.cell(
@@ -124,7 +97,7 @@ def _executions_table() -> rx.Component:
                 AutomationsState.filtered_execution_rows,
                 lambda row: rx.table.row(
                     rx.table.cell(rx.text(row["action_name"], size="2", weight="medium")),
-                    rx.table.cell(_execution_status_badge(row["status"])),
+                    rx.table.cell(status_dot_text(row["status"], _EXECUTION_STATUS_COLORS)),
                     rx.table.cell(rx.text(row["attempt"], size="2")),  # type: ignore[index]
                     rx.table.cell(
                         rx.cond(
@@ -218,13 +191,13 @@ def firings_section() -> rx.Component:
             AutomationsState.available_firing_statuses.length() > 0,
             rx.hstack(
                 rx.text("Filter:", size="2", color_scheme="gray"),
-                _filter_chip(
-                    "All", "all", AutomationsState.firing_status_filter == "all", AutomationsState.set_firing_filter
+                filter_chip(
+                    "All", AutomationsState.firing_status_filter == "all", AutomationsState.set_firing_filter("all")
                 ),
                 rx.foreach(
                     AutomationsState.available_firing_statuses,
-                    lambda s: _filter_chip(
-                        s, s, AutomationsState.firing_status_filter == s, AutomationsState.set_firing_filter
+                    lambda s: filter_chip(
+                        s, AutomationsState.firing_status_filter == s, AutomationsState.set_firing_filter(s)
                     ),
                 ),
                 spacing="1",
@@ -299,16 +272,15 @@ def executions_section() -> rx.Component:
             AutomationsState.available_execution_statuses.length() > 0,
             rx.hstack(
                 rx.text("Filter:", size="2", color_scheme="gray"),
-                _filter_chip(
+                filter_chip(
                     "All",
-                    "all",
                     AutomationsState.execution_status_filter == "all",
-                    AutomationsState.set_execution_filter,
+                    AutomationsState.set_execution_filter("all"),
                 ),
                 rx.foreach(
                     AutomationsState.available_execution_statuses,
-                    lambda s: _filter_chip(
-                        s, s, AutomationsState.execution_status_filter == s, AutomationsState.set_execution_filter
+                    lambda s: filter_chip(
+                        s, AutomationsState.execution_status_filter == s, AutomationsState.set_execution_filter(s)
                     ),
                 ),
                 spacing="1",

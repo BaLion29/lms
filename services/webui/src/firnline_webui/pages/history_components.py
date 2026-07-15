@@ -7,7 +7,7 @@ import reflex as rx
 from firnline_webui.state.history import HistoryState
 from firnline_webui.ui.cards import chip
 from firnline_webui.ui.feedback import error_callout
-from firnline_webui.ui.theme import RADIUS_MEDIUM, SHADOW_RAISED, TABLE_ROW_STYLE
+from firnline_webui.ui.theme import FONT_MONO, RADIUS_MEDIUM, SHADOW_RAISED, TABLE_ROW_STYLE
 
 
 # ── Commit table ──────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ def commit_table() -> rx.Component:
                         rx.text(
                             row["short_id"].to(str),  # type: ignore[index]
                             size="1",
-                            font_family="mono",
+                            font_family=FONT_MONO,
                             color_scheme="gray",
                         ),
                     ),
@@ -124,7 +124,7 @@ def commit_detail_dialog() -> rx.Component:
                         rx.text(
                             HistoryState.selected_commit["id"].to(str),  # type: ignore[index]
                             size="1",
-                            font_family="mono",
+                            font_family=FONT_MONO,
                             word_break="break-all",
                         ),
                         spacing="2",
@@ -262,7 +262,7 @@ def _change_section(
                         rx.text(
                             doc_id.to(str),
                             size="1",
-                            font_family="mono",
+                            font_family=FONT_MONO,
                             word_break="break-all",
                             color=rx.color("accent", 11),
                         ),

@@ -39,6 +39,7 @@ def _api_healthz(app):
 
 
 app = rx.App(
+    stylesheets=["/fonts.css"],
     api_transformer=[_api_healthz],
 )
 

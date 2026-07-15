@@ -8,7 +8,7 @@ from firnline_webui.state.modules import ModulesState
 from firnline_webui.ui.cards import chip
 from firnline_webui.ui.feedback import empty_state as _empty_state, error_callout
 from firnline_webui.ui.nav import shell
-from firnline_webui.ui.theme import TABLE_ROW_STYLE
+from firnline_webui.ui.theme import RADIUS_MEDIUM, SHADOW_CARD, SPACE_2, SPACE_4, TABLE_ROW_STYLE
 from firnline_webui.ui.typography import page_heading, section_heading
 
 
@@ -26,18 +26,22 @@ def _plugin_section(name: str, plugins_var: rx.Var) -> rx.Component:
             rx.text(name, size="3", weight="medium"),
             spacing="2",
             align="center",
-            margin_bottom="8px",
+            margin_bottom=SPACE_2,
         ),
         rx.cond(
             plugins_var.length() > 0,
             rx.hstack(
-                rx.foreach(plugins_var, lambda p: chip(p, "blue")),
+                rx.foreach(plugins_var, lambda p: chip(p, "gray")),
                 spacing="1",
                 wrap="wrap",
             ),
             rx.text("No plugins reported", size="2", color_scheme="gray"),
         ),
         size="2",
+        border=f"1px solid {rx.color('gray', 4)}",
+        border_radius=RADIUS_MEDIUM,
+        _hover={"box_shadow": SHADOW_CARD},
+        transition="box-shadow 0.2s ease",
     )
 
 
@@ -66,6 +70,10 @@ def _webui_plugin_card(plugin: rx.Var) -> rx.Component:
             spacing="1",
         ),
         size="2",
+        border=f"1px solid {rx.color('gray', 4)}",
+        border_radius=RADIUS_MEDIUM,
+        _hover={"box_shadow": SHADOW_CARD},
+        transition="box-shadow 0.2s ease",
     )
 
 
@@ -98,7 +106,7 @@ def modules_page() -> rx.Component:
                     width="100%",
                 ),
                 spacing="2",
-                margin_bottom="16px",
+                margin_bottom=SPACE_4,
             ),
             # Error message
             rx.cond(
@@ -141,6 +149,8 @@ def modules_page() -> rx.Component:
                         ),
                         size="2",
                         width="100%",
+                        border=f"1px solid {rx.color('gray', 4)}",
+                        border_radius=RADIUS_MEDIUM,
                     ),
                     _empty_state("blocks", "No modules found."),
                 ),

@@ -5,6 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from firnline_webui.state.auth import AuthState
+from firnline_webui.ui.nav import wordmark
 from firnline_webui.ui.theme import LOGIN_BG, RADIUS_MEDIUM, SHADOW_RAISED, SPACE_3
 
 
@@ -17,17 +18,9 @@ def login_page() -> rx.Component:
         rx.card(
             rx.vstack(
                 # Wordmark
-                rx.hstack(
-                    rx.center(
-                        rx.icon(tag="mountain_snow", size=20, color="white"),
-                        background=rx.color("accent", 9),
-                        border_radius="medium",
-                        width="40px",
-                        height="40px",
-                    ),
-                    rx.text("firnline", size="5", weight="bold"),
-                    spacing="2",
-                    align="center",
+                rx.center(
+                    wordmark(size=24),
+                    width="100%",
                 ),
                 rx.divider(),
                 rx.text("Sign in", size="5", weight="bold"),
@@ -48,7 +41,6 @@ def login_page() -> rx.Component:
                             type="submit",
                             width="100%",
                             size="3",
-                            color_scheme="cyan",
                             disabled=(AuthState.password_input == ""),
                         ),
                         spacing="3",

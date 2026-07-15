@@ -25,6 +25,7 @@ RADIUS_MEDIUM = "6px"
 # Spacing scale
 # ---------------------------------------------------------------------------
 
+SPACE_1 = "4px"
 SPACE_1_5 = "6px"
 SPACE_2 = "8px"
 SPACE_3 = "12px"
@@ -35,19 +36,12 @@ SPACE_8 = "32px"
 # Vertical padding for centred empty / loading states.
 SPACING_EMPTY_STATE_Y = "64px"
 
-# Standard section gap for vertical page layouts.
-SECTION_GAP = "5"
+# Monospace font stack for IDs, IRIs, and code-like values.
+FONT_MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
 
-# ---------------------------------------------------------------------------
-# Semantic status colours
-# ---------------------------------------------------------------------------
-
-STATUS_COLORS = {
-    "success": "green",
-    "warn": "amber",
-    "error": "red",
-    "info": "cyan",
-}
+# Warm accent reserved for the single primary action per screen ("alpenglow");
+# apply locally via color_scheme, never in the global theme.
+WARM_ACCENT = "tomato"
 
 # ---------------------------------------------------------------------------
 # Calendar event palette
@@ -73,11 +67,6 @@ SHADOW_CARD = (
     " 0 1px 3px color-mix(in srgb, black 6%, transparent)"
 )
 
-SHADOW_CARD_HOVER = (
-    "0 2px 4px color-mix(in srgb, black 6%, transparent),"
-    " 0 4px 8px color-mix(in srgb, black 8%, transparent)"
-)
-
 SHADOW_RAISED = (
     "0 4px 12px color-mix(in srgb, black 8%, transparent),"
     " 0 12px 32px color-mix(in srgb, black 6%, transparent)"
@@ -90,9 +79,6 @@ SHADOW_RAISED = (
 # Semi-transparent black — always dims regardless of theme.
 OVERLAY_BG = "color-mix(in srgb, black 50%, transparent)"
 
-# Backdrop blur strength for sticky headers and frosted panels.
-BACKDROP_BLUR = "blur(12px)"
-
 # ---------------------------------------------------------------------------
 # Shell backgrounds
 # ---------------------------------------------------------------------------
@@ -101,10 +87,10 @@ BACKDROP_BLUR = "blur(12px)"
 HEADER_BG = rx.color("gray", 1)
 
 # Subtle page background gradient — gray-1 fading to gray-2.
-PAGE_BG = f"linear-gradient(to bottom, {rx.color('gray', 1)}, {rx.color('gray', 2)})"
+PAGE_BG = rx.color("gray", 1)
 
-# Login-page background — soft radial gradient from accent-2 to gray-1.
-LOGIN_BG = f"radial-gradient(ellipse at top, {rx.color('accent', 2)}, {rx.color('gray', 1)} 60%)"
+# Login-page background — flat gray-1.
+LOGIN_BG = rx.color("gray", 1)
 
 # ---------------------------------------------------------------------------
 # Shared table-row pseudo-props

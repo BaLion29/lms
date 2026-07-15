@@ -12,7 +12,6 @@ import reflex as rx
 from firnline_webui.state.auth import AuthState
 from firnline_webui.state.base import BaseState
 from firnline_webui.ui.theme import (
-    BACKDROP_BLUR,
     CONTENT_MAX_WIDTH,
     DRAWER_WIDTH,
     HEADER_BG,
@@ -25,6 +24,57 @@ from firnline_webui.ui.theme import (
     SPACE_6,
     SPACE_8,
 )
+from firnline_webui.ui.typography import card_title
+
+# ---------------------------------------------------------------------------
+# Brand wordmark — firn-line glyph + "firnline" text
+# ---------------------------------------------------------------------------
+
+_FIRN_MARK_SVG: str = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" '
+    'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+    'style="display:block;width:100%;height:100%">'
+    '<polygon points="3,20 12,4 21,20"/>'
+    '<line x1="5.5" y1="11" x2="18.5" y2="11"/>'
+    "</svg>"
+)
+
+
+def firn_mark(size: int = 24) -> rx.Component:
+    """Firnline brand glyph only — SVG mountain icon without text.
+
+    The SVG glyph uses ``stroke="currentColor"``, inheriting from the
+    wrapping box's ``color`` set to ``accent-9`` for consistent rendering
+    in both light and dark themes.
+    """
+    return rx.box(
+        rx.html(_FIRN_MARK_SVG),
+        color=rx.color("accent", 9),
+        width=f"{size}px",
+        height=f"{size}px",
+        flex_shrink="0",
+    )
+
+
+def wordmark(size: int = 20) -> rx.Component:
+    """Firnline brand mark: the firn-line glyph + wordmark text.
+
+    The SVG glyph uses ``stroke="currentColor"``, inheriting from the
+    wrapping box's ``color`` set to ``accent-9`` for consistent rendering
+    in both light and dark themes.
+    """
+    return rx.hstack(
+        firn_mark(size=size),
+        rx.text(
+            "firnline",
+            size="3",
+            weight="medium",
+            letter_spacing="-0.01em",
+        ),
+        spacing="2",
+        align="center",
+    )
+
 
 # ---------------------------------------------------------------------------
 # Dynamic navigation items from the plugin registry
@@ -209,17 +259,8 @@ def sidebar(active: str) -> rx.Component:
     """Fixed left sidebar — hidden on small screens (visible >= md)."""
     return rx.vstack(
         # Wordmark
-        rx.hstack(
-            rx.center(
-                rx.icon(tag="mountain_snow", size=16, color="white"),
-                background=rx.color("accent", 9),
-                border_radius="medium",
-                width="28px",
-                height="28px",
-            ),
-            rx.text("firnline", size="4", weight="bold", color=rx.color("gray", 12)),
-            spacing="2",
-            align="center",
+        rx.box(
+            wordmark(),
             padding_x=SPACE_4,
             padding_y=SPACE_3,
         ),
@@ -261,7 +302,6 @@ def sidebar(active: str) -> rx.Component:
         top="0",
         background=rx.color("gray", 2),
         border_right=f"1px solid {rx.color('gray', 4)}",
-        backdrop_filter=BACKDROP_BLUR,
         z_index="40",
         spacing="1",
         display=rx.breakpoints({"initial": "none", "md": "flex"}),
@@ -290,17 +330,7 @@ def _mobile_nav_drawer(active: str) -> rx.Component:
             # Slide-in panel from the left
             rx.vstack(
                 rx.hstack(
-                    rx.hstack(
-                        rx.center(
-                            rx.icon(tag="mountain_snow", size=16, color="white"),
-                            background=rx.color("accent", 9),
-                            border_radius="medium",
-                            width="28px",
-                            height="28px",
-                        ),
-                        rx.text("firnline", size="4", weight="bold"),
-                        spacing="2",
-                    ),
+                    wordmark(),
                     rx.spacer(),
                     rx.icon_button(
                         rx.icon(tag="x", size=16),
@@ -378,20 +408,9 @@ def page_header(title: str) -> rx.Component:
             on_click=MobileNavState.toggle_drawer,
         ),
         # Logo + wordmark
-        rx.hstack(
-            rx.center(
-                rx.icon(tag="mountain_snow", size=16, color="white"),
-                background=rx.color("accent", 9),
-                border_radius="medium",
-                width="28px",
-                height="28px",
-            ),
-            rx.text("firnline", size="4", weight="bold", color=rx.color("gray", 12)),
-            spacing="2",
-            align="center",
-        ),
+        wordmark(),
         rx.divider(orientation="vertical", height="20px"),
-        rx.heading(title, size="4", weight="medium"),
+        card_title(title),
         rx.spacer(),
         rx.badge(
             rx.text(
@@ -399,7 +418,7 @@ def page_header(title: str) -> rx.Component:
                 size="1",
             ),
             variant="surface",
-            color_scheme="cyan",
+            color_scheme="gray",
         ),
         spacing="3",
         align="center",
@@ -408,7 +427,6 @@ def page_header(title: str) -> rx.Component:
         position="sticky",
         top="0",
         z_index="30",
-        backdrop_filter=BACKDROP_BLUR,
         background=HEADER_BG,
         border_bottom=f"1px solid {rx.color('gray', 4)}",
         width="100%",

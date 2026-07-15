@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import reflex as rx
 
-from firnline_webui.ui.theme import RADIUS_MEDIUM, SHADOW_CARD, SHADOW_CARD_HOVER
+from firnline_webui.ui.theme import RADIUS_MEDIUM, SHADOW_CARD, SPACE_1_5, SPACE_2
+from firnline_webui.ui.typography import card_title
 
 
 def status_card(
@@ -16,26 +17,25 @@ def status_card(
     """A card with a title row (title + badge), then body content."""
     return rx.card(
         rx.hstack(
-            rx.heading(title, size="4"),
+            card_title(title),
             rx.spacer(),
             status_badge,
             align="center",
             width="100%",
             border_bottom=f"1px solid {rx.color('gray', 3)}",
-            padding_bottom="8px",
-            margin_bottom="8px",
+            padding_bottom=SPACE_2,
+            margin_bottom=SPACE_2,
         ),
         *children,
         size=size,
         background=rx.color("gray", 1),
         border=f"1px solid {rx.color('gray', 4)}",
         border_radius=RADIUS_MEDIUM,
-        box_shadow=SHADOW_CARD,
+        box_shadow="none",
         _hover={
-            "box_shadow": SHADOW_CARD_HOVER,
-            "border_color": rx.color("accent", 6),
+            "box_shadow": SHADOW_CARD,
         },
-        transition="box-shadow 0.2s ease, border-color 0.2s ease",
+        transition="box-shadow 0.2s ease",
     )
 
 
@@ -75,8 +75,11 @@ def info_row(label: str, value: rx.Component | str) -> rx.Component:
     )
 
 
-def status_badge(status: str, color_map: dict[str, str] | None = None) -> rx.Component:
-    """Colour-coded status badge — coloured dot + label.
+def status_dot_text(status: rx.Var[str] | str, color_map: dict[str, str] | None = None) -> rx.Component:
+    """Small coloured dot + plain text label — for dense table rows.
+
+    Follows the same status→colour mapping pattern as :func:`status_badge`,
+    but renders as a lightweight ``hstack`` without a badge pill.
 
     Args:
         status: The status text to display (also used as lookup key).
@@ -84,15 +87,22 @@ def status_badge(status: str, color_map: dict[str, str] | None = None) -> rx.Com
             names (e.g. ``"blue"``, ``"green"``).  Unknown statuses fall
             back to ``"gray"``.
     """
-    cs = (color_map or {}).get(status, "gray")
-    return rx.badge(
-        rx.hstack(
-            rx.box(width="6px", height="6px", border_radius="50%", background=rx.color(cs, 9)),
-            rx.text(status, size="1"),
-            spacing="1",
-            align="center",
+    s = rx.Var.create(status)
+    _map = color_map or {}
+
+    # Reactive colour lookup: chain rx.cond so unknown statuses fall back to gray.
+    mapped_color: rx.Var = rx.color("gray", 9)
+    for key, val in reversed(list(_map.items())):
+        mapped_color = rx.cond(s == key, rx.color(val, 9), mapped_color)
+
+    return rx.hstack(
+        rx.box(
+            width=SPACE_1_5,
+            height=SPACE_1_5,
+            border_radius="50%",
+            background=mapped_color,
         ),
-        color_scheme=cs,
-        variant="surface",
-        size="1",
+        rx.text(s, size="1", color=rx.color("gray", 11)),
+        spacing="2",
+        align="center",
     )
