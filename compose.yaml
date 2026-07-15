@@ -1,19 +1,14 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Firnline — docker compose deployment
 #
-# Default (external TerminusDB — TDB_URL required):
-#   1. cp .env.example .env && vim .env         # set TDB_URL + secrets
-#   2. docker compose --profile bootstrap up bootstrap --abort-on-container-exit
-#   3. docker compose up -d                      # captured + ingestd + queryd
+# Quickstart:
+#   1. cp .env.example .env && vim .env         # set secrets (TDB_PASSWORD, API tokens)
+#   2. docker compose up -d                     # bootstrap auto-runs, then all services
 #
-# Self-contained (bundled TerminusDB):
-#   1. Set TDB_URL=http://terminusdb:6363 in .env
-#   2. docker compose -f compose.yaml -f compose.bundled-tdb.yaml \
-#        --profile bootstrap up bootstrap --abort-on-container-exit
-#   3. docker compose -f compose.yaml -f compose.bundled-tdb.yaml up -d
-#
-# Bootstrap profile (run once per setup):
-#   docker compose --profile bootstrap run --rm bootstrap
+# Using your own TerminusDB (remove the bundled DB):
+#   - Delete/comment out the `terminusdb` service block and `terminusdb_data` volume below.
+#   - Set TDB_URL in .env to point to your TerminusDB instance.
+#   - docker compose up -d
 #
 # Extension toggling:
 #   Set FIRNLINE_EXTENSIONS in .env.  The bootstrap service installs them into
@@ -24,16 +19,49 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 services:
-  # ── Bootstrap (profiles: [bootstrap]) ───────────────────────────────────
+  # ── TerminusDB (bundled SSOT database) ───────────────────────────────────
+  # THIS SERVICE BLOCK IS OPTIONAL. If you run your own TerminusDB:
+  #   - Delete or comment out this entire service block.
+  #   - Delete or comment out the `terminusdb_data` volume at the bottom.
+  #   - Set TDB_URL in .env to point to your TerminusDB instance.
+  terminusdb:
+    image: terminusdb/terminusdb-server:v12.0.6
+    environment:
+      TERMINUSDB_ADMIN_PASS: ${TDB_PASSWORD:?err TDB_PASSWORD must be set (e.g. in .env)}
+    volumes:
+      - terminusdb_data:/app/terminusdb/storage
+    ports:
+      - "${TDB_HOST_PORT:-6363}:6363"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6363'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  # ── LiteLLM (optional — commented out by default) ────────────────────────
+  # Uncomment this block to run a LiteLLM proxy inside Docker instead of a
+  # host-local LLM.  Then set FIRNLINE_LLM_BASE_URL=http://litellm:4000 in .env.
+  # litellm:
+  #   image: ghcr.io/berriai/litellm:main-stable
+  #   ports:
+  #     - "4000:4000"
+  #   volumes:
+  #     - ./litellm_config.yaml:/app/litellm_config.yaml:ro
+  #   command: --config /app/litellm_config.yaml --port 4000
+  #   restart: unless-stopped
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+
+  # ── Bootstrap (auto-starts, exits after completion) ─────────────────────
   bootstrap:
-    profiles:
-      - bootstrap
     build:
       context: .
       dockerfile: packages/firnline-schema/Dockerfile
     image: firnline/firnline-schema:local
     environment:
-      TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
+      TDB_URL: ${TDB_URL:-http://terminusdb:6363}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
       FIRNLINE_EXTENSIONS_PURGE: ${FIRNLINE_EXTENSIONS_PURGE:-false}
       FIRNLINE_SCHEMA_TDB_PASSWORD: ${TDB_PASSWORD:?}
@@ -46,12 +74,13 @@ services:
       - ./schema:/work/schema:ro
       - ./build:/work/build
     restart: "no"
-    # 1. Create the database if it does not exist (TerminusDB requires it
+    # 1. Wait for TerminusDB (bundled or external) with retry loop.
+    # 2. Create the database if it does not exist (TerminusDB requires it
     #    before any schema push; uses a Python heredoc — no extra deps besides
     #    firnline-core (httpx) which is already installed in this image).
-    # 2. Compose schema modules.
-    # 3. Apply schema + migrations (creates branch if needed; idempotent).
-    # 4. Validate the result.
+    # 3. Compose schema modules.
+    # 4. Apply schema + migrations (creates branch if needed; idempotent).
+    # 5. Validate the result.
     #
     # List form so compose passes argv directly (no parser shell-tokenization).
     # $$ escaping prevents compose from interpolating secrets into the command.
@@ -60,17 +89,35 @@ services:
       - -euc
       - |
         set -eu
+        echo "=== Waiting for TerminusDB ==="
+        python << "PYEOF"
+        import httpx, os, sys, time
+        tdb_url = os.environ.get('TDB_URL', 'http://terminusdb:6363')
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            try:
+                r = httpx.get(f'{tdb_url}/api/info', timeout=5)
+                if r.status_code < 500:
+                    print(' TerminusDB is ready.')
+                    break
+            except Exception:
+                pass
+            print('.', end='', flush=True)
+            time.sleep(3)
+        else:
+            sys.exit(f'TerminusDB not reachable at {tdb_url} after 120s — is the bundled terminusdb service running, or is TDB_URL correct?')
+        PYEOF
         echo "=== Ensure database exists ==="
-        python << PYEOF
-        import asyncio, sys
+        python << "PYEOF"
+        import asyncio, os, sys
         from firnline_core.tdb import TdbClient
         async def main():
             async with TdbClient(
-                base_url="$${TDB_URL}",
-                org="$${TDB_ORG:-admin}",
-                db="$${TDB_DB:-firnline}",
-                user="$${TDB_USER:-admin}",
-                password="$${FIRNLINE_SCHEMA_TDB_PASSWORD}",
+                base_url=os.environ.get("TDB_URL", "http://terminusdb:6363"),
+                org=os.environ.get("TDB_ORG", "admin"),
+                db=os.environ.get("TDB_DB", "firnline"),
+                user=os.environ.get("TDB_USER", "admin"),
+                password=os.environ["FIRNLINE_SCHEMA_TDB_PASSWORD"],
                 author="service:ingestd",
             ) as c:
                 if await c.db_exists():
@@ -84,14 +131,14 @@ services:
         firnline-schema compose --modules-dir /work/schema/modules --out-dir /work/build
         echo "=== Apply schema ==="
         firnline-schema apply --modules-dir /work/schema/modules \
-          --tdb-url $${TDB_URL} \
+          --tdb-url "$${TDB_URL:-http://terminusdb:6363}" \
           --tdb-org $${TDB_ORG:-admin} \
           --tdb-db $${TDB_DB:-firnline} \
           --tdb-user $${TDB_USER:-admin} \
           --branch $${TDB_BRANCH:-main}
         echo "=== Validate ==="
         firnline-schema validate --modules-dir /work/schema/modules \
-          --tdb-url $${TDB_URL} \
+          --tdb-url "$${TDB_URL:-http://terminusdb:6363}" \
           --tdb-org $${TDB_ORG:-admin} \
           --tdb-db $${TDB_DB:-firnline} \
           --tdb-user $${TDB_USER:-admin} \
@@ -104,10 +151,13 @@ services:
       context: .
       dockerfile: services/captured/Dockerfile
     image: firnline/captured:local
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
     ports:
       - "${CAPTURED_HOST_PORT:-8088}:8088"
     environment:
-      CAPTURED_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
+      CAPTURED_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
       CAPTURED_TDB_ORG: ${TDB_ORG:-admin}
       CAPTURED_TDB_DB: ${TDB_DB:-firnline}
       CAPTURED_TDB_BRANCH: ${TDB_BRANCH:-main}
@@ -140,10 +190,12 @@ services:
       dockerfile: services/ingestd/Dockerfile
     image: firnline/ingestd:local
     depends_on:
+      bootstrap:
+        condition: service_completed_successfully
       indexed:
         condition: service_started
     environment:
-      INGESTD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
+      INGESTD_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
       INGESTD_TDB_ORG: ${TDB_ORG:-admin}
       INGESTD_TDB_DB: ${TDB_DB:-firnline}
       INGESTD_TDB_BRANCH: ${TDB_BRANCH:-main}
@@ -183,10 +235,13 @@ services:
       context: .
       dockerfile: services/indexed/Dockerfile
     image: firnline/indexed:local
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
     ports:
       - "${INDEXED_HOST_PORT:-8089}:8089"
     environment:
-      INDEXED_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
+      INDEXED_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
       INDEXED_TDB_ORG: ${TDB_ORG:-admin}
       INDEXED_TDB_DB: ${TDB_DB:-firnline}
       INDEXED_TDB_BRANCH: ${TDB_BRANCH:-main}
@@ -225,8 +280,11 @@ services:
       context: .
       dockerfile: services/triggerd/Dockerfile
     image: firnline/triggerd:local
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
     environment:
-      TRIGGERD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
+      TRIGGERD_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
       TRIGGERD_TDB_ORG: ${TDB_ORG:-admin}
       TRIGGERD_TDB_DB: ${TDB_DB:-firnline}
       TRIGGERD_TDB_BRANCH: ${TDB_BRANCH:-main}
@@ -234,7 +292,7 @@ services:
       TRIGGERD_TDB_PASSWORD: ${TDB_PASSWORD:?}
       TRIGGERD_POLL_INTERVAL_SECONDS: ${TRIGGERD_POLL_INTERVAL_SECONDS:-60}
       TRIGGERD_LOOKBACK_SECONDS: ${TRIGGERD_LOOKBACK_SECONDS:-900}
-      TRIGGERD_DEFAULT_TIMEZONE: ${TRIGGERD_DEFAULT_TIMEZONE:-Europe/Zurich}
+      TRIGGERD_DEFAULT_TIMEZONE: ${TRIGGERD_DEFAULT_TIMEZONE:-UTC}
       TRIGGERD_DRY_RUN: ${TRIGGERD_DRY_RUN:-false}
       TRIGGERD_STRICT_PLUGINS: ${TRIGGERD_STRICT_PLUGINS:-false}
       TRIGGERD_LIVENESS_FILE: ${TRIGGERD_LIVENESS_FILE:-/tmp/triggerd-alive}
@@ -261,8 +319,11 @@ services:
       context: .
       dockerfile: services/effectd/Dockerfile
     image: firnline/effectd:local
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
     environment:
-      EFFECTD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
+      EFFECTD_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
       EFFECTD_TDB_ORG: ${TDB_ORG:-admin}
       EFFECTD_TDB_DB: ${TDB_DB:-firnline}
       EFFECTD_TDB_BRANCH: ${TDB_BRANCH:-main}
@@ -296,12 +357,14 @@ services:
       dockerfile: services/queryd/Dockerfile
     image: firnline/queryd:local
     depends_on:
+      bootstrap:
+        condition: service_completed_successfully
       indexed:
         condition: service_started
     ports:
       - "${QUERYD_HOST_PORT:-8087}:8087"
     environment:
-      QUERYD_TDB_URL: ${TDB_URL:?err TDB_URL must be set (e.g. in .env)}
+      QUERYD_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
       QUERYD_TDB_ORG: ${TDB_ORG:-admin}
       QUERYD_TDB_DB: ${TDB_DB:-firnline}
       QUERYD_TDB_BRANCH: ${TDB_BRANCH:-main}
@@ -337,6 +400,8 @@ services:
       dockerfile: services/mcpd/Dockerfile
     image: firnline/mcpd:local
     depends_on:
+      bootstrap:
+        condition: service_completed_successfully
       queryd:
         condition: service_started
       captured:
@@ -352,6 +417,9 @@ services:
       MCPD_CAPTURED_TOKEN: ${CAPTURED_API_TOKEN:?}
       MCPD_ENABLE_QUERYD_TOOLS: ${MCPD_ENABLE_QUERYD_TOOLS:-true}
       MCPD_REQUEST_TIMEOUT_SECONDS: ${MCPD_REQUEST_TIMEOUT_SECONDS:-30.0}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
     restart: unless-stopped
     healthcheck:
       test:
@@ -371,6 +439,8 @@ services:
       dockerfile: services/webui/Dockerfile
     image: firnline/webui:local
     depends_on:
+      bootstrap:
+        condition: service_completed_successfully
       captured:
         condition: service_started
       queryd:
@@ -385,7 +455,7 @@ services:
       WEBUI_INDEXED_URL: http://indexed:8089
       WEBUI_INDEXED_API_TOKEN: ${WEBUI_INDEXED_API_TOKEN:-${INDEXED_API_TOKEN:-}}
       WEBUI_MCPD_URL: http://mcpd:8090
-      WEBUI_TDB_URL: ${TDB_URL:?err TDB_URL must be set}
+      WEBUI_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
       WEBUI_TDB_ORG: ${TDB_ORG:-admin}
       WEBUI_TDB_DB: ${TDB_DB:-firnline}
       WEBUI_TDB_BRANCH: ${TDB_BRANCH:-main}
@@ -393,6 +463,9 @@ services:
       WEBUI_TDB_PASSWORD: ${TDB_PASSWORD:?}
       WEBUI_PASSWORD: ${WEBUI_PASSWORD:-}
       REFLEX_API_URL: ${WEBUI_API_URL:-http://localhost:3000}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
     restart: unless-stopped
     healthcheck:
       test:
@@ -410,3 +483,4 @@ volumes:
   firnline_ext_venv:
   firnline_index:
   blobs:
+  terminusdb_data:
