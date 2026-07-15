@@ -7,6 +7,7 @@ import reflex as rx
 from firnline_webui.state.health import HealthState
 from firnline_webui.ui.cards import chip, info_row, stat_badge, status_card
 from firnline_webui.ui.nav import shell
+from firnline_webui.ui.typography import page_heading
 
 
 def _blob_indicator(available: rx.Var[bool], writable: rx.Var[bool]) -> rx.Component:
@@ -105,7 +106,7 @@ def health_page() -> rx.Component:
             # Header row
             rx.vstack(
                 rx.hstack(
-                    rx.heading("Service Health", size="6"),
+                    page_heading("Service Health"),
                     rx.spacer(),
                     rx.hstack(
                         rx.cond(
@@ -118,7 +119,7 @@ def health_page() -> rx.Component:
                             "Refresh",
                             on_click=HealthState.refresh,
                             size="2",
-                            variant="outline",
+                            variant="soft",
                         ),
                         spacing="2",
                         align="center",

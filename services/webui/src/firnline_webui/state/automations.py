@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 
 import reflex as rx
 
 from firnline_webui.clients import TdbBrowser, WebuiClientError, make_tdb_browser
 from firnline_webui.state.base import BaseState
+from firnline_webui.state.selection import SelectionMixin
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +243,7 @@ async def _load_automations_data(tdb: TdbBrowser) -> dict:
 # ---------------------------------------------------------------------------
 
 
-class AutomationsState(BaseState):
+class AutomationsState(BaseState, SelectionMixin):
     """State for the /automations page."""
 
     triggers_available: bool = False
@@ -261,9 +261,7 @@ class AutomationsState(BaseState):
     loading: bool = False
     error: str = ""
 
-    # Detail drawer (shared for both firings and executions)
-    selected_doc: dict = {}
-    selected_json: str = ""
+    # selected_doc / selected_json inherited from SelectionMixin
 
     # ------------------------------------------------------------------
     # Computed vars
@@ -292,7 +290,7 @@ class AutomationsState(BaseState):
     @rx.var
     def selected_iri(self) -> str:
         """IRI of the selected document (empty string when no selection)."""
-        return self.selected_doc.get("@id", "")
+        return (self.selected_doc or {}).get("@id", "")
 
     @rx.var
     def has_selection(self) -> bool:
@@ -308,7 +306,7 @@ class AutomationsState(BaseState):
         """Load schema, check module availability, fetch documents."""
         self.loading = True
         self.error = ""
-        self.selected_doc = {}
+        self.selected_doc = None
         self.selected_json = ""
         yield
 
@@ -340,26 +338,6 @@ class AutomationsState(BaseState):
     @rx.event
     def set_execution_filter(self, value: str):
         self.execution_status_filter = value
-
-    @rx.event
-    async def select(self, doc_id: str):
-        """Fetch a single document by IRI and open the detail drawer."""
-        tdb = make_tdb_browser()
-        try:
-            doc = await tdb.get_document(doc_id)
-            self.selected_doc = doc
-            self.selected_json = json.dumps(doc, indent=2, default=str)
-        except WebuiClientError as exc:
-            self.selected_doc = {"error": str(exc.detail)}
-            self.selected_json = json.dumps(self.selected_doc, indent=2)
-        finally:
-            await tdb.aclose()
-        yield
-
-    @rx.event
-    def clear_selection(self):
-        self.selected_doc = {}
-        self.selected_json = ""
 
     @rx.event
     def refresh(self):

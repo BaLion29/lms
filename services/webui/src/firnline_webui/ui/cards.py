@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import reflex as rx
 
+from firnline_webui.ui.theme import RADIUS_MEDIUM, SHADOW_CARD, SHADOW_CARD_HOVER
+
 
 def status_card(
     title: str,
@@ -27,11 +29,13 @@ def status_card(
         size=size,
         background=rx.color("gray", 1),
         border=f"1px solid {rx.color('gray', 4)}",
-        box_shadow="0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06)",
+        border_radius=RADIUS_MEDIUM,
+        box_shadow=SHADOW_CARD,
         _hover={
-            "box_shadow": "0 2px 4px rgba(0,0,0,0.06), 0 4px 8px rgba(0,0,0,0.08)",
+            "box_shadow": SHADOW_CARD_HOVER,
+            "border_color": rx.color("accent", 6),
         },
-        transition="box-shadow 0.2s ease",
+        transition="box-shadow 0.2s ease, border-color 0.2s ease",
     )
 
 
@@ -68,4 +72,27 @@ def info_row(label: str, value: rx.Component | str) -> rx.Component:
         gap="2",
         width="100%",
         align="center",
+    )
+
+
+def status_badge(status: str, color_map: dict[str, str] | None = None) -> rx.Component:
+    """Colour-coded status badge — coloured dot + label.
+
+    Args:
+        status: The status text to display (also used as lookup key).
+        color_map: Optional dict mapping status values to colour-scheme
+            names (e.g. ``"blue"``, ``"green"``).  Unknown statuses fall
+            back to ``"gray"``.
+    """
+    cs = (color_map or {}).get(status, "gray")
+    return rx.badge(
+        rx.hstack(
+            rx.box(width="6px", height="6px", border_radius="50%", background=rx.color(cs, 9)),
+            rx.text(status, size="1"),
+            spacing="1",
+            align="center",
+        ),
+        color_scheme=cs,
+        variant="surface",
+        size="1",
     )

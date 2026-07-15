@@ -12,6 +12,47 @@ from firnline_webui.state.graph import GraphState
 from firnline_webui.ui.controls import color_legend, filter_chip, search_input
 from firnline_webui.ui.feedback import error_callout, loading_spinner
 from firnline_webui.ui.graph import force_graph
+from firnline_webui.ui.theme import SPACE_2
+
+
+# ── Responsive graph sizing ──────────────────────────────────────────────
+
+
+class GraphContainerSize(rx.State):
+    """Tracks the graph container's pixel dimensions for canvas sizing."""
+
+    graph_width: int = 1100
+    graph_height: int = 640
+
+    def measure_container(self, dims: list):
+        """Receive exact container dimensions from on‑mount JS measurement."""
+        try:
+            self.graph_width = max(300, int(dims[0]))
+            self.graph_height = max(200, int(dims[1]))
+        except (TypeError, ValueError, IndexError):
+            pass
+
+    def on_window_resize(self, window_w: int, window_h: int):
+        """Approximate container dimensions when the browser window resizes.
+
+        The container CSS is ``width: 100%`` and ``height: min(70vh, 720px)``
+        (or ``min(60vh, 480px)`` on small screens), nested inside the Reflex
+        shell (sidebar ≈ 240 px + padding).  We replicate that logic here.
+        """
+        # Sidebar + page chrome ≈ 280 px on desktop, ~40 px on mobile shell.
+        chrome_w = 280 if window_w >= 1024 else 40
+        container_w = max(300, window_w - chrome_w)
+
+        # Replicate the CSS height formula per breakpoint.
+        if window_w < 640:  # xs
+            container_h = max(360, min(int(window_h * 0.6), 480))
+        elif window_w < 1024:  # sm/md
+            container_h = max(360, min(int(window_h * 0.7), 640))
+        else:  # lg+
+            container_h = max(360, min(int(window_h * 0.7), 720))
+
+        self.graph_width = container_w
+        self.graph_height = container_h
 
 
 def _type_filter_bar() -> rx.Component:
@@ -189,7 +230,7 @@ def _index_errors_warning() -> rx.Component:
         rx.callout(
             rx.vstack(
                 rx.hstack(
-                    rx.icon(tag="info", size=14, color="var(--amber-9)"),
+                    rx.icon(tag="info", size=14, color=rx.color("amber", 9)),
                     rx.text("Some classes could not be fetched:", size="2"),
                     rx.spacer(),
                     rx.icon_button(
@@ -220,6 +261,10 @@ def _index_errors_warning() -> rx.Component:
 def graph_view() -> rx.Component:
     """Render the force-graph view with filters, legend, focus, and states."""
     return rx.vstack(
+        # ── Window‑resize listener (updates GraphContainerSize) ───
+        rx.window_event_listener(
+            on_resize=GraphContainerSize.on_window_resize,
+        ),
         # ── Loading spinner ───────────────────────────────────────
         rx.cond(
             GraphState.loading,
@@ -286,9 +331,9 @@ def graph_view() -> rx.Component:
                     graph_data=GraphState.graph_data,
                     node_label="label",
                     node_color="color",
-                    width=1100,
-                    height=640,
-                    background_color="rgba(0,0,0,0)",
+                    width=GraphContainerSize.graph_width,
+                    height=GraphContainerSize.graph_height,
+                    background_color="transparent",
                     link_label="prop",
                     link_directional_arrow_length=4,
                     link_directional_arrow_rel_pos=1.0,
@@ -296,10 +341,29 @@ def graph_view() -> rx.Component:
                 ),
             ),
             border=f"1px solid {rx.color('gray', 4)}",
-            border_radius="8px",
-            height="640px",
+            border_radius=SPACE_2,
+            height=rx.breakpoints(
+                xs="min(60vh, 480px)",
+                sm="min(60vh, 480px)",
+                md="min(70vh, 640px)",
+                lg="min(70vh, 720px)",
+            ),
             overflow="hidden",
             width="100%",
+            id="graph-responsive-container",
+            on_mount=rx.call_script(
+                "\n".join(
+                    [
+                        "const el = document.getElementById('graph-responsive-container');",
+                        "if (el) {",
+                        "  const rect = el.getBoundingClientRect();",
+                        "  return [Math.floor(rect.width), Math.floor(rect.height)];",
+                        "}",
+                        "return [1100, 640];",
+                    ]
+                ),
+                callback=GraphContainerSize.measure_container,
+            ),
         ),
         # ── Focus panel ───────────────────────────────────────────
         _focus_panel(),

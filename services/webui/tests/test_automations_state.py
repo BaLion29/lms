@@ -741,7 +741,10 @@ async def test_handler_select_document(full_automation_schema, trigger_docs):
             pass
         return state
 
-    with patch("firnline_webui.state.automations.make_tdb_browser", side_effect=lambda: next(calls)):
+    with (
+        patch("firnline_webui.state.automations.make_tdb_browser", side_effect=lambda: next(calls)),
+        patch("firnline_webui.state.selection.make_tdb_browser", side_effect=lambda: next(calls)),
+    ):
         state = await run()
 
         # Select a document
@@ -756,7 +759,7 @@ async def test_handler_select_document(full_automation_schema, trigger_docs):
         await select_run()
 
     assert fake_load.aclose_called
-    assert state.selected_doc != {}
+    assert state.selected_doc is not None
     assert state.selected_doc["@id"] == "TriggerFiring/f1"
     assert "extra" in state.selected_doc
     assert state.selected_json != ""
@@ -768,8 +771,13 @@ async def test_handler_clear_selection():
     state.selected_doc = {"@id": "x"}
     state.selected_json = '{"@id": "x"}'
 
-    state.clear_selection()
-    assert state.selected_doc == {}
+    gen = state.clear_selection()
+    await gen.__anext__()
+    try:
+        await gen.__anext__()
+    except StopAsyncIteration:
+        pass
+    assert state.selected_doc is None
     assert state.selected_json == ""
 
 

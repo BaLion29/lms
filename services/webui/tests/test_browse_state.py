@@ -321,8 +321,8 @@ async def test_load_triggers_load_counts():
 
 from types import SimpleNamespace  # noqa: E402
 
-from firnline_webui.state.browse import (  # noqa: E402
-    BrowseClassState,
+from firnline_webui.state.browse import BrowseClassState  # noqa: E402
+from firnline_webui.state.browse_helpers import (  # noqa: E402
     _compute_references,
     _is_known_ref,
     _row_matches,
@@ -497,7 +497,7 @@ async def test_hybrid_path_loads_all_docs():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     assert state.total_count == 50
@@ -525,7 +525,7 @@ async def test_server_path_fetches_page_with_skip_count():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     assert state.total_count == 2000
@@ -553,7 +553,7 @@ async def test_server_path_next_page_fetches():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
         assert state.page_index == 0
         fake.get_docs_calls.clear()
@@ -578,7 +578,7 @@ async def test_server_path_prev_page_fetches():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
         state.page_index = 2
         fake.get_docs_calls.clear()
@@ -610,7 +610,7 @@ async def test_hybrid_sort_asc():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     await _drive(state.set_sort("name"))
@@ -637,7 +637,7 @@ async def test_hybrid_sort_desc():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     await _drive(state.set_sort("name"))
@@ -664,7 +664,7 @@ async def test_hybrid_sort_toggle():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     assert state.sort_field == ""
@@ -703,7 +703,7 @@ async def test_hybrid_search_filters_rows():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     await _drive(state.set_search("bob"))
@@ -732,7 +732,7 @@ async def test_hybrid_search_no_match_shows_empty():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     await _drive(state.set_search("zzz_nonexistent_xyzzy"))
@@ -756,7 +756,7 @@ async def test_hybrid_page_size_resets_page():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     state.page_index = 2
@@ -778,7 +778,7 @@ async def test_server_page_size_resets_and_fetches():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
         fake.get_docs_calls.clear()
 
@@ -813,7 +813,7 @@ async def test_select_extracts_references():
     state = BrowseClassState()  # type: ignore[call-arg]
     state._known_class_ids = ["Person", "Task"]
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.select("Person/0"))
 
     assert state.selected_doc is not None
@@ -831,7 +831,7 @@ async def test_select_handles_error():
 
     state = BrowseClassState()  # type: ignore[call-arg]
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.select("Person/0"))
 
     assert state.selected_doc is not None
@@ -885,7 +885,7 @@ async def test_total_exactly_threshold_uses_hybrid():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     assert state.use_server_pagination is False
@@ -906,7 +906,7 @@ async def test_total_above_threshold_uses_server():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     assert state.use_server_pagination is True
@@ -998,7 +998,7 @@ async def test_load_sets_error_on_client_error():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     assert state.error != ""
@@ -1011,7 +1011,7 @@ async def test_load_no_class_name():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser") as mock_make:
+    with patch("firnline_webui.state.browse_class.make_tdb_browser") as mock_make:
         await _drive(state.load())
         mock_make.assert_not_called()
 
@@ -1028,7 +1028,7 @@ async def test_load_class_not_found():
     state = BrowseClassState()  # type: ignore[call-arg]
     _mock_router(state, "Person")
 
-    with patch("firnline_webui.state.browse.make_tdb_browser", return_value=browser):
+    with patch("firnline_webui.state.browse_class.make_tdb_browser", return_value=browser):
         await _drive(state.load())
 
     assert state.not_found

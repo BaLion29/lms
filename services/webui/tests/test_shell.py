@@ -15,21 +15,13 @@ def test_app_imports():
 def test_pages_registered():
     """All expected routes must be registered."""
     from firnline_webui.firnline_webui import app
+    from firnline_webui.plugin_host import get_page_specs
 
-    page_routes = list(app._unevaluated_pages.keys())
-    expected = {
-        "index",
-        "capture",
-        "inbox",
-        "browse",
-        "browse/[class_name]",
-        "calendar",
-        "automations",
-        "health",
-        "modules",
-        "login",
-    }
-    assert set(page_routes) == expected
+    page_routes = set(app._unevaluated_pages.keys())
+
+    # The app routes must match the registry's PageSpecs exactly.
+    expected = {spec.route.lstrip("/") or "index" for spec in get_page_specs()}
+    assert page_routes == expected
 
 
 @pytest.mark.parametrize(
@@ -44,6 +36,7 @@ def test_pages_registered():
         ("automations", "Firnline — Automations"),
         ("health", "Firnline — Health"),
         ("modules", "Firnline — Modules"),
+        ("history", "Firnline — History"),
         ("login", "Firnline — Sign in"),
     ],
 )
@@ -73,6 +66,7 @@ def test_on_load_events():
     from firnline_webui.state.calendar import CalendarState
     from firnline_webui.state.capture import CaptureState
     from firnline_webui.state.health import HealthState
+    from firnline_webui.state.history import HistoryState
     from firnline_webui.state.inbox import InboxState
     from firnline_webui.state.modules import ModulesState
 
@@ -95,6 +89,7 @@ def test_on_load_events():
         "automations": (AutomationsState, "load"),
         "health": (HealthState, "refresh"),
         "modules": (ModulesState, "load"),
+        "history": (HistoryState, "load"),
     }
 
     for route, (state_cls, method_name) in pages.items():

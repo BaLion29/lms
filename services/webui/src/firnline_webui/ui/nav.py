@@ -1,29 +1,111 @@
-"""Shell layout — sidebar + header + content area."""
+"""Shell layout — sidebar + header + content area.
+
+Navigation items are built dynamically from the page registry
+(``firnline_webui.plugin_host.get_page_specs``) so that external
+``WebUIPagePlugin`` contributions appear in the sidebar automatically.
+"""
 
 from __future__ import annotations
-
-from typing import Literal
 
 import reflex as rx
 
 from firnline_webui.state.auth import AuthState
 from firnline_webui.state.base import BaseState
+from firnline_webui.ui.theme import (
+    BACKDROP_BLUR,
+    CONTENT_MAX_WIDTH,
+    DRAWER_WIDTH,
+    HEADER_BG,
+    OVERLAY_BG,
+    PAGE_BG,
+    SIDEBAR_WIDTH,
+    SPACE_2,
+    SPACE_3,
+    SPACE_4,
+    SPACE_6,
+    SPACE_8,
+)
 
-NavActive = Literal["home", "capture", "inbox", "browse", "calendar", "automations", "health", "modules", "history"]
+# ---------------------------------------------------------------------------
+# Dynamic navigation items from the plugin registry
+# ---------------------------------------------------------------------------
 
-NAV_ITEMS: list[dict] = [
-    {"label": "Home", "icon": "house", "active": "home", "route": "/"},
-    {"label": "Capture", "icon": "pencil_line", "active": "capture", "route": "/capture"},
-    {"label": "Inbox", "icon": "inbox", "active": "inbox", "route": "/inbox"},
-    {"label": "Browse", "icon": "database", "active": "browse", "route": "/browse"},
-    {"label": "Calendar", "icon": "calendar_days", "active": "calendar", "route": "/calendar"},
-    {"label": "Automations", "icon": "zap", "active": "automations", "route": "/automations"},
-    {"label": "Health", "icon": "activity", "active": "health", "route": "/health"},
-    {"label": "Modules", "icon": "blocks", "active": "modules", "route": "/modules"},
-    {"label": "History", "icon": "history", "active": "history", "route": "/history"},
-]
 
-SIDEBAR_WIDTH = "240px"
+def _nav_items() -> list[dict]:
+    """Return nav items from the plugin registry, sorted by section + order.
+
+    Items with ``nav_section=None`` are excluded from navigation.
+    """
+    from firnline_webui.plugin_host import get_page_specs  # noqa: PLC0415
+
+    items: list[dict] = []
+    for spec in get_page_specs():
+        if spec.nav_section is None:
+            continue
+        # Derive the active key from the route (matching what pages pass
+        # to shell()).  "/" → "home", "/capture" → "capture", etc.
+        active_key = spec.route.strip("/") or "home"
+        items.append({
+            "label": _nav_label(active_key),
+            "icon": spec.nav_icon or "dot",
+            "active": active_key,
+            "route": spec.route,
+            "nav_section": spec.nav_section,
+            "nav_order": spec.nav_order,
+        })
+
+    # Sort by section first, then by nav_order within each section
+    items.sort(key=lambda it: (it["nav_section"], it["nav_order"]))
+    return items
+
+
+def _nav_label(active_key: str) -> str:
+    """Return the display label for a nav item given its active key.
+
+    Falls back to the PageSpec title, then to the title-cased active key.
+    """
+    if active_key in _PAGE_TITLES:
+        return _PAGE_TITLES[active_key]
+    ps_title = _page_spec_titles().get(active_key)
+    if ps_title:
+        return ps_title
+    return active_key.replace("_", " ").title()
+
+
+_PAGE_TITLES: dict[str, str] = {
+    "home": "Dashboard",
+    "capture": "Capture",
+    "inbox": "Inbox",
+    "browse": "Browse",
+    "calendar": "Calendar",
+    "automations": "Automations",
+    "health": "Service Health",
+    "modules": "Schema Modules",
+    "history": "History",
+}
+
+
+def _page_spec_titles() -> dict[str, str]:
+    """Return ``{route_stem: title}`` from the PageSpec registry.
+
+    The route stem is derived by stripping leading/trailing slashes
+    (e.g. ``/time`` → ``time``, ``/`` → ``home``).
+    PageSpec titles that match the hardcoded ``_PAGE_TITLES`` dict are
+    excluded so the overrides always take priority.
+    """
+    from firnline_webui.plugin_host import get_page_specs  # noqa: PLC0415
+
+    titles: dict[str, str] = {}
+    for spec in get_page_specs():
+        key = spec.route.strip("/") or "home"
+        if key not in titles:
+            titles[key] = spec.title
+    return titles
+
+
+# ---------------------------------------------------------------------------
+# Mobile nav state & link components
+# ---------------------------------------------------------------------------
 
 
 class MobileNavState(rx.State):
@@ -42,20 +124,19 @@ def _nav_link(icon_tag: str, label: str, route: str, is_active: bool, on_click=N
     return rx.link(
         rx.hstack(
             rx.icon(tag=icon_tag, size=16),
-            rx.text(label, size="2", weight="medium"),
+            rx.text(
+                label,
+                size="2",
+                weight=rx.cond(is_active, "medium", "regular"),
+            ),
             spacing="2",
             align="center",
-            padding_x="12px",
-            padding_y="8px",
-            border_radius="8px",
-            border_left=rx.cond(
-                is_active,
-                f"3px solid {rx.color('accent', 9)}",
-                "3px solid transparent",
-            ),
+            padding_x=SPACE_3,
+            padding_y=SPACE_2,
+            border_radius="medium",
             bg=rx.cond(is_active, rx.color("accent", 3), "transparent"),
             color=rx.cond(is_active, rx.color("accent", 11), rx.color("gray", 11)),
-            _hover={"bg": rx.color("accent", 2)},
+            _hover={"bg": rx.color("gray", 3)},
         ),
         href=route,
         on_click=on_click,
@@ -70,41 +151,80 @@ def _nav_links(active: str, on_navigate=None) -> rx.Component:
 
     If *on_navigate* is provided, it is attached as ``on_click`` to each link
     (used by the mobile drawer to close on navigation).
+
+    Items are grouped by nav_section and rendered with section labels.
     """
-    return rx.vstack(
-        *[
-            _nav_link(
-                item["icon"],
-                item["label"],
-                item["route"],
-                item["active"] == active,
-                on_click=on_navigate,
+    items = _nav_items()
+    sections: list[tuple[str, list[dict]]] = []
+    current_section: str | None = None
+    for item in items:
+        sec = item["nav_section"]
+        if sec != current_section:
+            current_section = sec
+            sections.append((sec, [item]))
+        else:
+            sections[-1][1].append(item)
+
+    children: list[rx.Component] = []
+    for sec_label, sec_items in sections:
+        # Section heading
+        children.append(
+            rx.text(
+                sec_label,
+                size="1",
+                weight="medium",
+                color=rx.color("gray", 9),
+                letter_spacing="0.08em",
+                text_transform="uppercase",
+                padding_x=SPACE_4,
+                padding_top=SPACE_3,
+                padding_bottom="2px",
             )
-            for item in NAV_ITEMS
-        ],
+        )
+        for item in sec_items:
+            children.append(
+                _nav_link(
+                    item["icon"],
+                    item["label"],
+                    item["route"],
+                    item["active"] == active,
+                    on_click=on_navigate,
+                )
+            )
+
+    return rx.vstack(
+        *children,
         spacing="1",
-        padding_x="8px",
+        padding_x=SPACE_2,
         width="100%",
     )
+
+
+# ---------------------------------------------------------------------------
+# Sidebar (desktop)
+# ---------------------------------------------------------------------------
 
 
 def sidebar(active: str) -> rx.Component:
     """Fixed left sidebar — hidden on small screens (visible >= md)."""
     return rx.vstack(
-        # Top spacer (replaces logo+wordmark moved to header)
-        rx.box(height="16px"),
-        rx.divider(),
-        # Section label
-        rx.text(
-            "MAIN",
-            size="1",
-            weight="medium",
-            color=rx.color("gray", 9),
-            letter_spacing="0.08em",
-            padding_x="16px",
-            padding_y="4px",
+        # Wordmark
+        rx.hstack(
+            rx.center(
+                rx.icon(tag="mountain_snow", size=16, color="white"),
+                background=rx.color("accent", 9),
+                border_radius="medium",
+                width="28px",
+                height="28px",
+            ),
+            rx.text("firnline", size="4", weight="bold", color=rx.color("gray", 12)),
+            spacing="2",
+            align="center",
+            padding_x=SPACE_4,
+            padding_y=SPACE_3,
         ),
-        # Nav links (shared component)
+        rx.divider(),
+        # Nav links with automatic section labels
         _nav_links(active),
         rx.spacer(),
         # Bottom: footer with divider, color-mode toggle and logout
@@ -130,8 +250,8 @@ def sidebar(active: str) -> rx.Component:
                     custom_attrs={"aria-label": "Log out"},
                 ),
             ),
-            padding_x="16px",
-            padding_y="8px",
+            padding_x=SPACE_4,
+            padding_y=SPACE_2,
             width="100%",
         ),
         height="100vh",
@@ -141,11 +261,16 @@ def sidebar(active: str) -> rx.Component:
         top="0",
         background=rx.color("gray", 2),
         border_right=f"1px solid {rx.color('gray', 4)}",
-        backdrop_filter="blur(8px)",
+        backdrop_filter=BACKDROP_BLUR,
         z_index="40",
         spacing="1",
         display=rx.breakpoints({"initial": "none", "md": "flex"}),
     )
+
+
+# ---------------------------------------------------------------------------
+# Mobile drawer
+# ---------------------------------------------------------------------------
 
 
 def _mobile_nav_drawer(active: str) -> rx.Component:
@@ -159,14 +284,20 @@ def _mobile_nav_drawer(active: str) -> rx.Component:
                 position="fixed",
                 inset="0",
                 z_index="50",
-                background="rgba(0,0,0,0.5)",
+                background=OVERLAY_BG,
                 display=rx.breakpoints({"initial": "block", "md": "none"}),
             ),
             # Slide-in panel from the left
             rx.vstack(
                 rx.hstack(
                     rx.hstack(
-                        rx.icon(tag="mountain_snow", size=16, color=rx.color("accent", 11)),
+                        rx.center(
+                            rx.icon(tag="mountain_snow", size=16, color="white"),
+                            background=rx.color("accent", 9),
+                            border_radius="medium",
+                            width="28px",
+                            height="28px",
+                        ),
                         rx.text("firnline", size="4", weight="bold"),
                         spacing="2",
                     ),
@@ -179,8 +310,8 @@ def _mobile_nav_drawer(active: str) -> rx.Component:
                         size="1",
                         custom_attrs={"aria-label": "Close navigation menu"},
                     ),
-                    padding_x="16px",
-                    padding_y="12px",
+                    padding_x=SPACE_4,
+                    padding_y=SPACE_3,
                     width="100%",
                 ),
                 rx.divider(),
@@ -208,15 +339,15 @@ def _mobile_nav_drawer(active: str) -> rx.Component:
                             custom_attrs={"aria-label": "Log out"},
                         ),
                     ),
-                    padding_x="16px",
-                    padding_y="8px",
+                    padding_x=SPACE_4,
+                    padding_y=SPACE_2,
                     width="100%",
                 ),
                 position="fixed",
                 top="0",
                 left="0",
                 height="100vh",
-                width="260px",
+                width=DRAWER_WIDTH,
                 background=rx.color("gray", 2),
                 overflow_y="auto",
                 z_index="60",
@@ -226,6 +357,11 @@ def _mobile_nav_drawer(active: str) -> rx.Component:
             ),
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Page header & shell
+# ---------------------------------------------------------------------------
 
 
 def page_header(title: str) -> rx.Component:
@@ -243,15 +379,12 @@ def page_header(title: str) -> rx.Component:
         ),
         # Logo + wordmark
         rx.hstack(
-            rx.box(
+            rx.center(
                 rx.icon(tag="mountain_snow", size=16, color="white"),
                 background=rx.color("accent", 9),
-                border_radius="8px",
+                border_radius="medium",
                 width="28px",
                 height="28px",
-                display="flex",
-                align_items="center",
-                justify_content="center",
             ),
             rx.text("firnline", size="4", weight="bold", color=rx.color("gray", 12)),
             spacing="2",
@@ -270,13 +403,13 @@ def page_header(title: str) -> rx.Component:
         ),
         spacing="3",
         align="center",
-        padding_x=rx.breakpoints({"initial": "16px", "md": "32px"}),
-        padding_y="12px",
+        padding_x=rx.breakpoints({"initial": SPACE_4, "md": SPACE_6}),
+        padding_y=SPACE_3,
         position="sticky",
         top="0",
         z_index="30",
-        backdrop_filter="blur(8px)",
-        background=rx.color("gray", 1),
+        backdrop_filter=BACKDROP_BLUR,
+        background=HEADER_BG,
         border_bottom=f"1px solid {rx.color('gray', 4)}",
         width="100%",
     )
@@ -292,8 +425,8 @@ def shell(content: rx.Component, active: str) -> rx.Component:
             rx.scroll_area(
                 rx.container(
                     content,
-                    max_width="1200px",
-                    padding="32px",
+                    max_width=CONTENT_MAX_WIDTH,
+                    padding=SPACE_8,
                     custom_attrs={"role": "main"},
                 ),
                 flex="1",
@@ -302,21 +435,20 @@ def shell(content: rx.Component, active: str) -> rx.Component:
             margin_left=rx.breakpoints({"initial": "0", "md": SIDEBAR_WIDTH}),
             min_height="100vh",
             spacing="0",
-            background=f"linear-gradient(to bottom, {rx.color('gray', 1)}, {rx.color('gray', 2)})",
+            background=PAGE_BG,
         ),
     )
 
 
 def _page_title_for(active: str) -> str:
-    titles = {
-        "home": "Dashboard",
-        "capture": "Capture",
-        "inbox": "Inbox",
-        "browse": "Browse",
-        "calendar": "Calendar",
-        "automations": "Automations",
-        "health": "Service Health",
-        "modules": "Schema Modules",
-        "history": "History",
-    }
-    return titles.get(active, "Firnline")
+    """Return the page heading given an active nav key.
+
+    Uses the same override → PageSpec → fallback chain as :func:`_nav_label`,
+    but falls back to ``"Firnline"`` instead of a title-cased key.
+    """
+    if active in _PAGE_TITLES:
+        return _PAGE_TITLES[active]
+    ps_title = _page_spec_titles().get(active)
+    if ps_title:
+        return ps_title
+    return "Firnline"

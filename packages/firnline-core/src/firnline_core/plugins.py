@@ -298,6 +298,35 @@ class ToolSpecPlugin(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# WebUI page plugin protocol
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class WebUIPagePlugin(Protocol):
+    """Protocol for WebUI page plugins.
+
+    Entry-point group: ``firnline.webui.pages``
+
+    Plugins implementing this protocol provide
+    :class:`~firnline_core.pagespec.PageSpec` objects that the WebUI
+    service mounts as reflex pages.  Each page declares a route, title,
+    component factory, and optional navigation metadata.
+    """
+
+    name: str
+    requires: list[ModuleRequirement]
+
+    def pages(self) -> list[Any]:
+        """Return a list of :class:`~firnline_core.pagespec.PageSpec` objects.
+
+        Typed as ``list[Any]`` to keep firnline-core free of a reflex
+        dependency.
+        """
+        ...
+
+
+# ---------------------------------------------------------------------------
 # Capture plugins (for the captured service)
 # ---------------------------------------------------------------------------
 

@@ -5,33 +5,21 @@ from __future__ import annotations
 import reflex as rx
 
 from firnline_webui.state.inbox import InboxState
-from firnline_webui.ui.detail import json_detail_drawer
-from firnline_webui.ui.feedback import error_callout
+from firnline_webui.ui.cards import status_badge
+from firnline_webui.ui.detail import iri_var, json_detail_drawer
+from firnline_webui.ui.feedback import empty_state, error_callout
 from firnline_webui.ui.nav import shell
+from firnline_webui.ui.theme import TABLE_ROW_STYLE
+from firnline_webui.ui.typography import page_heading
 
-
-def _status_badge(status: str) -> rx.Component:
-    """Color-coded status badge."""
-    color_map = {
-        "new": "blue",
-        "processed": "green",
-        "done": "green",
-        "transcribed": "green",
-        "failed": "red",
-        "archived": "gray",
-    }
-    cs = color_map.get(status, "gray")
-    return rx.badge(
-        rx.hstack(
-            rx.box(width="6px", height="6px", border_radius="50%", background=rx.color(cs, 9)),
-            rx.text(status, size="1"),
-            spacing="1",
-            align="center",
-        ),
-        color_scheme=cs,
-        variant="surface",
-        size="1",
-    )
+_INBOX_STATUS_COLORS: dict[str, str] = {
+    "new": "blue",
+    "processed": "green",
+    "done": "green",
+    "transcribed": "green",
+    "failed": "red",
+    "archived": "gray",
+}
 
 
 def _filter_chip(label: str, value: str, is_active: rx.Var[bool]) -> rx.Component:
@@ -63,7 +51,7 @@ def _inbox_table() -> rx.Component:
                 InboxState.filtered_rows,
                 lambda row: rx.table.row(
                     rx.table.cell(rx.text(row["content_type"], size="2", color_scheme="gray")),
-                    rx.table.cell(_status_badge(row["status"])),
+                    rx.table.cell(status_badge(row["status"], _INBOX_STATUS_COLORS)),
                     rx.table.cell(rx.text(row["captured_at"], size="2")),
                     rx.table.cell(
                         rx.text(
@@ -78,8 +66,7 @@ def _inbox_table() -> rx.Component:
                         title=row["preview"].to(str),
                     ),
                     cursor="pointer",
-                    _hover={"bg": rx.color("accent", 2)},
-                    _odd={"background": rx.color("gray", 2)},
+                    **TABLE_ROW_STYLE,
                     tab_index=0,
                     role="button",
                     on_click=InboxState.select(row["id"]),
@@ -92,39 +79,13 @@ def _inbox_table() -> rx.Component:
     )
 
 
-def _empty_state() -> rx.Component:
-    return rx.card(
-        rx.vstack(
-            rx.icon(tag="inbox", size=32, color=rx.color("gray", 7)),
-            rx.text("No captured items found.", size="3", weight="medium"),
-            rx.text(
-                "Captured items from the capture pipeline appear here.",
-                size="2",
-                color_scheme="gray",
-            ),
-            spacing="3",
-            align="center",
-            padding="32px",
-        ),
-        size="2",
-        width="100%",
-    )
-
-
 def inbox_page() -> rx.Component:
     """Inbox page."""
-    iri_var: rx.Var = rx.Var.create(
-        rx.cond(
-            InboxState.selected_doc.to(bool) & (InboxState.selected_doc["@id"].to(str) != ""),  # type: ignore[index]
-            InboxState.selected_doc["@id"].to(str),  # type: ignore[index]
-            "",
-        )
-    )
     return shell(
         rx.vstack(
             # Header row
             rx.hstack(
-                rx.heading("Inbox", size="6"),
+                page_heading("Inbox"),
                 rx.spacer(),
                 rx.cond(InboxState.loading, rx.spinner(size="3")),
                 rx.button(
@@ -132,7 +93,7 @@ def inbox_page() -> rx.Component:
                     "Refresh",
                     on_click=InboxState.load,
                     size="2",
-                    variant="outline",
+                    variant="soft",
                 ),
                 spacing="2",
                 align="center",
@@ -168,7 +129,12 @@ def inbox_page() -> rx.Component:
                             _inbox_table(),
                             rx.cond(
                                 InboxState.rows.length() == 0,
-                                _empty_state(),
+                                empty_state(
+                                    "inbox",
+                                    "No captured items found.",
+                                    hint="Captured items from the capture pipeline appear here.",
+                                    show_card=True,
+                                ),
                                 rx.text("No items match the selected filter.", size="2", color_scheme="gray"),
                             ),
                         ),
@@ -183,7 +149,7 @@ def inbox_page() -> rx.Component:
             json_detail_drawer(
                 doc_var=InboxState.selected_doc,
                 json_var=InboxState.selected_json,
-                iri_var=iri_var,
+                iri_var=iri_var(InboxState.selected_doc),
                 on_close=InboxState.clear_selection,
             ),
             spacing="5",

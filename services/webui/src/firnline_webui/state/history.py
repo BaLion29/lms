@@ -9,6 +9,7 @@ import reflex as rx
 
 from firnline_webui.clients import WebuiClientError, make_tdb_browser
 from firnline_webui.state.base import BaseState
+from firnline_webui.state.selection import SelectionMixin
 
 _LOG_COUNT = 200
 
@@ -24,7 +25,7 @@ def _format_ts(ts: float | None) -> str:
         return ""
 
 
-class HistoryState(BaseState):
+class HistoryState(BaseState, SelectionMixin):
     """State for the /history page."""
 
     rows: list[dict] = []
@@ -46,10 +47,6 @@ class HistoryState(BaseState):
     changes_loading: bool = False
     changes_error: str = ""
     _changes_cache: dict[str, dict] = {}  # commit_id → {inserted, updated, deleted}
-
-    # Document detail drawer
-    selected_doc: dict | None = None
-    selected_json: str = ""
 
     @rx.var
     def total_pages(self) -> int:

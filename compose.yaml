@@ -393,6 +393,9 @@ services:
       WEBUI_TDB_PASSWORD: ${TDB_PASSWORD:?}
       WEBUI_PASSWORD: ${WEBUI_PASSWORD:-}
       REFLEX_API_URL: ${WEBUI_API_URL:-http://localhost:3000}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
     restart: unless-stopped
     healthcheck:
       test:
