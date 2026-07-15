@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 import structlog
 
+from pydantic import BaseModel, Field
 from pydantic_ai import RunContext, Tool
 
 from firnline_core.base import _format_datetime
@@ -19,10 +20,10 @@ from firnline_core.generated.core import Provenance
 from firnline_core.plugins import ModuleRequirement
 from firnline_core.repository import Repository, TransitionError as RepoTransitionError
 from firnline_core.tooling import traced
+from firnline_core.toolspec import ToolContext, ToolSpec
 from firnline_ext_time_management.models import (
     Activity,
     ActivitySpec,
-    EventStatus,
     Routine,
     RoutineStep,
     Task,
@@ -72,7 +73,7 @@ def _get_repo(ctx: RunContext[Any], transitions: dict[str, dict[str, list[str]]]
 
 def _build_step_dicts(
     steps: list[dict[str, Any]],
-    now_str: str,
+    now: datetime,
     provenance: Provenance,
 ) -> list[dict[str, Any]]:
     """Convert a list of flat step dicts into RoutineStep TDB dicts.
@@ -107,8 +108,8 @@ def _build_step_dicts(
                 name=name,
                 cadence_days=cadence_days,
                 task=spec,
-                created_at=now_str,
-                updated_at=now_str,
+                created_at=now,
+                updated_at=now,
                 provenance=provenance,
             )
         else:  # activity
@@ -122,8 +123,8 @@ def _build_step_dicts(
                 name=name,
                 cadence_days=cadence_days,
                 activity=spec,
-                created_at=now_str,
-                updated_at=now_str,
+                created_at=now,
+                updated_at=now,
                 provenance=provenance,
             )
         result.append(step.to_tdb())
@@ -132,19 +133,114 @@ def _build_step_dicts(
 
 
 # ---------------------------------------------------------------------------
-# Tool functions — Task / Event (ported from planning)
+# Args models for ToolSpec
 # ---------------------------------------------------------------------------
 
 
-@traced
-async def set_task_status(
-    ctx: RunContext[Any],
-    task_iri: str,
-    status: Literal["open", "planned", "done"],
-) -> dict[str, object]:
+class SetTaskStatusArgs(BaseModel):
     """Set the status of a Task document."""
-    repo = _get_repo(ctx, _TASK_TRANSITIONS)
-    branch = ctx.deps.settings.tdb_branch
+
+    task_iri: str = Field(description="The IRI of the Task to update")
+    status: Literal["open", "planned", "done"] = Field(description="The new status for the Task")
+
+
+class SetEventStatusArgs(BaseModel):
+    """Set the status of an Event document."""
+
+    event_iri: str = Field(description="The IRI of the Event to update")
+    status: Literal["open", "planned", "closed", "cancelled"] = Field(description="The new status for the Event")
+
+
+class CreateTaskArgs(BaseModel):
+    """Create a new Task document."""
+
+    name: str = Field(description="The name/title of the Task")
+    description: str | None = Field(default=None, description="Optional description of the Task")
+    due_date: str | None = Field(default=None, description="Optional due date in ISO 8601 format")
+    priority: int | None = Field(default=None, description="Optional priority (higher = more important)")
+
+
+class UpdateTaskArgs(BaseModel):
+    """Update fields of an existing Task.
+
+    Only the provided (non-None) fields are changed; ``updated_at`` is
+    always bumped to now.
+    """
+
+    task_iri: str = Field(description="The IRI of the Task to update")
+    name: str | None = Field(default=None, description="New name for the Task")
+    description: str | None = Field(default=None, description="New description for the Task")
+    due_date: str | None = Field(default=None, description="New due date in ISO 8601 format")
+    priority: int | None = Field(default=None, description="New priority (higher = more important)")
+
+
+class CreateRoutineArgs(BaseModel):
+    """Create a new Routine document with ordered steps.
+
+    Each step dict must have:
+      - name (str): Step name
+      - step_type ("activity"|"task", default "activity"): kind of step
+      - cadence_days (int, optional): repeat interval in days
+      - description (str, optional)
+      - priority (int, optional)
+      - estimated_duration (int, optional): in minutes
+    """
+
+    name: str = Field(description="The name of the Routine")
+    steps: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Ordered list of step dicts (see docstring for format)",
+    )
+    required_context: list[str] | None = Field(default=None, description="Optional list of context tags")
+
+
+class UpdateRoutineArgs(BaseModel):
+    """Update fields of an existing Routine.
+
+    Only the provided (non-None) fields are changed; ``updated_at`` is
+    always bumped to now.  When *steps* is provided, the entire steps list
+    is replaced.
+    """
+
+    routine_iri: str = Field(description="The IRI of the Routine to update")
+    name: str | None = Field(default=None, description="New name for the Routine")
+    required_context: list[str] | None = Field(default=None, description="New list of required context tags")
+    steps: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="New list of steps (replaces existing). Same format as create_routine.",
+    )
+
+
+class LogActivityArgs(BaseModel):
+    """Log a concrete Activity (performed or planned session).
+
+    If *routine_id* is provided, the Activity is linked to that Routine.
+    The referenced Routine must exist; otherwise the call fails with an error.
+    """
+
+    name: str = Field(description="The name of the Activity")
+    start_datetime: str | None = Field(default=None, description="Optional start time in ISO 8601 format")
+    end_datetime: str | None = Field(default=None, description="Optional end time in ISO 8601 format")
+    description: str | None = Field(default=None, description="Optional description")
+    priority: int | None = Field(default=None, description="Optional priority (higher = more important)")
+    estimated_duration: int | None = Field(default=None, description="Optional estimated duration in minutes")
+    routine_id: str | None = Field(default=None, description="Optional Routine IRI to link this Activity to")
+
+
+# ---------------------------------------------------------------------------
+# Core business logic (_do_ functions — no RunContext, no @traced)
+# ---------------------------------------------------------------------------
+
+
+async def _do_set_task_status(
+    task_iri: str,
+    status: str,
+    *,
+    tdb: Any,
+    branch: str,
+) -> dict[str, object]:
+    """Set the status of a Task document (core logic)."""
+    repo = Repository(tdb, transitions=_TASK_TRANSITIONS) if not isinstance(tdb, Repository) else tdb
 
     try:
         doc = await repo.get_document(task_iri, branch=branch)
@@ -172,15 +268,15 @@ async def set_task_status(
     return {"ok": True, "iri": task_iri}
 
 
-@traced
-async def set_event_status(
-    ctx: RunContext[Any],
+async def _do_set_event_status(
     event_iri: str,
-    status: Literal["open", "planned", "closed", "cancelled"],
+    status: str,
+    *,
+    tdb: Any,
+    branch: str,
 ) -> dict[str, object]:
-    """Set the status of an Event document."""
-    repo = _get_repo(ctx, _EVENT_TRANSITIONS)
-    branch = ctx.deps.settings.tdb_branch
+    """Set the status of an Event document (core logic)."""
+    repo = Repository(tdb, transitions=_EVENT_TRANSITIONS) if not isinstance(tdb, Repository) else tdb
 
     try:
         doc = await repo.get_document(event_iri, branch=branch)
@@ -208,17 +304,17 @@ async def set_event_status(
     return {"ok": True, "iri": event_iri}
 
 
-@traced
-async def create_task(
-    ctx: RunContext[Any],
+async def _do_create_task(
     name: str,
     description: str | None = None,
     due_date: str | None = None,
     priority: int | None = None,
+    *,
+    tdb: Any,
+    branch: str,
 ) -> dict[str, object]:
-    """Create a new Task document."""
-    repo = _get_repo(ctx, _TASK_TRANSITIONS)
-    branch = ctx.deps.settings.tdb_branch
+    """Create a new Task document (core logic)."""
+    repo = Repository(tdb, transitions=_TASK_TRANSITIONS) if not isinstance(tdb, Repository) else tdb
 
     now = datetime.now(_UTC)
     prov = Provenance(agent=_AGENT, at=now, method="tool_call")
@@ -248,22 +344,22 @@ async def create_task(
     return {"ok": True, "iri": iri}
 
 
-@traced
-async def update_task(
-    ctx: RunContext[Any],
+async def _do_update_task(
     task_iri: str,
     name: str | None = None,
     description: str | None = None,
     due_date: str | None = None,
     priority: int | None = None,
+    *,
+    tdb: Any,
+    branch: str,
 ) -> dict[str, object]:
-    """Update fields of an existing Task.
+    """Update fields of an existing Task (core logic).
 
     Only the provided (non-None) fields are changed; ``updated_at`` is
     always bumped to now.
     """
-    repo = _get_repo(ctx, _TASK_TRANSITIONS)
-    branch = ctx.deps.settings.tdb_branch
+    repo = Repository(tdb, transitions=_TASK_TRANSITIONS) if not isinstance(tdb, Repository) else tdb
 
     try:
         doc = await repo.get_document(task_iri, branch=branch)
@@ -294,19 +390,15 @@ async def update_task(
     return {"ok": True, "iri": task_iri}
 
 
-# ---------------------------------------------------------------------------
-# Tool functions — Routine
-# ---------------------------------------------------------------------------
-
-
-@traced
-async def create_routine(
-    ctx: RunContext[Any],
+async def _do_create_routine(
     name: str,
     steps: list[dict[str, Any]],
     required_context: list[str] | None = None,
+    *,
+    tdb: Any,
+    branch: str,
 ) -> dict[str, object]:
-    """Create a new Routine document with ordered steps.
+    """Create a new Routine document with ordered steps (core logic).
 
     Each step dict must have:
       - name (str): Step name
@@ -316,15 +408,13 @@ async def create_routine(
       - priority (int, optional)
       - estimated_duration (int, optional): in minutes
     """
-    branch = ctx.deps.settings.tdb_branch
-    repo = _get_repo(ctx, {})  # no transitions needed for Routine
+    repo = Repository(tdb, transitions={}) if not isinstance(tdb, Repository) else tdb
 
     now = datetime.now(_UTC)
-    now_str = _format_datetime(now)
     prov = Provenance(agent=_AGENT, at=now, method="tool_call")
 
     try:
-        step_docs = _build_step_dicts(steps, now_str, prov)
+        step_docs = _build_step_dicts(steps, now, prov)
     except Exception as exc:
         return {"ok": False, "error": f"invalid steps: {exc}"}
 
@@ -352,22 +442,22 @@ async def create_routine(
     return {"ok": True, "iri": iri}
 
 
-@traced
-async def update_routine(
-    ctx: RunContext[Any],
+async def _do_update_routine(
     routine_iri: str,
     name: str | None = None,
     required_context: list[str] | None = None,
     steps: list[dict[str, Any]] | None = None,
+    *,
+    tdb: Any,
+    branch: str,
 ) -> dict[str, object]:
-    """Update fields of an existing Routine.
+    """Update fields of an existing Routine (core logic).
 
     Only the provided (non-None) fields are changed; ``updated_at`` is
     always bumped to now.  When *steps* is provided, the entire steps list
     is replaced.
     """
-    repo = _get_repo(ctx, {})
-    branch = ctx.deps.settings.tdb_branch
+    repo = Repository(tdb, transitions={}) if not isinstance(tdb, Repository) else tdb
 
     try:
         doc = await repo.get_document(routine_iri, branch=branch)
@@ -382,10 +472,10 @@ async def update_routine(
     if required_context is not None:
         doc["required_context"] = required_context
     if steps is not None:
-        now_str = _format_datetime(datetime.now(timezone.utc))
-        prov = Provenance(agent=_AGENT, at=now_str, method="tool_call")
+        now = datetime.now(timezone.utc)
+        prov = Provenance(agent=_AGENT, at=now, method="tool_call")
         try:
-            doc["steps"] = _build_step_dicts(steps, now_str, prov)
+            doc["steps"] = _build_step_dicts(steps, now, prov)
         except Exception as exc:
             return {"ok": False, "error": f"invalid steps: {exc}"}
 
@@ -401,14 +491,7 @@ async def update_routine(
     return {"ok": True, "iri": routine_iri}
 
 
-# ---------------------------------------------------------------------------
-# Tool functions — Activity
-# ---------------------------------------------------------------------------
-
-
-@traced
-async def log_activity(
-    ctx: RunContext[Any],
+async def _do_log_activity(
     name: str,
     start_datetime: str | None = None,
     end_datetime: str | None = None,
@@ -416,14 +499,16 @@ async def log_activity(
     priority: int | None = None,
     estimated_duration: int | None = None,
     routine_id: str | None = None,
+    *,
+    tdb: Any,
+    branch: str,
 ) -> dict[str, object]:
-    """Log a concrete Activity (performed or planned session).
+    """Log a concrete Activity (core logic).
 
     If *routine_id* is provided, the Activity is linked to that Routine.
     The referenced Routine must exist; otherwise the call fails with an error.
     """
-    repo = _get_repo(ctx, {})
-    branch = ctx.deps.settings.tdb_branch
+    repo = Repository(tdb, transitions={}) if not isinstance(tdb, Repository) else tdb
 
     # Validate routine reference if provided
     if routine_id is not None:
@@ -465,6 +550,193 @@ async def log_activity(
 
 
 # ---------------------------------------------------------------------------
+# Legacy pydantic-ai tool wrappers (@traced, RunContext — keep unchanged)
+# ---------------------------------------------------------------------------
+
+
+@traced
+async def set_task_status(
+    ctx: RunContext[Any],
+    task_iri: str,
+    status: Literal["open", "planned", "done"],
+) -> dict[str, object]:
+    """Set the status of a Task document."""
+    return await _do_set_task_status(
+        task_iri, status,
+        tdb=ctx.deps.tdb,
+        branch=ctx.deps.settings.tdb_branch,
+    )
+
+
+@traced
+async def set_event_status(
+    ctx: RunContext[Any],
+    event_iri: str,
+    status: Literal["open", "planned", "closed", "cancelled"],
+) -> dict[str, object]:
+    """Set the status of an Event document."""
+    return await _do_set_event_status(
+        event_iri, status,
+        tdb=ctx.deps.tdb,
+        branch=ctx.deps.settings.tdb_branch,
+    )
+
+
+@traced
+async def create_task(
+    ctx: RunContext[Any],
+    name: str,
+    description: str | None = None,
+    due_date: str | None = None,
+    priority: int | None = None,
+) -> dict[str, object]:
+    """Create a new Task document."""
+    return await _do_create_task(
+        name, description, due_date, priority,
+        tdb=ctx.deps.tdb,
+        branch=ctx.deps.settings.tdb_branch,
+    )
+
+
+@traced
+async def update_task(
+    ctx: RunContext[Any],
+    task_iri: str,
+    name: str | None = None,
+    description: str | None = None,
+    due_date: str | None = None,
+    priority: int | None = None,
+) -> dict[str, object]:
+    """Update fields of an existing Task.
+
+    Only the provided (non-None) fields are changed; ``updated_at`` is
+    always bumped to now.
+    """
+    return await _do_update_task(
+        task_iri, name, description, due_date, priority,
+        tdb=ctx.deps.tdb,
+        branch=ctx.deps.settings.tdb_branch,
+    )
+
+
+@traced
+async def create_routine(
+    ctx: RunContext[Any],
+    name: str,
+    steps: list[dict[str, Any]],
+    required_context: list[str] | None = None,
+) -> dict[str, object]:
+    """Create a new Routine document with ordered steps.
+
+    Each step dict must have:
+      - name (str): Step name
+      - step_type ("activity"|"task", default "activity"): kind of step
+      - cadence_days (int, optional): repeat interval in days
+      - description (str, optional)
+      - priority (int, optional)
+      - estimated_duration (int, optional): in minutes
+    """
+    return await _do_create_routine(
+        name, steps, required_context,
+        tdb=ctx.deps.tdb,
+        branch=ctx.deps.settings.tdb_branch,
+    )
+
+
+@traced
+async def update_routine(
+    ctx: RunContext[Any],
+    routine_iri: str,
+    name: str | None = None,
+    required_context: list[str] | None = None,
+    steps: list[dict[str, Any]] | None = None,
+) -> dict[str, object]:
+    """Update fields of an existing Routine.
+
+    Only the provided (non-None) fields are changed; ``updated_at`` is
+    always bumped to now.  When *steps* is provided, the entire steps list
+    is replaced.
+    """
+    return await _do_update_routine(
+        routine_iri, name, required_context, steps,
+        tdb=ctx.deps.tdb,
+        branch=ctx.deps.settings.tdb_branch,
+    )
+
+
+@traced
+async def log_activity(
+    ctx: RunContext[Any],
+    name: str,
+    start_datetime: str | None = None,
+    end_datetime: str | None = None,
+    description: str | None = None,
+    priority: int | None = None,
+    estimated_duration: int | None = None,
+    routine_id: str | None = None,
+) -> dict[str, object]:
+    """Log a concrete Activity (performed or planned session).
+
+    If *routine_id* is provided, the Activity is linked to that Routine.
+    The referenced Routine must exist; otherwise the call fails with an error.
+    """
+    return await _do_log_activity(
+        name, start_datetime, end_datetime, description, priority, estimated_duration, routine_id,
+        tdb=ctx.deps.tdb,
+        branch=ctx.deps.settings.tdb_branch,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ToolSpec handlers
+# ---------------------------------------------------------------------------
+
+
+async def _handle_set_task_status(args: SetTaskStatusArgs, ctx: ToolContext) -> dict[str, object]:
+    return await _do_set_task_status(args.task_iri, args.status, tdb=ctx.tdb, branch=ctx.branch)
+
+
+async def _handle_set_event_status(args: SetEventStatusArgs, ctx: ToolContext) -> dict[str, object]:
+    return await _do_set_event_status(args.event_iri, args.status, tdb=ctx.tdb, branch=ctx.branch)
+
+
+async def _handle_create_task(args: CreateTaskArgs, ctx: ToolContext) -> dict[str, object]:
+    return await _do_create_task(
+        args.name, args.description, args.due_date, args.priority,
+        tdb=ctx.tdb, branch=ctx.branch,
+    )
+
+
+async def _handle_update_task(args: UpdateTaskArgs, ctx: ToolContext) -> dict[str, object]:
+    return await _do_update_task(
+        args.task_iri, args.name, args.description, args.due_date, args.priority,
+        tdb=ctx.tdb, branch=ctx.branch,
+    )
+
+
+async def _handle_create_routine(args: CreateRoutineArgs, ctx: ToolContext) -> dict[str, object]:
+    return await _do_create_routine(
+        args.name, args.steps, args.required_context,
+        tdb=ctx.tdb, branch=ctx.branch,
+    )
+
+
+async def _handle_update_routine(args: UpdateRoutineArgs, ctx: ToolContext) -> dict[str, object]:
+    return await _do_update_routine(
+        args.routine_iri, args.name, args.required_context, args.steps,
+        tdb=ctx.tdb, branch=ctx.branch,
+    )
+
+
+async def _handle_log_activity(args: LogActivityArgs, ctx: ToolContext) -> dict[str, object]:
+    return await _do_log_activity(
+        args.name, args.start_datetime, args.end_datetime, args.description,
+        args.priority, args.estimated_duration, args.routine_id,
+        tdb=ctx.tdb, branch=ctx.branch,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Plugin class
 # ---------------------------------------------------------------------------
 
@@ -487,6 +759,53 @@ class TimeManagementToolsPlugin:
             Tool(create_routine),
             Tool(update_routine),
             Tool(log_activity),
+        ]
+
+    def tool_specs(self) -> list[ToolSpec]:
+        """Return framework-neutral ToolSpec objects for time-management write operations."""
+        return [
+            ToolSpec(
+                name="set_task_status",
+                description=set_task_status.__doc__ or "Set the status of a Task document.",
+                args_model=SetTaskStatusArgs,
+                handler=_handle_set_task_status,
+            ),
+            ToolSpec(
+                name="set_event_status",
+                description=set_event_status.__doc__ or "Set the status of an Event document.",
+                args_model=SetEventStatusArgs,
+                handler=_handle_set_event_status,
+            ),
+            ToolSpec(
+                name="create_task",
+                description=create_task.__doc__ or "Create a new Task document.",
+                args_model=CreateTaskArgs,
+                handler=_handle_create_task,
+            ),
+            ToolSpec(
+                name="update_task",
+                description=update_task.__doc__ or "Update fields of an existing Task.",
+                args_model=UpdateTaskArgs,
+                handler=_handle_update_task,
+            ),
+            ToolSpec(
+                name="create_routine",
+                description=create_routine.__doc__ or "Create a new Routine document.",
+                args_model=CreateRoutineArgs,
+                handler=_handle_create_routine,
+            ),
+            ToolSpec(
+                name="update_routine",
+                description=update_routine.__doc__ or "Update fields of an existing Routine.",
+                args_model=UpdateRoutineArgs,
+                handler=_handle_update_routine,
+            ),
+            ToolSpec(
+                name="log_activity",
+                description=log_activity.__doc__ or "Log a concrete Activity.",
+                args_model=LogActivityArgs,
+                handler=_handle_log_activity,
+            ),
         ]
 
 

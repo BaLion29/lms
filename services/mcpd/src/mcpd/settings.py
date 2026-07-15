@@ -19,3 +19,4 @@ class McpdSettings(BaseSettings):
     captured_url: str = "http://localhost:8088"
     captured_token: str = ""
     request_timeout_seconds: float = 30.0
+    enable_queryd_tools: bool = True

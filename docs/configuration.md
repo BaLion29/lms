@@ -25,12 +25,12 @@ In `compose.yaml`, these are populated from the shared `TDB_*` variables
 
 | Variable | Default | Required | Consumed by |
 |---|---|---|---|
-| `FIRNLINE_LLM_BASE_URL` | `http://host.docker.internal:4000` | yes | ingestd, queryd |
-| `FIRNLINE_LLM_API_KEY` | (empty) | no | ingestd, queryd |
-| `FIRNLINE_LLM_MODEL` | `gpt-4.1-mini` | no | ingestd, queryd |
+| `FIRNLINE_LLM_BASE_URL` | `http://host.docker.internal:4000` | yes | ingestd, indexed |
+| `FIRNLINE_LLM_API_KEY` | (empty) | no | ingestd, indexed |
+| `FIRNLINE_LLM_MODEL` | `gpt-4.1-mini` | no | ingestd, indexed |
 
 In `compose.yaml`, these are mapped to `INGESTD_LLM_BASE_URL` /
-`QUERYD_LLM_BASE_URL` etc. When running services directly on the host, set
+`INDEXED_LLM_BASE_URL` etc. When running services directly on the host, set
 the prefixed versions instead.
 
 ## Auth tokens
@@ -213,20 +213,16 @@ Prefixed `QUERYD_`.
 | `QUERYD_TDB_BRANCH` | `main` | TerminusDB branch |
 | `QUERYD_TDB_USER` | `admin` | TerminusDB username |
 | `QUERYD_TDB_PASSWORD` | — | TerminusDB password |
-| `QUERYD_API_TOKEN` | — | Bearer token for `/v1/chat` and structured API endpoints |
-| `QUERYD_LLM_BASE_URL` | — | LLM API base URL |
-| `QUERYD_LLM_API_KEY` | — | LLM API key |
-| `QUERYD_LLM_MODEL` | — | LLM model name |
-| `QUERYD_ENABLE_WRITES` | `false` | Gate write-tool plugins |
+| `QUERYD_API_TOKEN` | — | Bearer token for all API endpoints (GraphQL, find, tools, schema, documents) |
+| `QUERYD_ENABLE_WRITES` | `false` | Gate write-tool plugins — exposes `GET /v1/tools` and `POST /v1/tools/{name}` |
 | `QUERYD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
-| `QUERYD_MAX_TOOL_ITERATIONS` | `8` | Max tool calls per request |
 | `QUERYD_REQUEST_TIMEOUT_SECONDS` | `60` | Total request timeout |
 | `QUERYD_LISTEN_ADDR` | `0.0.0.0:8087` | Host:port to bind |
 | `QUERYD_CORS_ORIGINS` | `[]` | Comma-separated CORS origins |
 
 ### Structured API endpoints (bearer-authed)
 
-Beyond `/v1/chat`, queryd serves:
+queryd serves the following endpoints (all bearer-authed):
 
 | Method | Path | Description |
 |---|---|---|
@@ -238,6 +234,8 @@ Beyond `/v1/chat`, queryd serves:
 | `POST` | `/v1/find/entity` | Semantic entity search (requires indexed) |
 | `POST` | `/v1/find/class` | Semantic class search (requires indexed) |
 | `POST` | `/v1/find/field` | Semantic field search (requires indexed) |
+| `GET` | `/v1/tools` | List write-tool specs (name, description, input_schema). Empty when `QUERYD_ENABLE_WRITES=false`. |
+| `POST` | `/v1/tools/{name}` | Invoke a write tool by name. Requires `QUERYD_ENABLE_WRITES=true`. |
 
 The compose file additionally uses:
 
@@ -304,6 +302,7 @@ talks to queryd and captured over HTTP — no direct database access.
 | `MCPD_QUERYD_TOKEN` | — | Bearer token for queryd endpoints |
 | `MCPD_CAPTURED_URL` | `http://captured:8088` | Base URL of the captured service |
 | `MCPD_CAPTURED_TOKEN` | — | Bearer token for captured endpoints |
+| `MCPD_ENABLE_QUERYD_TOOLS` | `true` | Register queryd write tools (`GET /v1/tools`) as dynamic MCP tools at startup |
 
 ### MCP tools
 

@@ -35,7 +35,7 @@ its **commit graph** gives every change an author, a message, and a way back.
 | **Frictionless Capture** | Voice memos and text notes arrive as `Captured` documents via a capture endpoint or watched directories. Capture costs < 5 seconds. |
 | **AI does the filing** | `ingestd` polls `Captured` documents, sends text to an LLM with a typed output schema, and materializes validated `Task`/`Event`/`Reminder`/`Person` documents — dates resolved, known entities linked, `derived_from` referencing the source `Captured` document. |
 | **AI acts, never invisibly** | Every AI write is a distinct TerminusDB commit with `author=service:ingestd`, full `Provenance` on each document (agent, at, method, confidence — every Entity has exactly one birth certificate), and one commit per captured item — attributable, auditable, and revertible. The commit graph is the biography: updates are attributed there, not on the document. Writes can be pointed at a staging branch; dry-run mode exists for trust-building. |
-| **Ask your life anything** | `queryd` exposes a conversational agent ("was steht diese Woche an?", "when did I last plan something with Anna?") over the graph, with a small set of explicitly gated write actions. |
+| **Ask your life anything** | `queryd` exposes structured read/write endpoints over the graph — GraphQL, document lookup, find entity/class/field, schema introspection, and guarded write tools — that mcpd surfaces to external AI agents. |
 | **Everything is traceable** | The `Entity` base carries a **required** `Provenance` subdocument (birth certificate: agent, at, method, confidence). Multi-source derivation lives in `Entity.derived_from: Set<Source>` (n-ary). Every Task and Event knows where it came from — an audio, a note, a routine, or another entity. The source chain is always walkable. The agent naming grammar is reserved: `service:<name>`, `user:<name>`, `ext:<name>`. |
 | **Everything is remindable** | Reminders are an extension concern, not kernel. The triggers module provides `Triggerable` (a mixin for things that own a trigger) and an `Anchored` pure role marker for temporal anchoring. Concrete classes implementing `Anchored` declare a class-level `@metadata.anchor_field` naming an `xsd:dateTime` field. A rich `Trigger` model (schedule/rrule, relative offsets over Anchored entities, event-based triggers over the kernel change feed, boolean composition) drives when they fire. If an anchor's `anchor_field` is unset, relative triggers are **dormant** — evaluators skip them explicitly (triggerd logs `trigger_dormant`). `triggerd` materialises `TriggerFiring` records; `effectd` executes the nag policy (renotify, expire, snooze) and delivers via notification channels. |
 | **Multiple contexts, no hierarchies** | The `Context` marker lets a Task be tagged with `Person`, `Location`, `Event`, or custom contexts — as many as needed. |
@@ -222,13 +222,13 @@ compose the schema, run codegen, pass `uv run pytest`, and idle gracefully
 | **firnline-core** | Shared domain layer: async TerminusDB HTTP client, generated Pydantic models, plugin protocols, conventions. Every service imports it. |
 | **firnline-schema** | Schema toolchain CLI: compose, diff, plan, apply, validate, promote, codegen. |
 | **ingestd** | AI ingestion polling worker: poll Captured → LLM extraction → entity linking → one commit per item → status flip. |
-| **queryd** | FastAPI conversational agent: read tools, guarded write tools (plugins), stateless `/v1/chat`. |
+| **queryd** | FastAPI read/write proxy: GraphQL, document lookup, find-entity/class/field, schema introspection, guarded write-tool endpoints. Model-free — no embedded LLM. |
 | **triggerd** | Trigger evaluation polling worker: poll Trigger → evaluate → materialise TriggerFiring records. |
 | **effectd** | Effect delivery daemon: plan `ActionExecution` records, execute via `ActionExecutor` plugins (webhook, Gotify, etc.), run legacy notification loop with nag policy (renotify, expire, snooze wake-up). Actions bridge triggers to external effects — see [docs/actions.md](actions.md). |
 | **captured** | Minimal FastAPI capture-ingress: `POST /v1/capture/note` and `/v1/capture/file` with pluggable handlers. |
 | **STT** | faster-whisper (via existing n8n pipeline); multilingual German/French/English. Swappable — it just flips `Captured` statuses. |
 | **LLM access** | LiteLLM proxy (OpenAI-compatible) in front of any model — every service sees one interface. |
-| **Reflex (firnline-frontend)** | Pure-Python frontend (separate repo): chat, captured items, tasks, agenda, contexts, quick capture. A client of the services, never of the database. |
+| **Reflex (firnline-frontend)** | Pure-Python frontend (separate repo): captured items, tasks, agenda, contexts, quick capture. A client of the services, never of the database. |
 
 ## Future Directions (not yet implemented)
 

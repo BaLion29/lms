@@ -15,15 +15,9 @@ class Settings(TdbSettings):
     # API auth
     api_token: str = Field(min_length=1)
 
-    # LLM configuration
-    llm_base_url: str
-    llm_api_key: str
-    llm_model: str
-
     # Operational
     enable_writes: bool = False
     strict_plugins: bool = False
-    max_tool_iterations: int = 8
     request_timeout_seconds: float = 60
     listen_addr: str = "0.0.0.0:8087"
     cors_origins: list[str] = []

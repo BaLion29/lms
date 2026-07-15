@@ -1,11 +1,13 @@
 """Console entrypoint for mcpd — the MCP server daemon.
 
 Exposes firnline knowledge (documents, schema, semantic search, GraphQL,
-capture) as MCP tools and resources for external AI agents.
+capture, and proxied queryd write tools) as MCP tools and resources for
+external AI agents.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 from typing import Any
@@ -19,7 +21,17 @@ from starlette.routing import Mount, Route
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
+from mcpd._http import build_client as _build_client
+from mcpd._http import raise_for_status as _raise_for_status
+from mcpd.dynamic_tools import build_tool_function, fetch_tool_specs
 from mcpd.settings import McpdSettings
+
+__all__ = [
+    "_build_client",
+    "_raise_for_status",
+    "create_app",
+    "main",
+]
 
 logger = structlog.get_logger(__name__)
 
@@ -34,33 +46,6 @@ def _get_settings() -> McpdSettings:
     if _settings is not None:
         return _settings
     return McpdSettings()  # type: ignore[call-arg]
-
-
-# ── HTTP helpers ────────────────────────────────────────────────────────────
-
-
-def _build_client(base_url: str, token: str, timeout: float) -> httpx.AsyncClient:
-    """Build an httpx.AsyncClient with optional bearer auth."""
-    headers: dict[str, str] = {}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return httpx.AsyncClient(base_url=base_url, headers=headers, timeout=timeout)
-
-
-def _raise_for_status(resp: httpx.Response) -> None:
-    """Like resp.raise_for_status() but with sanitized messages — never leaks
-    headers, URL credentials, or full request details into the error."""
-    if resp.is_success:
-        return
-    # Build a sanitized message: status code + backend "detail" field if present.
-    detail: str = f"HTTP {resp.status_code}"
-    try:
-        body = resp.json()
-        if isinstance(body, dict) and "detail" in body:
-            detail = body["detail"]
-    except Exception:
-        pass
-    raise ToolError(str(detail))
 
 
 # ── MCP tools ───────────────────────────────────────────────────────────────
@@ -331,12 +316,15 @@ def create_app() -> Starlette:
         instructions=(
             "Firnline is a personal knowledge system. Use the provided tools to query "
             "documents, search the schema, run GraphQL queries, and write new "
-            "knowledge.  All read operations go through queryd; unstructured writes "
-            "go through captured; structured writes go through create_document."
+            "knowledge. All read operations go through queryd. Unstructured writes "
+            "go through captured; structured writes go through create_document. "
+            "When queryd has write-tool plugins enabled, additional structured write "
+            "tools (e.g. create_task, update_task, log_activity) are proxied from "
+            "queryd and listed alongside the built-in tools."
         ),
     )
 
-    # Register tools
+    # Register static tools
     mcp.tool()(_tool_graphql_query)
     mcp.tool()(_tool_get_document)
     mcp.tool()(_tool_find_entity)
@@ -346,6 +334,48 @@ def create_app() -> Starlette:
     mcp.tool()(_tool_list_modules)
     mcp.tool()(_tool_capture)
     mcp.tool()(_tool_create_document)
+
+    # Register dynamic tools from queryd (when enabled)
+    if settings.enable_queryd_tools:
+        try:
+            specs = asyncio.run(fetch_tool_specs(settings))
+        except RuntimeError:
+            # Event loop already running (e.g. inside a test fixture or
+            # nested app construction).  Skip dynamic registration gracefully
+            # instead of crashing.
+            logger.warning(
+                "Cannot fetch dynamic tools: event loop already running. "
+                "Skipping queryd tool registration."
+            )
+            specs = []
+
+        # Query the ToolManager for names already registered so we never
+        # accidentally overwrite (or warn-duplicate) a static tool.
+        existing_names = {t.name for t in mcp._tool_manager.list_tools()}
+
+        for spec in specs:
+            tool_name = spec.get("name", "")
+            if not tool_name:
+                logger.warning("Skipping dynamic tool spec without a name")
+                continue
+            if tool_name in existing_names:
+                logger.warning(
+                    "Skipping dynamic tool %s: name collides with existing tool",
+                    tool_name,
+                )
+                continue
+            try:
+                fn = build_tool_function(spec, settings)
+            except Exception:
+                logger.warning(
+                    "Failed to build function for dynamic tool %s",
+                    tool_name,
+                    exc_info=True,
+                )
+                continue
+            mcp.tool(name=tool_name, description=spec.get("description", ""))(fn)
+            existing_names.add(tool_name)
+            logger.info("Registered dynamic tool: %s", tool_name)
 
     # Register resources
     mcp.resource("firnline://schema")(_resource_schema)
@@ -371,6 +401,7 @@ def create_app() -> Starlette:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    app.state.mcp = mcp
     return app
 
 

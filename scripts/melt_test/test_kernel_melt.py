@@ -112,18 +112,18 @@ class TestTriggerdMelt:
 
 
 # ---------------------------------------------------------------------------
-# 3. queryd — render_prompt_briefing with kernel-only introspection
+# 3. queryd — render_schema_summary with kernel-only introspection
 # ---------------------------------------------------------------------------
 
 
 class TestQuerydMelt:
-    """Schema briefing renders correctly with only kernel types."""
+    """Schema summary renders correctly with only kernel types."""
 
-    def test_render_prompt_briefing_kernel_only(self) -> None:
-        from queryd.schema_briefing import render_prompt_briefing
+    def test_render_schema_summary_kernel_only(self) -> None:
+        from queryd.schema_briefing import render_schema_summary
 
         # Synthetic introspection with only kernel classes:
-        # Captured, TriggerFiring + their enums + Entity fields.
+        # Captured, TriggerFiring + their enums.
         introspection: dict[str, Any] = {
             "__schema": {
                 "queryType": {"name": "Query"},
@@ -144,10 +144,6 @@ class TestQuerydMelt:
                             {"name": "content", "type": {"name": "String", "kind": "SCALAR"}},
                             {"name": "status", "type": {"name": "CapturedStatus", "kind": "ENUM"}},
                             {
-                                "name": "provenance",
-                                "type": {"name": "Provenance", "kind": "OBJECT"},
-                            },
-                            {
                                 "name": "created_at",
                                 "type": {"name": "DateTime", "kind": "SCALAR"},
                             },
@@ -163,47 +159,9 @@ class TestQuerydMelt:
                         "kind": "OBJECT",
                         "fields": [
                             {"name": "_id", "type": {"name": "ID", "kind": "SCALAR"}},
-                            {
-                                "name": "trigger",
-                                "type": {"name": "String", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "occurrence_key",
-                                "type": {"name": "String", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "scheduled_for",
-                                "type": {"name": "DateTime", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "fired_at",
-                                "type": {"name": "DateTime", "kind": "SCALAR"},
-                            },
+                            {"name": "trigger", "type": {"name": "String", "kind": "SCALAR"}},
+                            {"name": "fired_at", "type": {"name": "DateTime", "kind": "SCALAR"}},
                             {"name": "status", "type": {"name": "FiringStatus", "kind": "ENUM"}},
-                            {
-                                "name": "subject",
-                                "type": {"name": "String", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "last_notified_at",
-                                "type": {"name": "DateTime", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "notification_count",
-                                "type": {"name": "Integer", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "snoozed_until",
-                                "type": {"name": "DateTime", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "created_at",
-                                "type": {"name": "DateTime", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "updated_at",
-                                "type": {"name": "DateTime", "kind": "SCALAR"},
-                            },
                         ],
                     },
                     # --- Enums ---
@@ -231,36 +189,17 @@ class TestQuerydMelt:
                             {"name": "expired"},
                         ],
                     },
-                    # --- Sub-document types (skipped by briefing) ---
-                    {
-                        "name": "Provenance",
-                        "kind": "OBJECT",
-                        "fields": [
-                            {"name": "agent", "type": {"name": "String", "kind": "SCALAR"}},
-                            {"name": "at", "type": {"name": "DateTime", "kind": "SCALAR"}},
-                            {
-                                "name": "method",
-                                "type": {"name": "String", "kind": "SCALAR"},
-                            },
-                            {
-                                "name": "confidence",
-                                "type": {"name": "Float", "kind": "SCALAR"},
-                            },
-                        ],
-                    },
                 ],
             }
         }
 
-        briefing = render_prompt_briefing(introspection)
+        summary = render_schema_summary(introspection)
 
         # Must be non-empty and contain key elements.
-        assert "Universal Entity Fields" in briefing
-        assert "Captured" in briefing
-        assert "TriggerFiring" in briefing
-        assert "FiringStatus" in briefing
-        assert "Query Conventions" in briefing
-        assert len(briefing) > 200  # substantial output
+        assert "Captured" in summary
+        assert "TriggerFiring" in summary
+        assert "FiringStatus" in summary
+        assert len(summary) > 200  # substantial output
 
 
 # ---------------------------------------------------------------------------
@@ -648,7 +587,7 @@ class TestPluginHostZeroPlugins:
             DiscoveryResult,
             HostPolicy,
             PluginHost,
-            ToolPlugin,
+            ToolSpecPlugin,
         )
 
         tdb = AsyncMock()
@@ -662,13 +601,13 @@ class TestPluginHostZeroPlugins:
         )
         host = PluginHost(
             group="firnline.queryd.tools",
-            protocol=ToolPlugin,
+            protocol=ToolSpecPlugin,
             tdb=tdb,
             branch="main",
             policy=policy,
         )
         result = await host.start(
-            collision_key=lambda p: [t.name for t in p.tools(None)],
+            collision_key=lambda p: [t.name for t in p.tool_specs()],
             registry=[],
             discovered=DiscoveryResult(active=[], failed=[]),
         )

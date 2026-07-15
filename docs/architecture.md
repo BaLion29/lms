@@ -39,13 +39,13 @@
 │  schema graph: composed from modules (build artifact)                   │
 │  commit graph: audit trail; branches = staging / review boundary        │
 └────────┬──────────────────────────┬────────────────────────────────────┘
-         │ poll (new/transcribed)   │ GraphQL (read) + tools
-         ▼                          ▼
-      INGESTD                    QUERYD ◄── POST /v1/chat ── FRONTEND
-      poll → extract → link      FastAPI + Pydantic AI
-      → insert → flip status     read tools + guarded writes
-      per-item commit            LLM via LiteLLM
-      LLM via LiteLLM
+          │ poll (new/transcribed)   │ GraphQL / find* / tools
+          ▼                          ▼
+       INGESTD                    QUERYD ◄── mcpd (MCP server)
+       poll → extract → link      GraphQL read proxy
+       → insert → flip status     document lookup, find entity|class|field
+       per-item commit            schema introspection
+       LLM via LiteLLM            write-tool endpoints (guarded)
          │
          ▼
        TRIGGERD
@@ -85,10 +85,13 @@ the compose stack.
 2. **Ingest** — `ingestd` polls for Captured documents, sends text to LLM with typed output schemas (extractor
    plugins), links known entities (Person, Location), materializes documents
    in one commit per item, flips status.
-3. **Query** — `queryd` serves `POST /v1/chat` with full conversation history
-   each turn. The agent has read tools (`graphql_query`, `get_document`,
-   `get_schema_details`, `today`) and, when `ENABLE_WRITES=true`, registered
-   write-tool plugins.
+3. **Query** — `queryd` serves GraphQL read queries (`POST /v1/graphql`),
+    document lookup (`GET /v1/documents/{iri}`), semantic entity/class/field
+    search (`/v1/find/*`), schema introspection (`/v1/schema`, `/v1/modules`),
+    and, when `QUERYD_ENABLE_WRITES=true`, registered write-tool endpoints
+    (`GET /v1/tools`, `POST /v1/tools/{name}`). External AI agents reach
+    queryd through mcpd, which wraps these endpoints as MCP tools (see
+    [mcpd](mcpd.md)).
 4. **Trigger** — `triggerd` polls for Trigger documents, runs evaluator plugins
    to compute occurrence instants within each cycle's lookback window, and
    materializes `TriggerFiring` records with `status=pending`.  Firing
@@ -251,7 +254,7 @@ firnline/
 ├── services/
 │   ├── captured/               # capture ingress (FastAPI)
 │   ├── ingestd/                # AI ingestion polling worker
-│   ├── queryd/                 # conversational agent (FastAPI)
+│   ├── queryd/                 # GraphQL read proxy + write-tool endpoints (FastAPI)
 │   ├── mcpd/                   # MCP server for external agents
 │   ├── triggerd/               # trigger evaluation polling worker
 │   ├── effectd/                # effect delivery daemon (nag policy + channels)
