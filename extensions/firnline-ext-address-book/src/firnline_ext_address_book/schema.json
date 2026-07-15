@@ -25,7 +25,7 @@
    {"@id": "Affiliation", "@key": {"@type": "Random"}, "@subdocument": [], "@type": "Class",
     "@documentation": {"@comment": "A person's affiliation to an organization: role and optional date range."},
     "end_date": {"@class": "xsd:dateTime", "@type": "Optional"},
-    "organization": {"@class": "Organization"},
+    "organization": "Organization",
     "role": {"@class": "xsd:string", "@type": "Optional"},
     "start_date": {"@class": "xsd:dateTime", "@type": "Optional"}},
    {"@id": "AddressBookGeocoderAction", "@inherits": "Action", "@type": "Class",
