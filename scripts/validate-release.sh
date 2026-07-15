@@ -47,7 +47,7 @@ check "No 'lms' in tracked file contents (except allowed files)" \
         ":!CHANGELOG.md" \
         ":!scripts/RELEASE.md" \
         ":!scripts/validate-release.sh" \
-        ":!docs/indexed.md" \
+        ":!docs/reference/api/indexed.md" \
         ":!services/indexed/src/indexed/store.py" \
         | grep -q .'
 
@@ -143,7 +143,7 @@ fi
 check "All relative markdown links point to existing files" \
     bash -c '
         all_ok=true
-        for md_file in README.md docs/*.md; do
+        for md_file in README.md docs/**/*.md; do
             dir="$(dirname "$md_file")"
             # Extract relative links (not http/https)
             links=$(grep -oP "\[[^\]]*\]\(\K[^)]+(?=\))" "$md_file" | grep -v "^https\?://" || true)

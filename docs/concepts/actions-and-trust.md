@@ -1,22 +1,21 @@
-# Actions
+# Actions and Trust
 
-Actions react to trigger firings by executing external effects — calling a
-webhook, pushing a notification, or triggering a home-automation routine.
-The action engine lives in **effectd**; the schema lives in the `actions`
-kernel schema module.
+How firnline moves from "something happened" to "do something about it" — and
+why you can trust the system not to act without your consent.
 
-## Why Actions?
+## Overview
 
 Triggers answer *when*. Actions answer *then what*. A `ScheduleTrigger` fires
 at 20:00; a `WebhookAction` tied to it calls Home Assistant to dim the lights.
-They are the bridge from "something happened" to "do something about it".
+The action engine lives in **effectd**; the schema lives in the `actions`
+kernel schema module.
 
 ## Action Model
 
-`Action` is an abstract `Entity` subclass. Concrete subclasses define
-exactly how the effect is produced:
+`Action` is an abstract `Entity` subclass. Concrete subclasses define exactly
+how the effect is produced:
 
-| Class | Field | Description |
+| Class | Key Fields | Description |
 |---|---|---|
 | **Action** (abstract) | `name` | Human-readable label |
 | | `enabled` | Boolean gate; disabled actions are skipped by the planner |
@@ -33,7 +32,7 @@ exactly how the effect is produced:
 | **NotifyAction** | `title_template` | `string.Template` for the notification title (optional) |
 | | `body_template` | `string.Template` for the notification body (optional) |
 
-### Secrets rule
+### Secrets Rule
 
 **No secrets in the database.** `Action.params` holds logical configuration
 (JSON string convention); credentials (`WEBHOOK_DEFAULT_TOKEN`, `GOTIFY_TOKEN`,
@@ -41,7 +40,8 @@ etc.) are read from environment variables by the executor plugin at call time.
 
 ## Trust Ladder
 
-Every action carries an `ActionMode` — the same trust ladder used by ingestd:
+Every action carries an `ActionMode` — the same trust ladder used by ingestd
+for AI writes:
 
 | Mode | Behaviour |
 |---|---|
@@ -62,13 +62,13 @@ Every action carries an `ActionMode` — the same trust ladder used by ingestd:
                                    ├─ dead (retries exhausted)
 ```
 
-- `pending_approval` → `pending` is the **approval seam**. Performed by
+- `pending_approval → pending` is the **approval seam**. Performed by
   approval tooling or the document API, **never** by effectd itself.
   `approved_at` / `approved_by` fields record who flipped it.
-- `pending` → `succeeded` when the executor returns `ok=True`.
-- `pending` → `failed` when the executor returns `ok=False, retryable=False`
+- `pending → succeeded` when the executor returns `ok=True`.
+- `pending → failed` when the executor returns `ok=False, retryable=False`
   (permanent error — bad URL, 4xx, missing config).
-- `pending` → `dead` when retries are exhausted (`retryable=True` but
+- `pending → dead` when retries are exhausted (`retryable=True` but
   `attempt >= max_attempts`).
 - `dry_run` mode records `skipped` at plan time and the executor is never
   called.
@@ -77,7 +77,7 @@ Plan and execute phases run in the same cycle, so auto-mode executions
 planned this tick execute immediately — there is no artificial delay
 between plan and execute.
 
-### At-least-once semantics + idempotency
+### At-Least-Once Semantics and Idempotency
 
 Effectd runs as a **single-replica polling daemon**. There is deliberately
 no `running` status — with no lease protocol, a running state would strand
@@ -110,22 +110,6 @@ Both `payload_template` (WebhookAction) and `title_template`/`body_template`
 | `$subject_id` | `subject["@id"]` | `Location/living-room` |
 | `$action_name` | `action["name"]` | `evening-lights` |
 | `$idempotency_key` | Stable per (action, firing) pair | `Action/evening-lights#Firing/f1` |
-
-## Effectd Settings
-
-The action engine is configured via `EFFECTD_*` environment variables:
-
-| Variable | Default | Description |
-|---|---|---|
-| `EFFECTD_DRY_RUN` | `false` | Global override: forces all executions to `skipped` |
-| `EFFECTD_LEGACY_NOTIFICATION_LOOP` | `true` | Run the zero-config default notify path (nag policy renotify/expire/snooze) |
-| `EFFECTD_DEFAULT_NOTIFY_EXECUTOR` | `notify:gotify` | Executor kind for the legacy notify loop |
-| `EFFECTD_PLANNING_LOOKBACK` | `P7D` | ISO-8601 duration bounding the planner query window |
-| `EFFECTD_MAX_EXECUTIONS_PER_CYCLE` | `50` | Max pending executions processed per poll cycle |
-| `EFFECTD_DEFAULT_MAX_ATTEMPTS` | `3` | Default retry limit per execution |
-| `EFFECTD_DEFAULT_RETRY_BACKOFF` | `PT1M` | Base backoff, doubled per attempt |
-| `EFFECTD_DEFAULT_TIMEOUT` | `PT30S` | Default per-execution timeout |
-| `EFFECTD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
 
 ## Legacy Notification Loop
 
@@ -203,3 +187,10 @@ In `automations.yaml`:
    the `X-Firnline-Idempotency-Key` header.
 5. Home Assistant receives the webhook, dims the lights. The
    `ActionExecution` transitions to `succeeded`.
+
+## Related documents
+
+- [Architecture](architecture.md) — effectd's role in the data flow
+- [Entity model](entity-model.md) — `Action` and `ActionExecution` as Entity subclasses
+- [Configuration reference](../reference/configuration.md) — all `EFFECTD_*` settings
+- [Entry points reference](../reference/entry-points.md) — `ActionExecutor` protocol

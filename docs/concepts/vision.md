@@ -1,16 +1,14 @@
 # Vision
 
-## One-Sentence Purpose
-
 A **single source of truth** for everything in your life — capture, organize,
 and act on thoughts, commitments, and events — built for an ADHD brain, on
 TerminusDB, with AI as the processing layer, a modular plugin-extensible
 service architecture, and a frontend that's just one possible client.
 
-## The Core Problem
+## Overview
 
 Standard productivity systems assume a linear brain: capture → organize →
-execute → review.  ADHD brains work differently:
+execute → review. ADHD brains work differently:
 
 - Thoughts are **fleeting** and must be captured in seconds or they vanish.
 - Things have **multiple contexts** simultaneously — a book can be `#learning`
@@ -58,122 +56,6 @@ its **commit graph** gives every change an author, a message, and a way back.
 - **Not a monolith** — no module may depend on another module's internals;
   the database and declared plugin/module contracts are the only coupling
   allowed.
-
-## The Entity Model
-
-Four abstract markers structure everything:
-
-- **`Source`** — "things other things can be derived from" (traceability)
-- **`Context`** — "things other things can be tagged with" (flat association)
-- **`Anchored`** — "things with a canonical temporal instant" (pure role marker; concrete classes declare the anchor field via `@metadata.anchor_field`)
-- **`Trigger`** — "conditions that fire" (abstract root of the trigger family)
-
-`Remindable` has been **removed** from core — reminders are an extension concern, not kernel. Extensions that need reminder-attachment semantics define their own markers or use `Triggerable` (from triggers module).
-
-```
-┌────────────────────────────────────────────────────────────────────┐
-│ CAPTURE (module: capture)                                          │
-│   Captured  ── Source   content_type · content · blob_sha256       │
-│              file_name · captured_at · transcription               │
-│              status: new→transcribed→processed→failed→archived     │
-└───────────────────────────┬────────────────────────────────────────┘
-                            │ ingestd: LLM extraction + entity linking
-                            ▼
-┌────────────────────────────────────────────────────────────────────┐
-│ CORE ENTITIES                                                      │
-│                                                                    │
-│  time_management:                                                  │
-│   Task      ── Source+TaskSpec                                     │
-│              provenance · due_date · status(open/planned/done)     │
-│   Event     ── Source+Context  (an event IS a context)             │
-│              start/end · location→Location · status                │
-│   Routine   ── steps: List<RoutineStep> · trigger                  │
-│   RoutineStep ── @oneOf task:TaskSpec | activity:ActivitySpec      │
-│   Activity  ── Source+Context+ActivitySpec · routine→Routine       │
-│   Reminder  ── refer_to · trigger→Trigger (optional, extension)   │
-│                                                                    │
-│  people:                                                           │
-│   Person    ── Source+Context · Contact (@subdocument, inline)     │
-│   Location  ── Context · aliases · coordinates                     │
-└────────────────────────────────────────────────────────────────────┘
-```
-
-## Key Design Decisions
-
-### Source & Provenance (traceability)
-
-Every Entity carries exactly **one required** `Provenance` subdocument — the
-birth certificate. `Provenance` fields: `agent` (reserved grammar:
-`service:<name>`, `user:<name>`, `ext:<name>`), `at` (xsd:dateTime),
-`method` (optional), `confidence` (optional). The `source` field is **gone** —
-multi-source derivation lives in `Entity.derived_from: Set<Source>` (n-ary).
-Updates are attributed via the commit graph (the biography), deliberately
-not on the document. You can always answer "where did this come from?" —
-and the frontend surfaces this as a one-click source chain. The
-`derived_from` link doubles as the idempotency guard: before processing
-a captured item, ingestd runs one GraphQL query over `Entity` /
-`derived_from` to detect already-extracted documents.
-
-### Anchored + Trigger (universal, composable reminders)
-
-Reminders are an extension concern. The kernel provides `Anchored` (a pure
-role marker — no `anchor_at` field) and the triggers module provides
-`Triggerable` (a mixin for things that own a trigger). Concrete classes
-implementing `Anchored` declare `"@metadata": {"anchor_field": "<xsd:dateTime field>"}`
-at the class level; the composer validates this at L4/L5. If the anchor
-field is unset on a document, relative triggers referencing it are
-**dormant** — evaluators skip them explicitly (triggerd logs
-`trigger_dormant`).
-
-Reminders are standalone entities that refer to domain documents. *When*
-they fire is fully delegated to the Trigger family — recurring schedules
-(RFC 5545 rrule), offsets relative to an `Anchored` entity's anchor field,
-event triggers over the kernel change feed, and boolean composition of all
-of these. The trigger lifecycle (pending→notified→renotify→expire→snoozed)
-is fully materialised and enforced by `triggerd` + `effectd`.
-
-### Context (flat, multi-valued tagging)
-
-A Context is anything a Task or Event relates to: a Person, a Location, an
-Event, a future custom context. No hierarchies — just associations, as many as
-needed. The extraction layer links known contexts automatically (case-insensitive
-exact match; near-misses are logged, not guessed).
-
-### Event inherits Context
-
-An Event (like "Dentist appointment") is both something that happens AND a
-context that other things can be associated with. "Buy toothpaste" can have
-`required_context: [Event:Dentist, Person:Topias]`.
-
-### One capture type, one pipeline (kernel)
-
-**Captured** is a single kernel schema class in `schema/modules/capture`
-that subsumes the old `InboxNote`/`InboxAudio` split. It carries
-`content_type` (MIME style), `content` (text), `blob_sha256` (binary),
-`file_name`, `captured_at`, `transcription`, and `status`
-(new/transcribed/processed/failed/archived). All captures — text notes,
-voice memos, files — flow through the same extraction pipeline, the same
-provenance model, and the same statuses. Capture handlers ship inside
-`captured`; ingest sources ship inside `ingestd`. The **webui inbox page**
-is backed by the `Captured` class.
-
-### AI writes with provenance; branches are the review boundary
-
-The trust ladder:
-
-1. **Dry-run** — real reads, real LLM calls, no writes (`INGESTD_DRY_RUN=true`).
-2. **Staging branch** — `TDB_BRANCH` points ingestd at a non-main branch;
-   promotion to main is the "accept" action.
-3. **Direct-to-main** — earned trust; every write remains attributed,
-   provenance-linked, and revertible via the commit graph.
-
-### Modules and plugins are the growth mechanism
-
-The schema is not one file: it is composed from versioned **schema modules**
-with declared dependencies, semver discipline (additive = MINOR, breaking =
-MAJOR + migration), and an in-database registry. Services discover **plugins**
-(extractors for ingestd, tools for queryd) via entry points and verify each
-plugin's module requirements at startup.
 
 ## ADHD-Specific Design Principles
 
@@ -224,25 +106,29 @@ compose the schema, run codegen, pass `uv run pytest`, and idle gracefully
 | **ingestd** | AI ingestion polling worker: poll Captured → LLM extraction → entity linking → one commit per item → status flip. |
 | **queryd** | FastAPI read/write proxy: GraphQL, document lookup, find-entity/class/field, schema introspection, guarded write-tool endpoints. Model-free — no embedded LLM. |
 | **triggerd** | Trigger evaluation polling worker: poll Trigger → evaluate → materialise TriggerFiring records. |
-| **effectd** | Effect delivery daemon: plan `ActionExecution` records, execute via `ActionExecutor` plugins (webhook, Gotify, etc.), run legacy notification loop with nag policy (renotify, expire, snooze wake-up). Actions bridge triggers to external effects — see [docs/actions.md](actions.md). |
+| **effectd** | Effect delivery daemon: plan `ActionExecution` records, execute via `ActionExecutor` plugins (webhook, Gotify, etc.), run legacy notification loop with nag policy (renotify, expire, snooze wake-up). |
 | **captured** | Minimal FastAPI capture-ingress: `POST /v1/capture/note` and `/v1/capture/file` with pluggable handlers. |
 | **STT** | faster-whisper (via existing n8n pipeline); multilingual German/French/English. Swappable — it just flips `Captured` statuses. |
 | **LLM access** | LiteLLM proxy (OpenAI-compatible) in front of any model — every service sees one interface. |
-| **Reflex (firnline-frontend)** | Pure-Python frontend (separate repo): captured items, tasks, agenda, contexts, quick capture. A client of the services, never of the database. |
+| **WebUI (Reflex)** | Pure-Python frontend living in `services/webui/`: captured items, tasks, agenda, contexts, quick capture. A client of the services, never of the database. |
 
-## Future Directions (not yet implemented)
+## The Entity Model
 
-- **Nag-policy consolidation** — reimplement renotify/expire/snooze on top of
-  `ActionExecution` documents (currently the legacy notification loop handles
-  these policies independently of the action engine).
-- **Routine engine** — Routines spawning Tasks/Activities from their steps.
-- **Branch review tooling** — comfortable per-commit review + promote flow for
-  staging-branch mode.
-- **Semantic search** — the `indexed` grounding service now mirrors TDB
-   documents and schema into a hybrid vector+lexical index; `queryd`'s
-   `find_entity`/`find_class`/`find_field` tools use it to prevent the
-   agent from inventing entity names or schema field names (see
-   [docs/indexed.md](indexed.md)).
-- **Transcriber service** — first-class replacement for the n8n STT hop.
-- **Time-Block & Schedule**, **TimeLog**, **Location-based reminders**,
-  **Escalation chains**.
+The entity model is documented in full in [entity-model.md](entity-model.md).
+In brief, four abstract markers structure everything:
+
+- **`Source`** — "things other things can be derived from" (traceability)
+- **`Context`** — "things other things can be tagged with" (flat association)
+- **`Anchored`** — "things with a canonical temporal instant" (pure role marker; concrete classes declare the anchor field via `@metadata.anchor_field`)
+- **`Trigger`** — "conditions that fire" (abstract root of the trigger family)
+
+`Remindable` has been **removed** from core — reminders are an extension concern, not kernel.
+
+## Related documents
+
+- [Entity model](entity-model.md) — the marker grammar and key design decisions
+- [Architecture](architecture.md) — system overview and data flow
+- [Plugin system](plugin-system.md) — extensibility in detail
+- [Actions and trust](actions-and-trust.md) — action engine and trust ladder
+- [Security](security.md) — auth model and trust boundaries
+- [Roadmap](../roadmap.md) — future directions (moved from here)

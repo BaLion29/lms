@@ -86,5 +86,11 @@ hard error listing all failures — extensions are never silently ignored.
 }
 ```
 
-The `source` field was added for entry-point modules.  Old lock files
+## Full documentation
+
+- [Schema modules reference](../../docs/reference/schema-modules.md) — module format, manifest, exports, dependencies
+- [CLI reference](../../docs/reference/cli.md) — `firnline-schema` command reference
+- [Entry points reference](../../docs/reference/entry-points.md) — entry-point groups and protocols
+
+The `source` field was added for entry-point modules. Old lock files
 without `source` are still accepted (backward-compatible).

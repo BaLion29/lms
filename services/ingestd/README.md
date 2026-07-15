@@ -45,11 +45,11 @@ useful — without extensions it discovers no sources and exits.
 
 ## Configuration, extensions, and tests
 
-See the [project documentation](../../docs/):
+Full documentation:
 
-- [Configuration](../../docs/configuration.md) — all `INGESTD_*` env vars
-- [Architecture](../../docs/architecture.md) — how ingestd fits into the system
-- [Extensions](../../docs/extensions.md) — writing source and extractor plugins
+- [Configuration reference](../../docs/reference/configuration.md) — all `INGESTD_*` env vars
+- [Architecture](../../docs/concepts/architecture.md) — how ingestd fits into the system
+- [Extension development](../../docs/development/extension-development.md) — writing source and extractor plugins
 
 Run tests from the monorepo root:
 

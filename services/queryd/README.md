@@ -39,7 +39,7 @@ Response is a standard GraphQL JSON payload.
 ### `GET /v1/tools`
 
 Lists write-tool specs (name, description, input_schema). Empty when
-`QUERYD_ENABLE_WRITES=false`. See [mcpd](../../docs/mcpd.md) for how mcpd
+`QUERYD_ENABLE_WRITES=false`. See [mcpd API](../../docs/reference/api/mcpd.md) for how mcpd
 registers these as dynamic MCP tools.
 
 ### `POST /v1/tools/{name}`
@@ -64,11 +64,12 @@ No auth. Returns `{"status": "ok", "terminusdb": "up", "write_tools": [...], "ve
 
 ## Configuration, extensions, and tests
 
-See the [project documentation](../../docs/):
+Full documentation:
 
-- [Configuration](../../docs/configuration.md) — all `QUERYD_*` env vars
-- [Architecture](../../docs/architecture.md) — how queryd fits into the system
-- [Extensions](../../docs/extensions.md) — writing queryd write-tool plugins
+- [queryd API reference](../../docs/reference/api/queryd.md)
+- [Configuration reference](../../docs/reference/configuration.md) — all `QUERYD_*` env vars
+- [Architecture](../../docs/concepts/architecture.md) — how queryd fits into the system
+- [Extension development](../../docs/development/extension-development.md) — writing queryd write-tool plugins
 
 Run tests from the monorepo root:
 
