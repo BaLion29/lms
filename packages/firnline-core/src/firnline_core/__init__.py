@@ -79,11 +79,13 @@ from firnline_core.plugins import (
     ToolPlugin,
     ToolSpecPlugin,
     TriggerEvaluator,
+    WebUIPagePlugin,
     check_requirements,
     discover_plugins,
     select_plugins,
     validate_plugin,
 )
+from firnline_core.pagespec import PageSpec
 from firnline_core.toolspec import (
     ToolContext,
     ToolSpec,
@@ -188,6 +190,7 @@ __all__ = [
     "ToolPlugin",
     "ToolSpecPlugin",
     "TriggerEvaluator",
+    "WebUIPagePlugin",
     "check_requirements",
     "discover_plugins",
     "select_plugins",
@@ -205,6 +208,8 @@ __all__ = [
     "ToolTraceEntry",
     "now_utc_str",
     "traced",
+    # pagespec
+    "PageSpec",
     # toolspec
     "ToolContext",
     "ToolSpec",

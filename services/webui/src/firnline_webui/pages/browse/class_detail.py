@@ -6,9 +6,11 @@ import reflex as rx
 
 from firnline_webui.state.browse import BrowseClassState
 from firnline_webui.ui.controls import page_size_select, pagination_bar, search_input, sortable_header_cell
-from firnline_webui.ui.detail import json_detail_drawer
+from firnline_webui.ui.detail import iri_var, json_detail_drawer
 from firnline_webui.ui.feedback import empty_state, error_callout, loading_spinner
 from firnline_webui.ui.nav import shell
+from firnline_webui.ui.theme import TABLE_ROW_STYLE
+from firnline_webui.ui.typography import page_heading
 
 
 def _class_table() -> rx.Component:
@@ -56,8 +58,7 @@ def _class_table() -> rx.Component:
                             ),
                         ),
                         cursor="pointer",
-                        _hover={"bg": rx.color("accent", 2)},
-                        _odd={"background": rx.color("gray", 2)},
+                        **TABLE_ROW_STYLE,
                         tab_index=0,
                         role="button",
                         on_click=BrowseClassState.select(row["@id"]),  # type: ignore[index]
@@ -75,13 +76,6 @@ def _class_table() -> rx.Component:
 
 def browse_class_page() -> rx.Component:
     """Class detail page for /browse/[class_name]."""
-    iri_var: rx.Var = rx.Var.create(
-        rx.cond(
-            BrowseClassState.selected_doc.to(bool) & (BrowseClassState.selected_doc["@id"].to(str) != ""),  # type: ignore[index]
-            BrowseClassState.selected_doc["@id"].to(str),  # type: ignore[index]
-            "",
-        )
-    )
     return shell(
         rx.vstack(
             # Header
@@ -104,6 +98,7 @@ def browse_class_page() -> rx.Component:
                             "Browse",
                         ),
                         size="6",
+                        weight="medium",
                     ),
                     # Total count badge in header
                     rx.cond(
@@ -128,7 +123,7 @@ def browse_class_page() -> rx.Component:
                     "Refresh",
                     on_click=BrowseClassState.load,
                     size="2",
-                    variant="outline",
+                    variant="soft",
                 ),
                 spacing="2",
                 align="center",
@@ -155,7 +150,7 @@ def browse_class_page() -> rx.Component:
                     rx.button(
                         rx.icon(tag="refresh_cw", size=14),
                         "Retry",
-                        variant="outline",
+                        variant="soft",
                         size="1",
                         on_click=BrowseClassState.load,
                     ),
@@ -248,7 +243,7 @@ def browse_class_page() -> rx.Component:
             json_detail_drawer(
                 doc_var=BrowseClassState.selected_doc,
                 json_var=BrowseClassState.selected_json,
-                iri_var=iri_var,
+                iri_var=iri_var(BrowseClassState.selected_doc),
                 on_close=BrowseClassState.clear_selection,
                 references=BrowseClassState.references,
                 on_navigate=BrowseClassState.navigate_to_reference,

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
-
 import reflex as rx
 
 from firnline_webui.clients import TdbBrowser, WebuiClientError, make_tdb_browser
 from firnline_webui.introspect import doc_preview, inbox_classes
 from firnline_webui.state.base import BaseState
+from firnline_webui.state.selection import SelectionMixin
 
 
 async def _load_inbox_rows(tdb: TdbBrowser) -> tuple[list[dict], set[str]]:
@@ -55,7 +54,7 @@ async def _load_inbox_rows(tdb: TdbBrowser) -> tuple[list[dict], set[str]]:
     return all_rows, statuses
 
 
-class InboxState(BaseState):
+class InboxState(BaseState, SelectionMixin):
     """State for the /inbox page."""
 
     rows: list[dict] = []
@@ -63,10 +62,6 @@ class InboxState(BaseState):
     error: str = ""
     status_filter: str = "all"
     available_statuses: list[str] = []
-
-    # Detail drawer
-    selected_doc: dict | None = None
-    selected_json: str = ""
 
     @rx.event
     async def load(self):
@@ -95,28 +90,6 @@ class InboxState(BaseState):
     async def set_status_filter(self, value: str):
         """Set the active status filter chip."""
         self.status_filter = value
-        yield
-
-    @rx.event
-    async def select(self, doc_id: str):
-        """Fetch a single document by IRI and open the detail drawer."""
-        tdb = make_tdb_browser()
-        try:
-            doc = await tdb.get_document(doc_id)
-            self.selected_doc = doc
-            self.selected_json = json.dumps(doc, indent=2, default=str)
-        except WebuiClientError as exc:
-            self.selected_doc = {"error": str(exc.detail)}
-            self.selected_json = json.dumps(self.selected_doc, indent=2)
-        finally:
-            await tdb.aclose()
-        yield
-
-    @rx.event
-    async def clear_selection(self):
-        """Close the detail drawer."""
-        self.selected_doc = None
-        self.selected_json = ""
         yield
 
     @rx.event

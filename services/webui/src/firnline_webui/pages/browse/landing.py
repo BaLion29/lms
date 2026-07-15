@@ -10,9 +10,11 @@ from firnline_webui.state.browse import BrowseState
 from firnline_webui.state.graph import GraphState
 from firnline_webui.ui.cards import chip
 from firnline_webui.ui.controls import search_input
-from firnline_webui.ui.detail import json_detail_drawer
+from firnline_webui.ui.detail import iri_var, json_detail_drawer
 from firnline_webui.ui.feedback import empty_state, error_callout, loading_spinner
 from firnline_webui.ui.nav import shell
+from firnline_webui.ui.theme import RADIUS_MEDIUM, SHADOW_CARD, SHADOW_CARD_HOVER, SPACING_EMPTY_STATE_Y
+from firnline_webui.ui.typography import page_heading
 
 
 def _module_card(name: str, version: str, class_ids: list[str]) -> rx.Component:
@@ -67,8 +69,10 @@ def _module_card(name: str, version: str, class_ids: list[str]) -> rx.Component:
         ),
         size="2",
         width="100%",
-        box_shadow="0 1px 2px rgba(0,0,0,0.04)",
-        _hover={"box_shadow": "0 2px 4px rgba(0,0,0,0.06), 0 4px 8px rgba(0,0,0,0.08)"},
+        border=f"1px solid {rx.color('gray', 4)}",
+        border_radius=RADIUS_MEDIUM,
+        box_shadow=SHADOW_CARD,
+        _hover={"box_shadow": SHADOW_CARD_HOVER},
         transition="box-shadow 0.2s ease",
     )
 
@@ -107,7 +111,7 @@ def _classes_tab() -> rx.Component:
                 "Refresh",
                 on_click=BrowseState.load,
                 size="2",
-                variant="outline",
+                variant="soft",
             ),
             spacing="2",
             align="center",
@@ -118,7 +122,7 @@ def _classes_tab() -> rx.Component:
             BrowseState.error != "",
             rx.callout(
                 rx.hstack(
-                    rx.icon(tag="triangle_alert", size=14, color="var(--red-9)"),
+                    rx.icon(tag="triangle_alert", size=14, color=rx.color("red", 9)),
                     rx.text(BrowseState.error, size="2"),
                     rx.button(
                         "Retry",
@@ -158,13 +162,13 @@ def _classes_tab() -> rx.Component:
                                 "Clear search",
                                 on_click=BrowseState.set_search(""),
                                 size="2",
-                                variant="outline",
+                                variant="soft",
                             ),
                             spacing="3",
                             align="center",
                         ),
                         width="100%",
-                        padding_y="64px",
+                        padding_y=SPACING_EMPTY_STATE_Y,
                     ),
                 ),
                 # Empty state — no classes at all
@@ -178,17 +182,10 @@ def _classes_tab() -> rx.Component:
 
 def browse_page() -> rx.Component:
     """Browse landing — tabbed hub with Classes, Graph, and Relationships views."""
-    iri_var: rx.Var = rx.Var.create(
-        rx.cond(
-            GraphState.selected_doc.to(bool) & (GraphState.selected_doc["@id"].to(str) != ""),  # type: ignore[index]
-            GraphState.selected_doc["@id"].to(str),  # type: ignore[index]
-            "",
-        )
-    )
     return shell(
         rx.vstack(
             # Page heading
-            rx.heading("Browse Schema Classes", size="6"),
+            page_heading("Browse Schema Classes"),
             # ── Tabs ─────────────────────────────────────────────────
             rx.tabs.root(
                 rx.tabs.list(
@@ -228,7 +225,7 @@ def browse_page() -> rx.Component:
             json_detail_drawer(
                 doc_var=GraphState.selected_doc,
                 json_var=GraphState.selected_json,
-                iri_var=iri_var,
+                iri_var=iri_var(GraphState.selected_doc),
                 on_close=GraphState.clear_selection,
             ),
             spacing="5",

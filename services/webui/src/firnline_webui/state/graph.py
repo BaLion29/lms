@@ -14,6 +14,7 @@ import reflex as rx
 from firnline_webui.clients import WebuiClientError, make_tdb_browser
 from firnline_webui.graph_index import EdgeIndex, build_edge_index
 from firnline_webui.state.base import BaseState
+from firnline_webui.state.selection import SelectionMixin
 
 # Deterministic palette — 12 colours reused cyclically.
 _COLORS: list[str] = [
@@ -48,7 +49,7 @@ def _build_legend(type_colors: dict[str, str], index: EdgeIndex | None) -> list[
     return items
 
 
-class GraphState(BaseState):
+class GraphState(BaseState, SelectionMixin):
     """State for the graph view on the /browse page."""
 
     # ── View mode toggle ──────────────────────────────────────────────
@@ -87,10 +88,6 @@ class GraphState(BaseState):
     focus_node_in: int = 0
     focus_hops: int = 1
     is_focused: bool = False
-
-    # ── Detail drawer ─────────────────────────────────────────────────
-    selected_doc: dict | None = None
-    selected_json: str = ""
 
     # ── Derived display data (plain vars — recomputed on load) ──────
     type_counts_list: list[dict] = []
@@ -321,13 +318,6 @@ class GraphState(BaseState):
         """Exit focus mode, restore filtered full view."""
         self.is_focused = False
         self._recompute_display()
-        yield
-
-    @rx.event
-    async def clear_selection(self):
-        """Close the detail drawer."""
-        self.selected_doc = None
-        self.selected_json = ""
         yield
 
     @rx.event

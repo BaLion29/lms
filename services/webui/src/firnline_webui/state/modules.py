@@ -21,6 +21,7 @@ class ModulesState(BaseState):
     captured_plugins: list[str] = []
     queryd_plugins: list[str] = []
     indexed_plugins: list[str] = []
+    webui_page_plugins: list[dict] = []
     loading: bool = False
     error: str = ""
 
@@ -47,6 +48,9 @@ class ModulesState(BaseState):
             self.captured_plugins = ["unreachable"]
             self.queryd_plugins = ["unreachable"]
             self.indexed_plugins = ["unreachable"]
+
+        # WebUI page plugins — in-process, no HTTP call needed
+        self.webui_page_plugins = self._get_webui_page_plugins()
 
         self.loading = False
         yield
@@ -92,6 +96,24 @@ class ModulesState(BaseState):
             "queryd": qry_r,
             "indexed": idx_r,
         }
+
+    def _get_webui_page_plugins(self) -> list[dict]:
+        """Return info about WebUI page plugins (in-process, no HTTP)."""
+        from firnline_webui.plugin_host import get_registry_result  # noqa: PLC0415
+
+        result = get_registry_result()
+        items: list[dict] = []
+        for name, _plugin in result.active:
+            try:
+                specs = _plugin.pages() if hasattr(_plugin, "pages") and callable(_plugin.pages) else []
+            except Exception:
+                specs = []
+            items.append({
+                "name": name,
+                "page_count": len(specs),
+                "routes": ", ".join(s.route for s in specs) if specs else "-",
+            })
+        return items
 
     async def _safe_healthz(self, client) -> list[str]:
         try:

@@ -10,6 +10,12 @@ _WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _DAY_CELL_H = "110px"
 
 
+# White text on coloured event blocks — intentionally not a semantic
+# colour token because gray-1 is near-black in dark mode and would be
+# unreadable on the accent-9 event backgrounds from EVENT_PALETTE.
+EVENT_TEXT_COLOR = "white"
+
+
 # ── Shared event block ──────────────────────────────────────────────────
 
 
@@ -30,7 +36,7 @@ def _event_block(ev: rx.Var[dict]) -> rx.Component:
         width="100%",
         cursor="pointer",
         background=ev["color"],
-        color="white",
+        color=EVENT_TEXT_COLOR,
         on_click=CalendarState.select_event(ev["id"]),  # type: ignore[arg-type]
     )
 
@@ -46,7 +52,7 @@ def _positioned_block(ev: rx.Var[dict]) -> rx.Component:
             overflow="hidden",
             text_overflow="ellipsis",
             white_space="nowrap",
-            color="white",
+            color=EVENT_TEXT_COLOR,
             padding_x="4px",
         ),
         position="absolute",

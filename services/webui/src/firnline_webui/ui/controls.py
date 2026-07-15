@@ -135,6 +135,7 @@ def pagination_bar(
     on_prev,
     on_next,
     extra: rx.Component | None = None,
+    show_page_size: bool = True,
 ) -> rx.Component:
     """Prev/next buttons + page count caption; buttons disabled at bounds.
 
@@ -151,13 +152,20 @@ def pagination_bar(
             (e.g. a :func:`page_size_select`), **not** a state-dependent value
             — the decision to include it is made at Python time, not in the
             browser.
+        show_page_size: When ``True`` (the default) the total item count is
+            shown in the caption.  Set to ``False`` to show only ``Page X of Y``.
     """
     pv = rx.Var.create(page)
     tpv = rx.Var.create(total_pages)
     tcv = rx.Var.create(total_count)
+    caption = (
+        f"Page {(pv + 1)} of {tpv} ({tcv} total)"
+        if show_page_size
+        else f"Page {(pv + 1)} of {tpv}"
+    )
     return rx.hstack(
         rx.text(
-            f"Page {(pv + 1)} of {tpv} ({tcv} total)",
+            caption,
             size="2",
             color_scheme="gray",
         ),

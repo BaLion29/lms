@@ -5,6 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from firnline_webui.state.auth import AuthState
+from firnline_webui.ui.theme import LOGIN_BG, RADIUS_MEDIUM, SHADOW_RAISED, SPACE_3
 
 
 def login_page() -> rx.Component:
@@ -20,7 +21,7 @@ def login_page() -> rx.Component:
                     rx.center(
                         rx.icon(tag="mountain_snow", size=20, color="white"),
                         background=rx.color("accent", 9),
-                        border_radius="10px",
+                        border_radius="medium",
                         width="40px",
                         height="40px",
                     ),
@@ -47,6 +48,7 @@ def login_page() -> rx.Component:
                             type="submit",
                             width="100%",
                             size="3",
+                            color_scheme="cyan",
                             disabled=(AuthState.password_input == ""),
                         ),
                         spacing="3",
@@ -61,7 +63,7 @@ def login_page() -> rx.Component:
                     AuthState.error != "",
                     rx.callout(
                         rx.hstack(
-                            rx.icon(tag="triangle_alert", size=14, color="var(--red-9)"),
+                            rx.icon(tag="triangle_alert", size=14, color=rx.color("red", 9)),
                             rx.text(AuthState.error, size="2"),
                             align="center",
                             spacing="2",
@@ -73,15 +75,16 @@ def login_page() -> rx.Component:
                 ),
                 spacing="5",
                 width="100%",
-                padding="12px",
+                padding=SPACE_3,
             ),
             size="3",
             max_width="380px",
             width="100%",
-            box_shadow="0 4px 12px rgba(0,0,0,0.08), 0 12px 32px rgba(0,0,0,0.06)",
+            box_shadow=SHADOW_RAISED,
+            border_radius=RADIUS_MEDIUM,
             border=f"1px solid {rx.color('gray', 4)}",
         ),
         min_height="100vh",
         width="100%",
-        background=f"radial-gradient(ellipse at top, {rx.color('accent', 3)}, {rx.color('gray', 1)} 60%)",
+        background=LOGIN_BG,
     )

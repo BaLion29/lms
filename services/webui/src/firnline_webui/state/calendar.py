@@ -15,6 +15,8 @@ from firnline_webui.calendar_introspect import (
 )
 from firnline_webui.clients import WebuiClientError, make_tdb_browser
 from firnline_webui.state.base import BaseState
+from firnline_webui.state.selection import SelectionMixin
+from firnline_webui.ui.theme import EVENT_PALETTE
 
 
 # Typed shapes that Reflex can use to resolve nested Var types in rx.foreach.
@@ -52,17 +54,6 @@ class _CalWeekDay(TypedDict):
 # Helpers
 # ---------------------------------------------------------------------------
 
-_EVENT_PALETTE = [
-    "var(--cyan-9)",
-    "var(--orange-9)",
-    "var(--green-9)",
-    "var(--purple-9)",
-    "var(--pink-9)",
-    "var(--blue-9)",
-    "var(--amber-9)",
-    "var(--teal-9)",
-]
-
 _VIEW_HOUR_MIN = 6 * 60  # 06:00 in minutes
 _VIEW_HOUR_MAX = 22 * 60  # 22:00 in minutes
 _VIEW_RANGE = _VIEW_HOUR_MAX - _VIEW_HOUR_MIN  # 960 minutes
@@ -72,7 +63,7 @@ _MIN_HEIGHT_PCT = 3.0
 def _color_for_class(class_name: str) -> str:
     """Deterministic colour pick from the palette."""
     h = sum(ord(c) for c in class_name)
-    return _EVENT_PALETTE[h % len(_EVENT_PALETTE)]
+    return EVENT_PALETTE[h % len(EVENT_PALETTE)]
 
 
 def _iso_date(some_date: date) -> str:
@@ -146,7 +137,7 @@ def _events_for_date(events: list[dict], day: date) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-class CalendarState(BaseState):
+class CalendarState(BaseState, SelectionMixin):
     """State for the /calendar page."""
 
     view_mode: str = "month"
@@ -158,10 +149,6 @@ class CalendarState(BaseState):
 
     loading: bool = False
     error: str = ""
-
-    # Detail drawer
-    selected_doc: dict | None = None
-    selected_json: str = ""
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -379,10 +366,4 @@ class CalendarState(BaseState):
             self.selected_json = json.dumps(self.selected_doc, indent=2)
         finally:
             await tdb.aclose()
-        yield
-
-    @rx.event
-    async def clear_selection(self):
-        self.selected_doc = None
-        self.selected_json = ""
         yield

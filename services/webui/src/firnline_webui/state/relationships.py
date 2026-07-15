@@ -9,9 +9,10 @@ import reflex as rx
 from firnline_webui.clients import WebuiClientError, make_tdb_browser
 from firnline_webui.graph_index import EdgeIndex, build_edge_index
 from firnline_webui.state.base import BaseState
+from firnline_webui.state.selection import SelectionMixin
 
 
-class RelationshipsState(BaseState):
+class RelationshipsState(BaseState, SelectionMixin):
     """State for the relationships (triples) browser on the /browse page."""
 
     # ── Backend var (NOT a Reflex Var) ────────────────────────────────
@@ -41,10 +42,6 @@ class RelationshipsState(BaseState):
     predicate_options: list[dict] = []
     source_type_options: list[dict] = []
     target_type_options: list[dict] = []
-
-    # ── Detail drawer ─────────────────────────────────────────────────
-    selected_doc: dict | None = None
-    selected_json: str = ""
 
     # ── Computed vars ─────────────────────────────────────────────────
 
@@ -249,13 +246,6 @@ class RelationshipsState(BaseState):
             self.selected_json = json.dumps(self.selected_doc, indent=2)
         finally:
             await tdb.aclose()
-        yield
-
-    @rx.event
-    async def clear_selection(self):
-        """Close the detail drawer."""
-        self.selected_doc = None
-        self.selected_json = ""
         yield
 
     @rx.event

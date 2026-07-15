@@ -4,6 +4,23 @@ from __future__ import annotations
 
 import reflex as rx
 
+from firnline_webui.ui.theme import RADIUS_MEDIUM, SHADOW_RAISED, SPACE_1_5, SPACE_2, SPACE_3
+
+
+def iri_var(selected_doc: rx.Var[dict | None]) -> rx.Var[str]:
+    """Derive an IRI Var from a selected_doc Var for use with :func:`json_detail_drawer`.
+
+    Args:
+        selected_doc: Var pointing to the currently selected document dict.
+    """
+    return rx.Var.create(
+        rx.cond(
+            selected_doc.to(bool) & (selected_doc["@id"].to(str) != ""),  # type: ignore[index]
+            selected_doc["@id"].to(str),  # type: ignore[index]
+            "",
+        )
+    )
+
 
 def json_detail_drawer(
     doc_var: rx.Var[dict | None],
@@ -71,8 +88,8 @@ def json_detail_drawer(
                     ),
                     background=rx.color("gray", 2),
                     border=f"1px solid {rx.color('gray', 4)}",
-                    border_radius="6px",
-                    padding="6px",
+                    border_radius=RADIUS_MEDIUM,
+                    padding=SPACE_1_5,
                     max_height="180px",
                     overflow="auto",
                     width="100%",
@@ -129,8 +146,8 @@ def json_detail_drawer(
                             ),
                             background=rx.color("gray", 2),
                             border=f"1px solid {rx.color('gray', 4)}",
-                            border_radius="6px",
-                            padding="8px",
+                            border_radius=RADIUS_MEDIUM,
+                            padding=SPACE_2,
                             width="100%",
                         ),
                         rx.icon_button(
@@ -149,7 +166,7 @@ def json_detail_drawer(
                     ),
                     spacing="1",
                     width="100%",
-                    margin_bottom="12px",
+                margin_bottom=SPACE_3,
                 ),
             ),
             # References section (only when references Var is provided)
@@ -166,7 +183,7 @@ def json_detail_drawer(
                 max_height="55vh",
                 overflow="auto",
                 width="100%",
-                font_size="12px",
+                font_size=SPACE_3,
             ),
             # Footer
             rx.hstack(
@@ -184,7 +201,7 @@ def json_detail_drawer(
                 rx.dialog.close(
                     rx.button(
                         "Close",
-                        variant="outline",
+                        variant="soft",
                         size="1",
                         on_click=on_close,
                     ),
@@ -192,11 +209,13 @@ def json_detail_drawer(
                 width="100%",
                 justify="end",
                 spacing="2",
-                padding_top="12px",
+                padding_top=SPACE_3,
             ),
             max_width="720px",
             max_height="85vh",
             overflow_y="auto",
+            border_radius=RADIUS_MEDIUM,
+            box_shadow=SHADOW_RAISED,
         ),
         open=is_open,
         on_open_change=on_close,

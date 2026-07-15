@@ -6,21 +6,13 @@ import reflex as rx
 
 from firnline_webui.state.calendar import CalendarState
 from firnline_webui.ui.calendar import day_column, month_grid, week_grid
-from firnline_webui.ui.detail import json_detail_drawer
+from firnline_webui.ui.detail import iri_var, json_detail_drawer
 from firnline_webui.ui.feedback import error_callout, loading_spinner
 from firnline_webui.ui.nav import shell
 
 
 def calendar_page() -> rx.Component:
     """Calendar page entry point."""
-    iri_var: rx.Var = rx.Var.create(
-        rx.cond(
-            CalendarState.selected_doc.to(bool) & (CalendarState.selected_doc["@id"].to(str) != ""),  # type: ignore[index]
-            CalendarState.selected_doc["@id"].to(str),  # type: ignore[index]
-            "",
-        )
-    )
-
     return shell(
         rx.vstack(
             # ── Toolbar ──────────────────────────────────────────────────
@@ -46,7 +38,7 @@ def calendar_page() -> rx.Component:
             json_detail_drawer(
                 doc_var=CalendarState.selected_doc,
                 json_var=CalendarState.selected_json,
-                iri_var=iri_var,
+                iri_var=iri_var(CalendarState.selected_doc),
                 on_close=CalendarState.clear_selection,
             ),
             spacing="5",

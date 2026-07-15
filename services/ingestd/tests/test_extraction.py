@@ -564,11 +564,7 @@ def test_composed_prompt_covers_all_six_kinds():
     # The schema fence uses ```json\\n (not ```json space as in the prose example)
     assert "```json\n" in prompt
     assert "\n```" in prompt
-<<<<<<< HEAD
     # Union schema lists base kinds (time_management: 5 + reminders: 1 + address_book: 3)
-=======
-    # Union schema lists all nine kinds (time_management: 8 + reminders: 1)
->>>>>>> main
     assert '"kind": "task"' in prompt
     assert '"kind": "event"' in prompt
     assert '"kind": "routine"' in prompt
@@ -589,18 +585,10 @@ def test_composed_prompt_covers_all_six_kinds():
     assert "reasoning" in prompt
     assert "confidence" in prompt
 
-<<<<<<< HEAD
     # Kind map has all kinds from all three plugins
     expected = {"task", "event", "person", "routine", "activity", "project", "area", "goal",
                 "reminder", "ab_person", "ab_location", "ab_organization"}
     assert set(_FULL_KIND_MAP.keys()) == expected
-=======
-    # Kind map has all nine kinds (time_management: 8 + reminders: 1)
-    assert set(_FULL_KIND_MAP.keys()) == {
-        "task", "event", "person", "routine", "activity",
-        "project", "area", "goal", "reminder",
-    }
->>>>>>> main
 
 
 def test_mixed_batch_parse_all_six_kinds():

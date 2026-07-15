@@ -7,6 +7,7 @@ import reflex as rx
 from firnline_webui.state.capture import CaptureState
 from firnline_webui.ui.cards import chip
 from firnline_webui.ui.nav import shell
+from firnline_webui.ui.typography import page_heading
 
 
 def _note_tab() -> rx.Component:
@@ -60,8 +61,8 @@ def _note_tab() -> rx.Component:
                     rx.hstack(
                         rx.cond(
                             CaptureState.result_ok,
-                            rx.icon(tag="circle_check", size=16, color="var(--green-9)"),
-                            rx.icon(tag="circle_alert", size=16, color="var(--red-9)"),
+                            rx.icon(tag="circle_check", size=16, color=rx.color("green", 9)),
+                            rx.icon(tag="circle_alert", size=16, color=rx.color("red", 9)),
                         ),
                         rx.text(CaptureState.result_message, size="2"),
                         rx.spacer(),
@@ -164,7 +165,7 @@ def capture_page() -> rx.Component:
         rx.vstack(
             # Header row
             rx.hstack(
-                rx.heading("Capture", size="6"),
+                page_heading("Capture"),
                 rx.spacer(),
                 # Handler names display
                 rx.cond(

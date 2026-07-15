@@ -8,6 +8,8 @@ from firnline_webui.state.modules import ModulesState
 from firnline_webui.ui.cards import chip
 from firnline_webui.ui.feedback import empty_state as _empty_state, error_callout
 from firnline_webui.ui.nav import shell
+from firnline_webui.ui.theme import TABLE_ROW_STYLE
+from firnline_webui.ui.typography import page_heading, section_heading
 
 
 def _plugin_section(name: str, plugins_var: rx.Var) -> rx.Component:
@@ -39,6 +41,34 @@ def _plugin_section(name: str, plugins_var: rx.Var) -> rx.Component:
     )
 
 
+def _webui_plugin_card(plugin: rx.Var) -> rx.Component:
+    """Card for a single WebUI page plugin entry."""
+    return rx.card(
+        rx.vstack(
+            rx.hstack(
+                rx.center(
+                    rx.icon(tag="layout_dashboard", size=14, color=rx.color("accent", 11)),
+                    background=rx.color("accent", 3),
+                    border_radius="6px",
+                    width="26px",
+                    height="26px",
+                ),
+                rx.text(plugin["name"], size="3", weight="medium"),
+                spacing="2",
+                align="center",
+            ),
+            rx.hstack(
+                rx.text("Pages:", size="1", weight="medium", color_scheme="gray"),
+                rx.text(plugin["page_count"], size="2"),
+                spacing="1",
+            ),
+            rx.text(plugin["routes"], size="1", color_scheme="gray"),
+            spacing="1",
+        ),
+        size="2",
+    )
+
+
 def modules_page() -> rx.Component:
     """Schema modules and active plugins page."""
     return shell(
@@ -46,7 +76,7 @@ def modules_page() -> rx.Component:
             # Header row
             rx.vstack(
                 rx.hstack(
-                    rx.heading("Schema Modules", size="6"),
+                    page_heading("Schema Modules"),
                     rx.spacer(),
                     rx.hstack(
                         rx.cond(
@@ -59,7 +89,7 @@ def modules_page() -> rx.Component:
                             "Load",
                             on_click=ModulesState.load,
                             size="2",
-                            variant="outline",
+                            variant="soft",
                         ),
                         spacing="2",
                         align="center",
@@ -101,7 +131,7 @@ def modules_page() -> rx.Component:
                                         rx.table.cell(rx.text(mod["description"], size="2")),
                                         rx.table.cell(rx.text(mod["exports_str"], size="2")),
                                         rx.table.cell(rx.text(mod["depends_on_str"], size="2")),
-                                        _odd={"background": rx.color("gray", 2)},
+                                        **TABLE_ROW_STYLE,
                                     ),
                                 ),
                             ),
@@ -117,7 +147,7 @@ def modules_page() -> rx.Component:
                 rx.text(""),
             ),
             # Active plugins by service
-            rx.heading("Active Plugins by Service", size="4", margin_top="24px", margin_bottom="12px"),
+            section_heading("Active Plugins by Service"),
             rx.grid(
                 _plugin_section("Captured", ModulesState.captured_plugins),
                 _plugin_section("Queryd", ModulesState.queryd_plugins),
@@ -125,6 +155,21 @@ def modules_page() -> rx.Component:
                 columns={"initial": "1", "md": "3"},
                 spacing="4",
                 width="100%",
+            ),
+            # WebUI page plugins (in-process)
+            section_heading("WebUI Page Plugins"),
+            rx.cond(
+                ModulesState.webui_page_plugins.length() > 0,
+                rx.grid(
+                    rx.foreach(
+                        ModulesState.webui_page_plugins,
+                        lambda p: _webui_plugin_card(p),
+                    ),
+                    columns={"initial": "1", "md": "3"},
+                    spacing="4",
+                    width="100%",
+                ),
+                rx.text("No WebUI page plugins loaded", size="2", color_scheme="gray"),
             ),
             spacing="5",
             width="100%",

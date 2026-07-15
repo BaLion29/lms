@@ -4,223 +4,11 @@ from __future__ import annotations
 
 import reflex as rx
 
+from firnline_webui.pages.browse.relationships_view_components import _pagination, _toolbar, triples_table
 from firnline_webui.state.relationships import RelationshipsState
-from firnline_webui.ui.controls import filter_chip, page_size_select, pagination_bar, search_input
-from firnline_webui.ui.detail import json_detail_drawer
+from firnline_webui.ui.detail import iri_var, json_detail_drawer
 from firnline_webui.ui.feedback import empty_state, error_callout, loading_spinner
-
-
-# ── Chip filter groups ────────────────────────────────────────────────────
-
-
-def _predicate_chips() -> rx.Component:
-    """Row of predicate filter chips."""
-    return rx.flex(
-        rx.cond(
-            RelationshipsState.predicate_options.length() > 0,
-            rx.foreach(
-                rx.Var.create(RelationshipsState.predicate_options),
-                lambda item: filter_chip(
-                    label=item["label"].to(str) + " · " + item["count"].to(str),
-                    selected=RelationshipsState.active_predicates.contains(item["label"]),
-                    on_click=RelationshipsState.toggle_predicate(item["label"]),
-                ),
-            ),
-        ),
-        wrap="wrap",
-        gap="1",
-        width="100%",
-    )
-
-
-def _source_type_chips() -> rx.Component:
-    """Row of source-type filter chips."""
-    return rx.flex(
-        rx.cond(
-            RelationshipsState.source_type_options.length() > 0,
-            rx.foreach(
-                rx.Var.create(RelationshipsState.source_type_options),
-                lambda item: filter_chip(
-                    label=item["label"].to(str) + " · " + item["count"].to(str),
-                    selected=RelationshipsState.active_source_types.contains(item["label"]),
-                    on_click=RelationshipsState.toggle_source_type(item["label"]),
-                ),
-            ),
-        ),
-        wrap="wrap",
-        gap="1",
-        width="100%",
-    )
-
-
-def _target_type_chips() -> rx.Component:
-    """Row of target-type filter chips."""
-    return rx.flex(
-        rx.cond(
-            RelationshipsState.target_type_options.length() > 0,
-            rx.foreach(
-                rx.Var.create(RelationshipsState.target_type_options),
-                lambda item: filter_chip(
-                    label=item["label"].to(str) + " · " + item["count"].to(str),
-                    selected=RelationshipsState.active_target_types.contains(item["label"]),
-                    on_click=RelationshipsState.toggle_target_type(item["label"]),
-                ),
-            ),
-        ),
-        wrap="wrap",
-        gap="1",
-        width="100%",
-    )
-
-
-# ── Filter toolbar ───────────────────────────────────────────────────────
-
-
-def _toolbar() -> rx.Component:
-    """Search input + three labelled chip groups."""
-    return rx.vstack(
-        search_input(
-            value=RelationshipsState.search_text,
-            on_change=RelationshipsState.set_search,
-            placeholder="Search source or target…",
-        ),
-        rx.cond(
-            RelationshipsState.predicate_options.length() > 0,
-            rx.vstack(
-                rx.text("Predicates", size="1", color_scheme="gray"),
-                _predicate_chips(),
-                spacing="1",
-                width="100%",
-            ),
-        ),
-        rx.cond(
-            RelationshipsState.source_type_options.length() > 0,
-            rx.vstack(
-                rx.text("Source type", size="1", color_scheme="gray"),
-                _source_type_chips(),
-                spacing="1",
-                width="100%",
-            ),
-        ),
-        rx.cond(
-            RelationshipsState.target_type_options.length() > 0,
-            rx.vstack(
-                rx.text("Target type", size="1", color_scheme="gray"),
-                _target_type_chips(),
-                spacing="1",
-                width="100%",
-            ),
-        ),
-        spacing="2",
-        width="100%",
-    )
-
-
-# ── Table ────────────────────────────────────────────────────────────────
-
-
-def _triples_table() -> rx.Component:
-    """Scrollable table of triple rows."""
-    return rx.table.root(
-        rx.table.header(
-            rx.table.row(
-                rx.table.column_header_cell(
-                    rx.text("Source", size="2", weight="medium"),
-                ),
-                rx.table.column_header_cell(
-                    rx.text("Predicate", size="2", weight="medium"),
-                ),
-                rx.table.column_header_cell(
-                    rx.text("Target", size="2", weight="medium"),
-                ),
-                rx.table.column_header_cell(""),
-            ),
-        ),
-        rx.table.body(
-            rx.foreach(
-                rx.Var.create(RelationshipsState.rows),
-                lambda row: rx.table.row(
-                    rx.table.cell(
-                        rx.hstack(
-                            rx.text(
-                                row["source_label"].to(str),
-                                size="2",
-                                cursor="pointer",
-                                on_click=RelationshipsState.select_endpoint(row["source_id"]),
-                                _hover={"color": rx.color("accent", 9)},
-                            ),
-                            rx.badge(
-                                row["source_type"].to(str),
-                                variant="surface",
-                                color_scheme="cyan",
-                                size="1",
-                            ),
-                            spacing="2",
-                            align="center",
-                        ),
-                    ),
-                    rx.table.cell(
-                        rx.code(
-                            row["prop"].to(str),
-                            variant="ghost",
-                            color_scheme="cyan",
-                        ),
-                    ),
-                    rx.table.cell(
-                        rx.hstack(
-                            rx.text(
-                                row["target_label"].to(str),
-                                size="2",
-                                cursor="pointer",
-                                on_click=RelationshipsState.select_endpoint(row["target_id"]),
-                                _hover={"color": rx.color("accent", 9)},
-                            ),
-                            rx.badge(
-                                row["target_type"].to(str),
-                                variant="surface",
-                                color_scheme="cyan",
-                                size="1",
-                            ),
-                            spacing="2",
-                            align="center",
-                        ),
-                    ),
-                    rx.table.cell(
-                        rx.icon_button(
-                            rx.icon(tag="focus", size=14),
-                            variant="ghost",
-                            size="1",
-                            color_scheme="cyan",
-                            on_click=RelationshipsState.show_in_graph(row["source_id"]),
-                            custom_attrs={"aria-label": "Show in graph"},
-                        ),
-                    ),
-                    align="center",
-                ),
-            ),
-        ),
-        variant="surface",
-        size="1",
-        width="100%",
-    )
-
-
-# ── Pagination ───────────────────────────────────────────────────────────
-
-
-def _pagination() -> rx.Component:
-    """Pagination bar with page-size selector."""
-    return pagination_bar(
-        page=RelationshipsState.page,
-        total_pages=RelationshipsState.total_pages,
-        total_count=RelationshipsState.total_count,
-        on_prev=RelationshipsState.prev_page,
-        on_next=RelationshipsState.next_page,
-        extra=page_size_select(
-            value=RelationshipsState.page_size,
-            on_change=RelationshipsState.set_page_size,
-        ),
-    )
+from firnline_webui.ui.theme import SPACING_EMPTY_STATE_Y
 
 
 # ── Index errors warning ─────────────────────────────────────────────────
@@ -233,7 +21,7 @@ def _index_errors_warning() -> rx.Component:
         rx.callout(
             rx.vstack(
                 rx.hstack(
-                    rx.icon(tag="info", size=14, color="var(--amber-9)"),
+                    rx.icon(tag="info", size=14, color=rx.color("amber", 9)),
                     rx.text("Some classes could not be fetched:", size="2"),
                     rx.spacer(),
                     rx.icon_button(
@@ -266,18 +54,10 @@ def _index_errors_warning() -> rx.Component:
 
 def _detail_drawer() -> rx.Component:
     """Own json_detail_drawer bound to RelationshipsState vars."""
-    iri_var: rx.Var = rx.Var.create(
-        rx.cond(
-            RelationshipsState.selected_doc.to(bool)
-            & (RelationshipsState.selected_doc["@id"].to(str) != ""),  # type: ignore[index]
-            RelationshipsState.selected_doc["@id"].to(str),  # type: ignore[index]
-            "",
-        )
-    )
     return json_detail_drawer(
         doc_var=RelationshipsState.selected_doc,
         json_var=RelationshipsState.selected_json,
-        iri_var=iri_var,
+        iri_var=iri_var(RelationshipsState.selected_doc),
         on_close=RelationshipsState.clear_selection,
     )
 
@@ -354,13 +134,13 @@ def relationships_view() -> rx.Component:
                             RelationshipsState.refresh,
                         ],
                         size="2",
-                        variant="outline",
+                        variant="soft",
                     ),
                     spacing="3",
                     align="center",
                 ),
                 width="100%",
-                padding_y="64px",
+                padding_y=SPACING_EMPTY_STATE_Y,
             ),
         ),
         # ── Table + pagination ────────────────────────────────────
@@ -370,7 +150,7 @@ def relationships_view() -> rx.Component:
             & RelationshipsState.loaded
             & (RelationshipsState.total_count > 0),
             rx.vstack(
-                _triples_table(),
+                triples_table(),
                 _pagination(),
                 spacing="3",
                 width="100%",

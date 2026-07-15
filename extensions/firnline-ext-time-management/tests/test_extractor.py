@@ -282,8 +282,7 @@ class TestPluginMetadata:
         reqs = {r.name: r.range for r in self.plugin.requires}
         assert reqs == {
             "time_management": ">=0.2.0 <0.3.0",
-            "people": ">=0.1.0 <0.2.0",
-            "places": ">=0.1.0 <0.2.0",
+            "address_book": ">=0.2.0 <0.3.0",
         }
 
     def test_proposal_models_count(self):
