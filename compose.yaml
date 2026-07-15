@@ -145,18 +145,20 @@ services:
           --branch $${TDB_BRANCH:-main}
         echo "=== Bootstrap complete ==="
 
-  # ── captured — ingestion API daemon ────────────────────────────────────
-  captured:
+  # ── apid — unified API (captured + queryd + indexed + mcpd on one port) ──
+  apid:
     build:
       context: .
-      dockerfile: services/captured/Dockerfile
-    image: firnline/captured:local
+      dockerfile: services/apid/Dockerfile
+    image: firnline/apid:local
     depends_on:
       bootstrap:
         condition: service_completed_successfully
     ports:
-      - "${CAPTURED_HOST_PORT:-8088}:8088"
+      - "${APID_HOST_PORT:-8080}:8080"
     environment:
+      APID_LOG_LEVEL: ${APID_LOG_LEVEL:-INFO}
+      # captured component
       CAPTURED_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
       CAPTURED_TDB_ORG: ${TDB_ORG:-admin}
       CAPTURED_TDB_DB: ${TDB_DB:-firnline}
@@ -164,24 +166,64 @@ services:
       CAPTURED_TDB_USER: ${TDB_USER:-admin}
       CAPTURED_TDB_PASSWORD: ${TDB_PASSWORD:?}
       CAPTURED_API_TOKEN: ${CAPTURED_API_TOKEN:?err CAPTURED_API_TOKEN must be set}
+      CAPTURED_LOG_LEVEL: ${CAPTURED_LOG_LEVEL:-INFO}
       FIRNLINE_BLOB_ROOT: /var/lib/firnline/blobs
+      # queryd component
+      QUERYD_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
+      QUERYD_TDB_ORG: ${TDB_ORG:-admin}
+      QUERYD_TDB_DB: ${TDB_DB:-firnline}
+      QUERYD_TDB_BRANCH: ${TDB_BRANCH:-main}
+      QUERYD_TDB_USER: ${TDB_USER:-admin}
+      QUERYD_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      QUERYD_API_TOKEN: ${QUERYD_API_TOKEN:?err QUERYD_API_TOKEN must be set}
+      QUERYD_ENABLE_WRITES: ${QUERYD_ENABLE_WRITES:-false}
+      QUERYD_LOG_LEVEL: ${QUERYD_LOG_LEVEL:-INFO}
+      QUERYD_INDEXED_ENABLED: ${QUERYD_INDEXED_ENABLED:-false}
+      QUERYD_INDEXED_URL: ${QUERYD_INDEXED_URL:-http://localhost:8080}
+      QUERYD_INDEXED_TOKEN: ${INDEXED_API_TOKEN:-}
+      QUERYD_INDEXED_MIN_CONFIDENCE: ${QUERYD_INDEXED_MIN_CONFIDENCE:-0.60}
+      # indexed component
+      INDEXED_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
+      INDEXED_TDB_ORG: ${TDB_ORG:-admin}
+      INDEXED_TDB_DB: ${TDB_DB:-firnline}
+      INDEXED_TDB_BRANCH: ${TDB_BRANCH:-main}
+      INDEXED_TDB_USER: ${TDB_USER:-admin}
+      INDEXED_TDB_PASSWORD: ${TDB_PASSWORD:?}
+      INDEXED_LLM_BASE_URL: ${FIRNLINE_LLM_BASE_URL:?err FIRNLINE_LLM_BASE_URL must be set}
+      INDEXED_LLM_API_KEY: ${FIRNLINE_LLM_API_KEY:-}
+      INDEXED_EMBEDDING_MODEL: ${FIRNLINE_EMBEDDING_MODEL:-text-embedding-3-small}
+      INDEXED_API_TOKEN: ${INDEXED_API_TOKEN:-}
+      INDEXED_LOG_LEVEL: ${INDEXED_LOG_LEVEL:-INFO}
+      INDEXED_POLL_INTERVAL_SECONDS: ${INDEXED_POLL_INTERVAL_SECONDS:-60}
+      INDEXED_DRY_RUN: ${INDEXED_DRY_RUN:-false}
+      INDEXED_STRICT_PLUGINS: ${INDEXED_STRICT_PLUGINS:-false}
+      INDEXED_MIN_CONFIDENCE: ${INDEXED_MIN_CONFIDENCE:-0.60}
+      # mcpd component (in-process; calls sibling components via localhost)
+      MCPD_QUERYD_URL: ${MCPD_QUERYD_URL:-http://localhost:8080}
+      MCPD_QUERYD_TOKEN: ${QUERYD_API_TOKEN:?err QUERYD_API_TOKEN must be set}
+      MCPD_CAPTURED_URL: ${MCPD_CAPTURED_URL:-http://localhost:8080}
+      MCPD_CAPTURED_TOKEN: ${CAPTURED_API_TOKEN:?err CAPTURED_API_TOKEN must be set}
+      MCPD_ENABLE_QUERYD_TOOLS: ${MCPD_ENABLE_QUERYD_TOOLS:-true}
+      MCPD_REQUEST_TIMEOUT_SECONDS: ${MCPD_REQUEST_TIMEOUT_SECONDS:-30.0}
+      MCPD_LOG_LEVEL: ${MCPD_LOG_LEVEL:-INFO}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
       - firnline_ext_venv:/opt/firnline-ext-venv:ro
       - blobs:/var/lib/firnline/blobs
+      - firnline_index:/var/lib/firnline/index
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
-      # Healthz returns 200 (healthy) or 503 (degraded).
-      # urllib.urlopen raises HTTPError on non-2xx → exit 1 = unhealthy.
       test:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8088/healthz',timeout=5)"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz',timeout=5)"
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
 
   # ── ingestd — polling worker ───────────────────────────────────────────
   ingestd:
@@ -192,7 +234,7 @@ services:
     depends_on:
       bootstrap:
         condition: service_completed_successfully
-      indexed:
+      apid:
         condition: service_started
     environment:
       INGESTD_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
@@ -209,7 +251,7 @@ services:
       INGESTD_DRY_RUN: ${INGESTD_DRY_RUN:-false}
       INGESTD_LIVENESS_FILE: ${INGESTD_LIVENESS_FILE:-/tmp/ingestd-alive}
       INGESTD_INDEXED_ENABLED: ${INGESTD_INDEXED_ENABLED:-false}
-      INGESTD_INDEXED_URL: ${INDEXED_URL:-http://indexed:8089}
+      INGESTD_INDEXED_URL: ${INGESTD_INDEXED_URL:-http://apid:8080}
       INGESTD_INDEXED_TOKEN: ${INDEXED_API_TOKEN:-}
       INGESTD_INDEXED_MIN_CONFIDENCE: ${INGESTD_INDEXED_MIN_CONFIDENCE:-0.85}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
@@ -228,51 +270,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 120s
-
-  # ── indexed — precision grounding service ───────────────────────────────
-  indexed:
-    build:
-      context: .
-      dockerfile: services/indexed/Dockerfile
-    image: firnline/indexed:local
-    depends_on:
-      bootstrap:
-        condition: service_completed_successfully
-    ports:
-      - "${INDEXED_HOST_PORT:-8089}:8089"
-    environment:
-      INDEXED_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
-      INDEXED_TDB_ORG: ${TDB_ORG:-admin}
-      INDEXED_TDB_DB: ${TDB_DB:-firnline}
-      INDEXED_TDB_BRANCH: ${TDB_BRANCH:-main}
-      INDEXED_TDB_USER: ${TDB_USER:-admin}
-      INDEXED_TDB_PASSWORD: ${TDB_PASSWORD:?}
-      INDEXED_LLM_BASE_URL: ${FIRNLINE_LLM_BASE_URL:?err FIRNLINE_LLM_BASE_URL must be set}
-      INDEXED_LLM_API_KEY: ${FIRNLINE_LLM_API_KEY:-}
-      INDEXED_EMBEDDING_MODEL: ${FIRNLINE_EMBEDDING_MODEL:-text-embedding-3-small}
-      INDEXED_API_TOKEN: ${INDEXED_API_TOKEN:-}
-      INDEXED_POLL_INTERVAL_SECONDS: ${INDEXED_POLL_INTERVAL_SECONDS:-60}
-      INDEXED_DRY_RUN: ${INDEXED_DRY_RUN:-false}
-      INDEXED_STRICT_PLUGINS: ${INDEXED_STRICT_PLUGINS:-false}
-      INDEXED_MIN_CONFIDENCE: ${INDEXED_MIN_CONFIDENCE:-0.60}
-      INDEXED_LIVENESS_FILE: ${INDEXED_LIVENESS_FILE:-/tmp/indexed-alive}
-      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
-    volumes:
-      - firnline_ext_venv:/opt/firnline-ext-venv:ro
-      - firnline_index:/var/lib/firnline/index
-    restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8089/healthz',timeout=5)"
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 150s
 
   # ── triggerd — trigger evaluation daemon ────────────────────────────────
   triggerd:
@@ -350,88 +347,6 @@ services:
       retries: 3
       start_period: 90s
 
-  # ── queryd — GraphQL read proxy + document lookup + write-tool endpoints ─
-  queryd:
-    build:
-      context: .
-      dockerfile: services/queryd/Dockerfile
-    image: firnline/queryd:local
-    depends_on:
-      bootstrap:
-        condition: service_completed_successfully
-      indexed:
-        condition: service_started
-    ports:
-      - "${QUERYD_HOST_PORT:-8087}:8087"
-    environment:
-      QUERYD_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
-      QUERYD_TDB_ORG: ${TDB_ORG:-admin}
-      QUERYD_TDB_DB: ${TDB_DB:-firnline}
-      QUERYD_TDB_BRANCH: ${TDB_BRANCH:-main}
-      QUERYD_TDB_USER: ${TDB_USER:-admin}
-      QUERYD_TDB_PASSWORD: ${TDB_PASSWORD:?}
-      QUERYD_API_TOKEN: ${QUERYD_API_TOKEN:?err QUERYD_API_TOKEN must be set}
-      QUERYD_ENABLE_WRITES: ${QUERYD_ENABLE_WRITES:-false}
-      QUERYD_INDEXED_ENABLED: ${QUERYD_INDEXED_ENABLED:-false}
-      QUERYD_INDEXED_URL: ${INDEXED_URL:-http://indexed:8089}
-      QUERYD_INDEXED_TOKEN: ${INDEXED_API_TOKEN:-}
-      QUERYD_INDEXED_MIN_CONFIDENCE: ${QUERYD_INDEXED_MIN_CONFIDENCE:-0.60}
-      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
-    volumes:
-      - firnline_ext_venv:/opt/firnline-ext-venv:ro
-    restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8087/healthz',timeout=5)"
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-  # ── mcpd — MCP server for external AI agents ─────────────────────────────
-  mcpd:
-    build:
-      context: .
-      dockerfile: services/mcpd/Dockerfile
-    image: firnline/mcpd:local
-    depends_on:
-      bootstrap:
-        condition: service_completed_successfully
-      queryd:
-        condition: service_started
-      captured:
-        condition: service_started
-    ports:
-      - "${MCPD_HOST_PORT:-8090}:8090"
-    environment:
-      MCPD_HOST: 0.0.0.0
-      MCPD_PORT: "8090"
-      MCPD_QUERYD_URL: ${MCPD_QUERYD_URL:-http://queryd:8087}
-      MCPD_QUERYD_TOKEN: ${QUERYD_API_TOKEN:?}
-      MCPD_CAPTURED_URL: ${MCPD_CAPTURED_URL:-http://captured:8088}
-      MCPD_CAPTURED_TOKEN: ${CAPTURED_API_TOKEN:?}
-      MCPD_ENABLE_QUERYD_TOOLS: ${MCPD_ENABLE_QUERYD_TOOLS:-true}
-      MCPD_REQUEST_TIMEOUT_SECONDS: ${MCPD_REQUEST_TIMEOUT_SECONDS:-30.0}
-      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
-    volumes:
-      - firnline_ext_venv:/opt/firnline-ext-venv:ro
-    restart: unless-stopped
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8090/healthz',timeout=5)"
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
   # ── webui — Reflex-based web UI ───────────────────────────────────────────
   webui:
     build:
@@ -441,20 +356,18 @@ services:
     depends_on:
       bootstrap:
         condition: service_completed_successfully
-      captured:
-        condition: service_started
-      queryd:
+      apid:
         condition: service_started
     ports:
       - "${WEBUI_HOST_PORT:-3000}:3000"
     environment:
-      WEBUI_CAPTURED_URL: http://captured:8088
+      WEBUI_CAPTURED_URL: http://apid:8080
       WEBUI_CAPTURED_API_TOKEN: ${CAPTURED_API_TOKEN:?}
-      WEBUI_QUERYD_URL: http://queryd:8087
+      WEBUI_QUERYD_URL: http://apid:8080
       WEBUI_QUERYD_API_TOKEN: ${QUERYD_API_TOKEN:?}
-      WEBUI_INDEXED_URL: http://indexed:8089
+      WEBUI_INDEXED_URL: http://apid:8080
       WEBUI_INDEXED_API_TOKEN: ${WEBUI_INDEXED_API_TOKEN:-${INDEXED_API_TOKEN:-}}
-      WEBUI_MCPD_URL: http://mcpd:8090
+      WEBUI_MCPD_URL: ${WEBUI_MCPD_URL:-http://apid:8080/mcp}
       WEBUI_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
       WEBUI_TDB_ORG: ${TDB_ORG:-admin}
       WEBUI_TDB_DB: ${TDB_DB:-firnline}
