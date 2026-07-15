@@ -89,15 +89,15 @@ its own prefix (`CAPTURED_`, `INGESTD_`, `QUERYD_`, `TRIGGERD_`, `EFFECTD_`):
 
 | Variable | Default | Required | Consumed by |
 |---|---|---|---|
-| `{PREFIX}_TDB_URL` | `http://localhost:6363` | yes | captured, ingestd, queryd, triggerd, effectd |
+| `{PREFIX}_TDB_URL` | `http://terminusdb:6363` (bundled) | yes | captured, ingestd, queryd, triggerd, effectd |
 | `{PREFIX}_TDB_ORG` | `admin` | no | captured, ingestd, queryd, triggerd, effectd |
-| `{PREFIX}_TDB_DB` | — | yes | captured, ingestd, queryd, triggerd, effectd |
+| `{PREFIX}_TDB_DB` | `firnline` | yes | captured, ingestd, queryd, triggerd, effectd |
 | `{PREFIX}_TDB_BRANCH` | `main` | no | captured, ingestd, queryd, triggerd, effectd |
 | `{PREFIX}_TDB_USER` | `admin` | no | captured, ingestd, queryd, triggerd, effectd |
 | `{PREFIX}_TDB_PASSWORD` | — | yes | captured, ingestd, queryd, triggerd, indexed, effectd |
 
 In `compose.yaml`, these are populated from the shared `TDB_*` variables
-(e.g. `CAPTURED_TDB_URL: ${TDB_URL:?}`).
+(e.g. `CAPTURED_TDB_URL: ${TDB_URL:-http://terminusdb:6363}`).
 
 ## LLM settings (shared across services)
 
@@ -179,7 +179,7 @@ Prefixed `TRIGGERD_`.
 | `TRIGGERD_TDB_PASSWORD` | — | TerminusDB password |
 | `TRIGGERD_POLL_INTERVAL_SECONDS` | `60` | Seconds between evaluation cycles |
 | `TRIGGERD_LOOKBACK_SECONDS` | `900` | How far back to look for Trigger changes |
-| `TRIGGERD_DEFAULT_TIMEZONE` | `Europe/Zurich` | Fallback timezone for date parsing |
+| `TRIGGERD_DEFAULT_TIMEZONE` | `UTC` | Fallback timezone for date parsing |
 | `TRIGGERD_DRY_RUN` | `false` | Evaluate but skip writes |
 | `TRIGGERD_STRICT_PLUGINS` | `false` | Fail startup on plugin load/requirement failures |
 | `TRIGGERD_LIVENESS_FILE` | `/tmp/triggerd-alive` | Path touched on each successful cycle for healthchecks |
@@ -405,11 +405,12 @@ talks to queryd and captured over HTTP — no direct database access.
 
 For full details see [docs/mcpd.md](mcpd.md).
 
-## Bundled TerminusDB overlay
+## Bundled TerminusDB
 
 | Variable | Default | Description |
 |---|---|---|
 | `TDB_HOST_PORT` | `6363` | Host port mapped to bundled TerminusDB's 6363 |
 
-> When using the bundled TDB overlay, set `TDB_URL=http://terminusdb:6363` in
-> `.env` — the container name is hardcoded in `compose.bundled-tdb.yaml`.
+> The bundled TerminusDB service is included in `compose.yaml` and
+> `TDB_URL` defaults to `http://terminusdb:6363`. To use an external
+> TerminusDB, remove the `terminusdb` block and set `TDB_URL` in `.env`.

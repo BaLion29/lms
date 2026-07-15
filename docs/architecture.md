@@ -72,7 +72,7 @@
 | **indexed** | Precision grounding service — mirrors TDB documents + schema into a hybrid vector+lexical index and serves precise-lookup endpoints to ingestd and queryd. | 8089 |
 | **triggerd** | Polling worker — evaluates Trigger documents, materializes TriggerFiring records. | — |
 | **effectd** | Effect delivery daemon — plans `ActionExecution` records, executes via `ActionExecutor` plugins (webhook, notify, etc.), runs legacy notification loop with nag policy (renotify, expire, snooze wake-up). See [docs/actions.md](actions.md) for the action lifecycle. | — |
-| **bootstrap** | One-shot container (profile `bootstrap`) — creates database, composes & applies schema, installs extensions into shared overlay volume. | — |
+| **bootstrap** | One-shot init container — waits for TDB, creates database, composes & applies schema, installs extensions. Exits after completion. | — |
 
 An **external LiteLLM proxy** is required for LLM access — it is NOT part of
 the compose stack.
@@ -243,8 +243,7 @@ startup. Per-service policies:
 ```
 firnline/
 ├── pyproject.toml              # [tool.uv.workspace] — all packages + extensions
-├── compose.yaml                # deployment (external TDB)
-├── compose.bundled-tdb.yaml    # overlay adding TerminusDB container
+├── compose.yaml                # deployment (bundled TerminusDB included, removable)
 ├── schema/modules/core/        # kernel schema module (Entity, markers, registry, provenance)
 ├── schema/modules/capture/      # kernel capture schema module (Captured)
 ├── schema/modules/triggers/    # kernel trigger schema module

@@ -42,6 +42,9 @@ COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
 
 WORKDIR /app/services/indexed
 
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 --start-period=150s \
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8089/healthz',timeout=5)"]
+
 EXPOSE 8089
 
 USER indexed

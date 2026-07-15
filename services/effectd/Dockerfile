@@ -53,6 +53,9 @@ COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
 
 WORKDIR /app/services/effectd
 
+HEALTHCHECK --interval=60s --timeout=10s --retries=3 --start-period=90s \
+  CMD find /tmp/effectd-alive -mmin -5 2>/dev/null | grep -q .
+
 USER effectd
 
 # All configuration is supplied via environment variables (EFFECTD_ prefix).
