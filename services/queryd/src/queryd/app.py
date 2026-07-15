@@ -547,27 +547,11 @@ def create_app(
         return JSONResponse(content=modules)
 
     # ------------------------------------------------------------------
-    # /v1/documents/{iri:path} (auth)
-    # ------------------------------------------------------------------
-
-    @app.get(
-        "/v1/documents/{iri:path}",
-        dependencies=[Depends(_bearer_auth)],
-    )
-    async def v1_document_get(iri: str):
-        """Fetch a single document by IRI."""
-        _validate_doc_iri(iri)
-        try:
-            doc = await operations.get_document(app.state.tdb, iri)
-        except TdbError as exc:
-            if exc.status == 404:
-                raise HTTPException(status_code=404, detail=f"Document not found: {iri}")
-            raise HTTPException(status_code=502, detail=str(exc))
-        return JSONResponse(content=doc)
-
-    # ------------------------------------------------------------------
     # POST /v1/documents/{class_name} (auth)
     # ------------------------------------------------------------------
+    # Registered BEFORE the GET route below so that the narrower
+    # {class_name} converter wins over {iri:path} for single-segment
+    # paths; otherwise the greedy :path converter shadows POST requests.
 
     @app.post(
         "/v1/documents/{class_name}",
@@ -645,6 +629,25 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc))
 
         return JSONResponse(status_code=201, content={"iri": iri})
+
+    # ------------------------------------------------------------------
+    # GET /v1/documents/{iri:path} (auth)
+    # ------------------------------------------------------------------
+
+    @app.get(
+        "/v1/documents/{iri:path}",
+        dependencies=[Depends(_bearer_auth)],
+    )
+    async def v1_document_get(iri: str):
+        """Fetch a single document by IRI."""
+        _validate_doc_iri(iri)
+        try:
+            doc = await operations.get_document(app.state.tdb, iri)
+        except TdbError as exc:
+            if exc.status == 404:
+                raise HTTPException(status_code=404, detail=f"Document not found: {iri}")
+            raise HTTPException(status_code=502, detail=str(exc))
+        return JSONResponse(content=doc)
 
     # ------------------------------------------------------------------
     # /v1/graphql (auth)
