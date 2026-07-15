@@ -38,29 +38,11 @@ uv run triggerd --dry-run    # real evaluation, no writes
 > API — it reads Trigger documents and writes TriggerFiring documents exclusively
 > via the TDB client.
 
-## Environment variables
+## Configuration
 
-| Variable                          | Default          | Description                              |
-|-----------------------------------|------------------|------------------------------------------|
-| `TRIGGERD_TDB_DB`                 | *(required)*     | TerminusDB database name                 |
-| `TRIGGERD_TDB_PASSWORD`           | *(required)*     | TerminusDB password                      |
-| `TRIGGERD_TDB_URL`                | `http://localhost:6363` | TerminusDB server URL             |
-| `TRIGGERD_TDB_ORG`                | `admin`          | TerminusDB organization                  |
-| `TRIGGERD_TDB_BRANCH`             | `main`           | TerminusDB branch                        |
-| `TRIGGERD_TDB_USER`               | `admin`          | TerminusDB user                          |
-| `TRIGGERD_POLL_INTERVAL_SECONDS`  | `60`             | Seconds between evaluation cycles        |
-| `TRIGGERD_LOOKBACK_SECONDS`       | `900`            | How far back to look for Trigger changes |
-| `TRIGGERD_DEFAULT_TIMEZONE`       | `Europe/Zurich`  | Fallback timezone for date parsing       |
-| `TRIGGERD_DRY_RUN`                | `false`          | Evaluate but skip writes (`--dry-run`)   |
-| `TRIGGERD_STRICT_PLUGINS`         | `false`          | Fail startup if any plugin is skipped    |
-| `TRIGGERD_LIVENESS_FILE`         | `/tmp/triggerd-alive` | Path touched on each successful cycle (for healthchecks) |
-
-## CLI flags
-
-| Flag           | Description                                    |
-|----------------|------------------------------------------------|
-| `--once`       | Run a single evaluation cycle and exit.        |
-| `--dry-run`    | Evaluate but do not write to the database.     |
+See [Configuration reference](../../docs/reference/configuration.md) for all
+`TRIGGERD_*` environment variables and [Concept: Architecture](../../docs/concepts/architecture.md)
+for how triggerd fits into the data flow.
 
 ## Tests
 

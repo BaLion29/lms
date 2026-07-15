@@ -24,7 +24,7 @@ logger = structlog.get_logger(__name__)
 _UTC = timezone.utc
 
 # Concrete Action subclasses queryable via TerminusDB document API.
-# The abstract "Action" class cannot be queried — see docs/terminusdb-notes.md §8.
+# The abstract "Action" class cannot be queried — see docs/development/terminusdb-notes.md §8.
 _CONCRETE_ACTION_TYPES = ("WebhookAction", "NotifyAction")
 
 

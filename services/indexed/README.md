@@ -9,3 +9,9 @@ writes and queries.
 indexed is **read-only** over TDB and **dropoutable**: if it is unavailable,
 consumers degrade to today's behaviour (casefold-exact match / raw GraphQL).
 The database remains the sole source of truth.
+
+## Full documentation
+
+- [indexed API reference](../../docs/reference/api/indexed.md)
+- [Configuration reference](../../docs/reference/configuration.md)
+- [Architecture](../../docs/concepts/architecture.md)

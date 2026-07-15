@@ -45,7 +45,7 @@ curl -s http://localhost:8087/v1/tools \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Full guide: [docs/getting-started.md](docs/getting-started.md).
+Full guide: [Installation](docs/getting-started/installation.md) and [Quickstart](docs/getting-started/quickstart.md).
 
 ## Repository layout
 
@@ -65,25 +65,25 @@ Full guide: [docs/getting-started.md](docs/getting-started.md).
 | `schema/modules/core/` | Kernel schema module (Entity, markers, registry, provenance) |
 | `schema/modules/triggers/` | Kernel schema module (abstract Trigger and concrete trigger types) |
 | `schema/modules/capture/` | Kernel schema module (Captured) |
+| `schema/modules/actions/` | Kernel actions schema module |
 | `docker/` | Entrypoint script for extension overlay management |
 | `compose.yaml` | Docker Compose deployment (external TerminusDB) |
 | `compose.bundled-tdb.yaml` | Overlay adding a bundled TerminusDB v12 container |
 
 ## Documentation
 
-All docs live under [`docs/`](docs/) — start with the [index](docs/index.md).
+All docs live under [`docs/`](docs/) — start with the [documentation hub](docs/README.md).
+
+Key entry points:
 
 | Page | Covers |
 |---|---|
-| [Getting Started](docs/getting-started.md) | Prerequisites, Docker quickstart, first capture, local dev |
-| [Architecture](docs/architecture.md) | Principles, components, data flow, module/plugin system |
-| [Configuration](docs/configuration.md) | Complete environment variable reference |
-| [Extensions](docs/extensions.md) | Writing and installing extensions: protocols, layout, example, @metadata |
-| [mcpd](docs/mcpd.md) | MCP server for external AI agents: tools, resources, configuration |
-| [Operations](docs/operations.md) | Production runbook: backup, schema workflow, rollback |
-| [WebUI](docs/webui.md) | Reflex dashboard: capture, inbox (Captured), browsing, health, modules |
-| [TerminusDB Notes](docs/terminusdb-notes.md) | Empirically verified v12 API behaviour |
-| [Vision](docs/vision.md) | Entity model, design decisions, ADHD principles |
+| [Installation](docs/getting-started/installation.md) | Prerequisites, Docker quickstart, bootstrap, verify |
+| [Quickstart](docs/getting-started/quickstart.md) | 5-minute walkthrough: capture, ingest, query, WebUI |
+| [Architecture](docs/concepts/architecture.md) | Principles, components, data flow, module/plugin system |
+| [Configuration reference](docs/reference/configuration.md) | Complete environment variable reference |
+| [Extension development](docs/development/extension-development.md) | Writing extensions: protocols, layout, entry points, @metadata |
+| [FAQ](docs/faq.md) | Frequently asked questions |
 
 ## Development
 

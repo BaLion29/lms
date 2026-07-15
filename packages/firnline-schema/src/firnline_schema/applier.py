@@ -413,7 +413,7 @@ async def apply_plan(
 ) -> ActionPlan:
     """Execute the action plan against the target branch.
 
-    Order (per docs/terminusdb-notes.md):
+    Order (per docs/development/terminusdb-notes.md):
       1. Run pending data migrations FIRST (valid under old schema).
       2. Push composed schema with full_replace=true.
       3. Upsert SchemaModule docs (deterministic @id via Lexical key).
