@@ -18,10 +18,14 @@ class ForceGraph2D(rx.NoSSRComponent):
     # Data props
     graph_data: rx.Var[dict]  # {"nodes": [...], "links": [...]}
     node_label: rx.Var[str]  # field used for hover tooltip, e.g. "label"
-    node_auto_color_by: rx.Var[str]  # e.g. "group"
+    node_auto_color_by: rx.Var[str]  # e.g. "group" — legacy, prefer node_color
+    node_color: rx.Var[str]  # field name for deterministic node colour, e.g. "color"
     width: rx.Var[int]
     height: rx.Var[int]
     background_color: rx.Var[str]
+
+    # Link label — shown on edge hover
+    link_label: rx.Var[str]
 
     # Link arrow props
     link_directional_arrow_length: rx.Var[int]

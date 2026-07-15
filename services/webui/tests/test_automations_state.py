@@ -206,10 +206,14 @@ class _FakeTdb:
             raise TdbError(*self._tdb_error)
         return self._schema
 
-    async def get_documents(self, type_: str, branch: str = "main") -> list[dict]:
+    async def get_documents(self, type_: str, branch: str = "main",
+                            skip: int | None = None, count: int | None = None) -> list[dict]:
         if self._raise_tdb_error_on == type_:
             raise TdbError(*self._tdb_error)
         return self._docs.get(type_, [])
+
+    async def count_documents(self, type_: str, branch: str = "main") -> int:
+        return len(self._docs.get(type_, []))
 
     async def get_document(self, iri: str, branch: str = "main") -> dict:
         return self._single_docs.get(iri, {"@id": iri})
