@@ -35,6 +35,9 @@ class BrowseScreen(ShellScreen):
         yield Tree("Classes", id="browse-tree")
 
     def on_mount(self) -> None:
+        # Prevent Input auto-focus so navigation hotkeys work.
+        # The user can click or tab to the search input when needed.
+        self.query_one("#browse-tree", Tree).focus()
         self.load()
 
     @work

@@ -10,10 +10,10 @@ from firnline_tui.screen_registry import ScreenRegistry
 
 
 class NavItem(Static):
-    """A single navigation item."""
+    """A single navigation item — clickable to switch screens."""
 
-    def __init__(self, spec: ScreenSpec, active: bool = False) -> None:
-        super().__init__()
+    def __init__(self, spec: ScreenSpec, active: bool = False, **kwargs) -> None:
+        super().__init__(**kwargs)
         self.spec = spec
         self.active = active
         icon = spec.nav_icon or ""
@@ -23,6 +23,10 @@ class NavItem(Static):
             self.add_class("nav-item--active")
         else:
             self.add_class("nav-item")
+
+    async def on_click(self, event) -> None:
+        """Switch to this screen on click."""
+        self.app.action_switch_screen(self.spec.screen_id)
 
 
 class NavSectionLabel(Static):
