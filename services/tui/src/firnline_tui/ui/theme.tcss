@@ -96,7 +96,7 @@ ShellScreen > Horizontal {
 /* Section labels in nav */
 .nav-section-label {
     color: $fl-text-muted;
-    text-style: bold uppercase;
+    text-style: bold;
     padding: 1 1 0 1;
 }
 
