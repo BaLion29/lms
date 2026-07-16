@@ -51,10 +51,11 @@ class FirnlineApp(App):
     CSS_PATH = "ui/theme.tcss"
     TITLE = "firnline"
 
-    COMMANDS = {FirnlineCaptureProvider}
+    COMMANDS = App.COMMANDS | {FirnlineCaptureProvider}
 
     # Base bindings — screen hotkeys are added dynamically in on_mount
     BINDINGS = [
+        Binding("f1", "help", "Help", show=True),
         Binding("ctrl+b", "toggle_sidebar", "Toggle sidebar", show=False),
         Binding("ctrl+p", "command_palette", "Command palette", show=False),
         Binding("q", "quit", "Quit", show=True),
