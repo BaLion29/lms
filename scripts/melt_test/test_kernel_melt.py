@@ -25,9 +25,7 @@ def _make_async_select(result):
     async def _inner(tdb, discovered, *, strict=False, branch="main", protocol=None, registry=None):
         if strict and result.skipped:
             skipped_names = [n for n, _ in result.skipped]
-            raise RuntimeError(
-                f"Strict plugin mode: skipped={skipped_names}, failed=[]"
-            )
+            raise RuntimeError(f"Strict plugin mode: skipped={skipped_names}, failed=[]")
         return result
 
     return _inner
@@ -217,13 +215,12 @@ class TestCapturedMelt:
 
         # Fake TdbClient — returns a valid IRI on insert
         fake_tdb = AsyncMock()
-        fake_tdb.insert_documents = AsyncMock(
-            return_value=["terminusdb:///data/Captured/test1"]
-        )
+        fake_tdb.insert_documents = AsyncMock(return_value=["terminusdb:///data/Captured/test1"])
         fake_tdb.db_exists = AsyncMock(return_value=True)
         fake_tdb.get_documents = AsyncMock(return_value=[])
 
         import captured.app as app_mod
+
         monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: fake_tdb)
 
         # captured.app now uses PluginHost internally, which calls
@@ -288,6 +285,7 @@ class TestCapturedMelt:
         fake_tdb.get_documents = AsyncMock(return_value=[])
 
         import captured.app as app_mod
+
         monkeypatch.setattr(app_mod, "TdbClient", lambda **kw: fake_tdb)
 
         import firnline_core.plugins as core_plugins
@@ -348,7 +346,6 @@ class TestEffectdMelt:
 
         engine = EffectEngine(
             repo=repo,
-            channels=[],  # zero channels → idles
         )
 
         await engine.run_cycle()
@@ -548,11 +545,11 @@ class TestPluginHostZeroPlugins:
 
     @pytest.mark.asyncio
     async def test_effectd_zero_plugin_boot(self) -> None:
-        """effectd PluginHost boots with zero channel plugins (not fatal)."""
+        """effectd PluginHost boots with zero executor plugins (not fatal)."""
         from firnline_core.plugins import (
+            ActionExecutor,
             DiscoveryResult,
             HostPolicy,
-            NotificationChannel,
             PluginHost,
         )
 
@@ -564,14 +561,14 @@ class TestPluginHostZeroPlugins:
             zero_active_fatal=False,
         )
         host = PluginHost(
-            group="firnline.notifyd.channels",
-            protocol=NotificationChannel,
+            group="firnline.effectd.executors",
+            protocol=ActionExecutor,
             tdb=tdb,
             branch="main",
             policy=policy,
         )
         result = await host.start(
-            collision_key=lambda c: [c.name],
+            collision_key=lambda e: e.kinds,
             registry=[],
             discovered=DiscoveryResult(active=[], failed=[]),
         )

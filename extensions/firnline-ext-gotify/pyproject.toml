@@ -1,7 +1,7 @@
 [project]
 name = "firnline-ext-gotify"
 version = "0.1.0"
-description = "Firnline Gotify notification channel extension"
+description = "Firnline Gotify action executor extension"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
 ]
@@ -13,8 +13,6 @@ dependencies = [
     "pydantic-settings",
 ]
 
-[project.entry-points."firnline.notifyd.channels"]
-gotify = "firnline_ext_gotify.channel:plugin"
 
 [project.entry-points."firnline.effectd.executors"]
 gotify = "firnline_ext_gotify.executor:plugin"

@@ -602,8 +602,6 @@ def validate_plugin(obj: object, protocol: type) -> list[str]:
 # Action execution contracts (effectd seam)
 # ---------------------------------------------------------------------------
 # Entry-point group convention: "firnline.effectd.executors"
-# Legacy group "firnline.notifyd.channels" is auto-adapted to executors
-# at startup by effectd via ChannelExecutorAdapter.
 
 
 @dataclass
@@ -622,11 +620,6 @@ class ExecutionResult:
     detail: str = ""
     retryable: bool = False
     external_ref: str | None = None
-
-
-# Deprecated alias — kept for backward-compatibility with existing channel code.
-# Migrate to ExecutionResult.
-DeliveryResult = ExecutionResult
 
 
 @dataclass
@@ -648,11 +641,6 @@ class ActionContext:
     now: Callable[[], datetime] = utc_now
     idempotency_key: str = ""
     dry_run: bool = False
-
-
-# Deprecated alias — kept for backward-compatibility with existing channel code.
-# Migrate to ActionContext.
-NotifyContext = ActionContext
 
 
 @runtime_checkable
@@ -677,69 +665,6 @@ class ActionExecutor(Protocol):
         subject: dict[str, Any] | None,
         ctx: ActionContext,
     ) -> ExecutionResult: ...
-
-
-@runtime_checkable
-class NotificationChannel(Protocol):
-    """Deprecated — superseded by :class:`ActionExecutor`.
-
-    Channels are auto-adapted to executors with kind ``notify:<name>``
-    via :class:`ChannelExecutorAdapter` at effectd startup.
-
-    Legacy entry-point group: ``firnline.notifyd.channels``
-    """
-
-    name: str
-    requires: list[ModuleRequirement]
-
-    async def deliver(
-        self,
-        firing: dict[str, Any],
-        subject: dict[str, Any] | None,
-        ctx: "NotifyContext",
-    ) -> DeliveryResult: ...
-
-
-class ChannelExecutorAdapter:
-    """Adapt a :class:`NotificationChannel` into an :class:`ActionExecutor`.
-
-    Used by effectd at startup so that legacy channel plugins work
-    seamlessly with the new executor infrastructure.  Each channel
-    gets mapped to a single executor kind ``notify:<channel.name>``.
-    """
-
-    def __init__(self, channel: NotificationChannel) -> None:
-        self._channel = channel
-
-    @property
-    def name(self) -> str:
-        return self._channel.name
-
-    @property
-    def requires(self) -> list[ModuleRequirement]:
-        return self._channel.requires
-
-    @property
-    def kinds(self) -> tuple[str, ...]:
-        return (f"notify:{self._channel.name}",)
-
-    async def execute(
-        self,
-        action: dict[str, Any],
-        firing: dict[str, Any],
-        subject: dict[str, Any] | None,
-        ctx: ActionContext,
-    ) -> ExecutionResult:
-        # Deliver through the wrapped channel — NotifyContext IS ActionContext
-        # via the deprecated alias, so we can pass ctx directly.
-        result = await self._channel.deliver(firing, subject, ctx)  # type: ignore[arg-type]
-        return ExecutionResult(
-            ok=result.ok,
-            detail=result.detail,
-            retryable=result.retryable,
-            # getattr tolerates third-party legacy result shapes that lack external_ref
-            external_ref=getattr(result, "external_ref", None),
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -846,7 +771,8 @@ async def select_plugins(
             requires_classes: list[str] = getattr(obj, "requires_classes", [])
             violations.extend(
                 await check_requirements(
-                    tdb, requires,
+                    tdb,
+                    requires,
                     branch=branch,
                     registry=registry,
                     required_classes=requires_classes or None,
@@ -977,10 +903,7 @@ class PluginHost:
         if discovered.failed:
             names = [n for n, _ in discovered.failed]
             if self._policy.broken_entry_point_fatal:
-                raise RuntimeError(
-                    f"Plugin entry points failed to load in group "
-                    f"'{self._group}': {names}"
-                )
+                raise RuntimeError(f"Plugin entry points failed to load in group '{self._group}': {names}")
             for name, err in discovered.failed:
                 self._logger.warning(
                     "plugin_load_failed plugin=%s error=%s",
@@ -992,9 +915,7 @@ class PluginHost:
         selection: PluginSelection | None = None
         if registry is None:
             try:
-                registry = await self._tdb.get_documents(
-                    "SchemaModule", branch=self._branch
-                )
+                registry = await self._tdb.get_documents("SchemaModule", branch=self._branch)
             except _REGISTRY_ERRORS as exc:
                 if self._policy.tdb_unavailable_fatal:
                     raise
@@ -1059,18 +980,13 @@ class PluginHost:
             for name, obj in selection.active:
                 for key in collision_key(obj):
                     if key in key_map:
-                        raise RuntimeError(
-                            f"Plugin collision on key {key!r}: "
-                            f"{key_map[key]!r} and {name!r}"
-                        )
+                        raise RuntimeError(f"Plugin collision on key {key!r}: {key_map[key]!r} and {name!r}")
                     key_map[key] = name
 
         # ── Zero-active policy ──────────────────────────────────────
         if not selection.active:
             if self._policy.zero_active_fatal:
-                raise RuntimeError(
-                    f"No active plugins in group '{self._group}'"
-                )
+                raise RuntimeError(f"No active plugins in group '{self._group}'")
             self._logger.warning(
                 "plugin_zero_active group=%s",
                 self._group,

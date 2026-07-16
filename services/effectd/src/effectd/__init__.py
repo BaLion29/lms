@@ -1,1 +1,1 @@
-"""Notification delivery daemon — polls TriggerFiring documents and delivers notifications via channel plugins."""
+"""Effect delivery daemon — plans and executes ActionExecution documents via executor plugins."""

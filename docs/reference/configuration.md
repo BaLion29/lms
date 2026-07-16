@@ -126,7 +126,7 @@ Prefixed `EFFECTD_`.
 | `EFFECTD_LIVENESS_FILE` | `/tmp/effectd-alive` | Path touched on each successful cycle for healthchecks |
 | `EFFECTD_DRY_RUN` | `false` | Global override: forces all executions to `skipped` |
 | `EFFECTD_LEGACY_NOTIFICATION_LOOP` | `true` | Run the zero-config default notify path (nag policy renotify/expire/snooze) |
-| `EFFECTD_DEFAULT_NOTIFY_EXECUTOR` | `notify:gotify` | Executor kind for the legacy notify loop |
+| `EFFECTD_DEFAULT_NOTIFY_EXECUTOR` | `notify:gotify` | Default executor kind used when an Action document has no explicit executor field |
 | `EFFECTD_PLANNING_LOOKBACK` | `P7D` | ISO-8601 duration bounding the planner query window |
 | `EFFECTD_MAX_EXECUTIONS_PER_CYCLE` | `50` | Max pending executions processed per poll cycle |
 | `EFFECTD_DEFAULT_MAX_ATTEMPTS` | `3` | Default retry limit per execution |

@@ -1,1 +1,1 @@
-"""Firnline Gotify notification channel extension."""
+"""Firnline Gotify action executor extension."""
