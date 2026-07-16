@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from rich.table import Table as RichTable
 from rich.text import Text as RichText
@@ -159,6 +159,8 @@ def _parse_date(iso_str: str) -> date | None:
 
 _WEEKDAY_ABBR = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
 
+_TM_CALENDAR_CLASSES = {"Task", "Event", "Activity"}
+
 
 def _build_month_grid(
     year: int,
@@ -244,6 +246,85 @@ def _build_month_grid(
     return table
 
 
+def _build_day_grid(
+    target_date: date,
+    events: list[dict],
+) -> RichTable:
+    """Build a Rich Table showing events for a specific day, sorted by start time.
+
+    Uses ``events_in_range`` for consistent half-open range filtering.
+    Events with no specific time (all-day / instant) are listed first.
+    """
+    from firnline_core.calendar_introspect import events_in_range
+
+    day_start = datetime(target_date.year, target_date.month, target_date.day)
+    day_end = day_start + timedelta(days=1)
+
+    day_events = events_in_range(events, day_start, day_end)
+
+    table = RichTable(
+        expand=True,
+        show_header=True,
+        show_edge=False,
+        padding=(0, 1),
+    )
+    table.add_column("Time", justify="left", style="dim", no_wrap=True)
+    table.add_column("Event", justify="left", no_wrap=False, ratio=3)
+    table.add_column("Type", justify="left", no_wrap=True)
+
+    if not day_events:
+        table.add_row("", RichText("No events", style="dim"), "")
+        return table
+
+    # Sort: all-day / instant first, then by start time
+    def _sort_key(ev: dict) -> tuple[int, str]:
+        start_str = ev.get("start", "")
+        end_str = ev.get("end", "")
+        # All-day/instant if no end or start == end
+        is_timed = bool(end_str) and start_str != end_str
+        # Parse start for sorting; fall back to empty string
+        try:
+            t = _normalise_and_parse_for_time(start_str)
+            time_str = t.strftime("%H:%M")
+        except (ValueError, TypeError):
+            time_str = start_str
+        return (0 if is_timed else -1, time_str)
+
+    day_events.sort(key=_sort_key)
+
+    for ev in day_events:
+        start_str = ev.get("start", "")
+        class_name = ev.get("class", "?")
+
+        # Extract display time
+        try:
+            t = _normalise_and_parse_for_time(start_str)
+            time_label = t.strftime("%H:%M")
+        except (ValueError, TypeError):
+            time_label = "All day"
+
+        # Build title with Rich styling
+        color = ev.get("color", "white")
+        rich_color = _RICH_COLOR_MAP.get(color, "white")
+        title = ev.get("title", "?")
+
+        row_time = RichText(time_label)
+        row_title = RichText(title, style=rich_color)
+        row_type = RichText(class_name, style="dim italic")
+
+        table.add_row(row_time, row_title, row_type)
+
+    return table
+
+
+def _normalise_and_parse_for_time(dt_str: str) -> datetime:
+    """Parse an ISO 8601 string for time extraction. Raises ValueError on failure."""
+    s = dt_str.strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    return datetime.fromisoformat(s)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Screen
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -262,9 +343,10 @@ class TimeManagementScreen(ShellScreen):
         Binding("4", "tab_routines", "Routines"),
         Binding("5", "tab_activities", "Activities"),
         Binding("6", "tab_calendar", "Calendar"),
-        Binding("]", "cal_next_month", "Next Mth"),
-        Binding("[", "cal_prev_month", "Prev Mth"),
+        Binding("]", "cal_next", "Next"),
+        Binding("[", "cal_prev", "Prev"),
         Binding("0", "cal_today", "Today"),
+        Binding("enter", "cal_enter_day", "Day View"),
         Binding("escape", "clear_detail", "Clear"),
     ]
 
@@ -280,6 +362,8 @@ class TimeManagementScreen(ShellScreen):
         today = date.today()
         self._calendar_year: int = today.year
         self._calendar_month: int = today.month
+        self._cal_view_mode: str = "month"  # "month" or "day"
+        self._cal_cursor_date: date = today
 
     def on_mount(self) -> None:
         from firnline_tui.state.selection import SelectionController
@@ -291,8 +375,8 @@ class TimeManagementScreen(ShellScreen):
         yield page_heading("Time Management")
         yield Static(
             "Tabs: [1] Tasks  [2] Projects  [3] Goals  [4] Routines  [5] Activities  [6] Calendar  "
-            "|  [r] Refresh  |  [Enter] Select  |  [Esc] Clear  "
-            "|  [[]/[]] Month  [0] Today",
+            "|  [r] Refresh  |  [Enter] Select / Day View  |  [Esc] Clear / Month  "
+            "|  [[]/[]] Nav  [0] Today",
             classes="chip",
         )
         yield ErrorBanner(id="error")
@@ -395,9 +479,15 @@ class TimeManagementScreen(ShellScreen):
 
     def action_tab_calendar(self) -> None:
         self.query_one("#tm-tabs", TabbedContent).active = "tab-calendar"
-        self._render_calendar()
+        if self._cal_view_mode == "day":
+            self._render_day()
+        else:
+            self._render_calendar()
 
     def action_clear_detail(self) -> None:
+        if self._cal_view_mode == "day":
+            self.action_cal_back_to_month()
+            return
         self._selection.clear()
         self.query_one("#detail-panel", JsonDetailPanel).clear()
 
@@ -408,7 +498,7 @@ class TimeManagementScreen(ShellScreen):
 
     @work
     async def load_calendar(self) -> None:
-        """Load calendar events from all calendarable classes."""
+        """Load calendar events from calendarable time-management classes only."""
         from firnline_core.calendar_introspect import calendarable_classes, parse_events
 
         try:
@@ -416,6 +506,7 @@ class TimeManagementScreen(ShellScreen):
             try:
                 schema = await tdb.get_schema()
                 specs = calendarable_classes(schema)
+                specs = [s for s in specs if s["class_id"] in _TM_CALENDAR_CLASSES]
                 all_events: list[dict] = []
                 for spec in specs:
                     try:
@@ -431,21 +522,36 @@ class TimeManagementScreen(ShellScreen):
                 await tdb.aclose()
 
             self._calendar_events = all_events
-            self._render_calendar()
+            if self._cal_view_mode == "day":
+                self._render_day()
+            else:
+                self._render_calendar()
         except Exception as exc:
             self.query_one("#error", ErrorBanner).show(f"Calendar: {exc}")
 
     def _render_calendar(self) -> None:
-        """Render the calendar grid for the current month."""
+        """Render the month grid for the current month."""
         from calendar import month_name
 
         header_text = (
             f"[bold]{month_name[self._calendar_month]} {self._calendar_year}[/bold]"
-            f"    [[]/[]] month  [0] today  [r] refresh"
+            f"    [[]/[]] month  [0] today  [Enter] day view  [r] refresh"
         )
         self.query_one("#cal-header", Static).update(header_text)
 
         grid = _build_month_grid(self._calendar_year, self._calendar_month, self._calendar_events)
+        self.query_one("#cal-grid", Static).update(grid)
+
+    def _render_day(self) -> None:
+        """Render the day view for the current cursor date."""
+        day_name = self._cal_cursor_date.strftime("%A, %d %B %Y")
+        header_text = (
+            f"[bold]{day_name}[/bold]"
+            f"    [[]/[]] day  [0] today  [Esc] month  [r] refresh"
+        )
+        self.query_one("#cal-header", Static).update(header_text)
+
+        grid = _build_day_grid(self._cal_cursor_date, self._calendar_events)
         self.query_one("#cal-grid", Static).update(grid)
 
     def _navigate_month(self, delta: int) -> None:
@@ -459,14 +565,42 @@ class TimeManagementScreen(ShellScreen):
             self._calendar_year -= 1
         self._render_calendar()
 
-    def action_cal_next_month(self) -> None:
-        self._navigate_month(1)
+    def action_cal_next(self) -> None:
+        """Navigate forward: month in month view, day in day view."""
+        if self._cal_view_mode == "month":
+            self._navigate_month(1)
+        else:
+            self._cal_cursor_date += timedelta(days=1)
+            self._render_day()
 
-    def action_cal_prev_month(self) -> None:
-        self._navigate_month(-1)
+    def action_cal_prev(self) -> None:
+        """Navigate backward: month in month view, day in day view."""
+        if self._cal_view_mode == "month":
+            self._navigate_month(-1)
+        else:
+            self._cal_cursor_date -= timedelta(days=1)
+            self._render_day()
 
     def action_cal_today(self) -> None:
+        """Jump to today in either view mode."""
         today = date.today()
+        self._cal_cursor_date = today
         self._calendar_year = today.year
         self._calendar_month = today.month
+        if self._cal_view_mode == "day":
+            self._render_day()
+        else:
+            self._render_calendar()
+
+    def action_cal_enter_day(self) -> None:
+        """Switch from month to day view using the current cursor date."""
+        self._cal_view_mode = "day"
+        self._render_day()
+
+    def action_cal_back_to_month(self) -> None:
+        """Switch from day back to month view."""
+        self._cal_view_mode = "month"
+        # Sync year/month from cursor date
+        self._calendar_year = self._cal_cursor_date.year
+        self._calendar_month = self._cal_cursor_date.month
         self._render_calendar()

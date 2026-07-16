@@ -1,6 +1,11 @@
 """TUI clients — thin re-exports of firnline_core.uiclients + settings-bound factories."""
 from __future__ import annotations
 
+from firnline_core.indexed_client import (  # noqa: F401
+    EntityCandidate,
+    IndexedClient,
+    IndexedError,
+)
 from firnline_core.uiclients import (  # noqa: F401
     CapturedClient,
     QuerydClient,
@@ -52,3 +57,15 @@ def make_captured_client() -> CapturedClient:
 
     s = get_settings()
     return CapturedClient(s.captured_url, s.captured_api_token, timeout=s.request_timeout_seconds)
+
+
+def make_indexed_client() -> IndexedClient:
+    """Return an IndexedClient configured from TUI settings."""
+    from firnline_tui.settings import get_settings
+
+    s = get_settings()
+    return IndexedClient(
+        s.indexed_url,
+        token=s.indexed_api_token,
+        timeout=s.request_timeout_seconds,
+    )
