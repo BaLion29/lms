@@ -52,9 +52,7 @@ class CreatePersonArgs(BaseModel):
     aliases: list[str] = Field(default_factory=list, description="Optional aliases")
     email: str | None = Field(default=None, description="Optional email address")
     phone: str | None = Field(default=None, description="Optional phone number")
-    domicile_id: str | None = Field(
-        default=None, description="Optional Location IRI for domicile"
-    )
+    domicile_id: str | None = Field(default=None, description="Optional Location IRI for domicile")
 
 
 class CreateLocationArgs(BaseModel):
@@ -72,18 +70,14 @@ class CreateOrganizationArgs(BaseModel):
 
     name: str = Field(description="Organization name")
     aliases: list[str] = Field(default_factory=list, description="Optional aliases")
-    location_id: str | None = Field(
-        default=None, description="Optional Location IRI for headquarters"
-    )
+    location_id: str | None = Field(default=None, description="Optional Location IRI for headquarters")
 
 
 class GeocodeArgs(BaseModel):
     """Geocode a query string or a stored Location by IRI (exactly one required)."""
 
     query: str | None = Field(default=None, description="Address/place name to geocode")
-    location_id: str | None = Field(
-        default=None, description="Location IRI to geocode and persist"
-    )
+    location_id: str | None = Field(default=None, description="Location IRI to geocode and persist")
 
 
 # ---------------------------------------------------------------------------
@@ -340,10 +334,9 @@ async def _do_geocode(
         return {"ok": False, "error": f"no geocoding result for location: {geocode_query}"}
 
     # Persist coordinates
-    now = datetime.now(_UTC)
     doc["coordinates"] = list(coords)
     try:
-        await tdb.insert_documents([doc], branch=branch, message=f"queryd: geocode {location_id}")
+        await tdb.replace_document(doc, branch=branch, message=f"queryd: geocode {location_id}")
     except Exception as exc:
         return {"ok": False, "error": f"failed to persist coordinates: {exc}"}
 
@@ -357,8 +350,11 @@ async def _do_geocode(
 
 async def _handle_lookup(args: LookupArgs, ctx: ToolContext) -> dict[str, object]:
     return await _do_lookup(
-        args.query, args.limit, args.kind,
-        tdb=ctx.tdb, branch=ctx.branch,
+        args.query,
+        args.limit,
+        args.kind,
+        tdb=ctx.tdb,
+        branch=ctx.branch,
     )
 
 
@@ -368,29 +364,44 @@ async def _handle_get(args: GetArgs, ctx: ToolContext) -> dict[str, object]:
 
 async def _handle_create_person(args: CreatePersonArgs, ctx: ToolContext) -> dict[str, object]:
     return await _do_create_person(
-        args.name, args.aliases, args.email, args.phone, args.domicile_id,
-        tdb=ctx.tdb, branch=ctx.branch,
+        args.name,
+        args.aliases,
+        args.email,
+        args.phone,
+        args.domicile_id,
+        tdb=ctx.tdb,
+        branch=ctx.branch,
     )
 
 
 async def _handle_create_location(args: CreateLocationArgs, ctx: ToolContext) -> dict[str, object]:
     return await _do_create_location(
-        args.name, args.aliases, args.address, args.lat, args.lon,
-        tdb=ctx.tdb, branch=ctx.branch,
+        args.name,
+        args.aliases,
+        args.address,
+        args.lat,
+        args.lon,
+        tdb=ctx.tdb,
+        branch=ctx.branch,
     )
 
 
 async def _handle_create_organization(args: CreateOrganizationArgs, ctx: ToolContext) -> dict[str, object]:
     return await _do_create_organization(
-        args.name, args.aliases, args.location_id,
-        tdb=ctx.tdb, branch=ctx.branch,
+        args.name,
+        args.aliases,
+        args.location_id,
+        tdb=ctx.tdb,
+        branch=ctx.branch,
     )
 
 
 async def _handle_geocode(args: GeocodeArgs, ctx: ToolContext) -> dict[str, object]:
     return await _do_geocode(
-        args.query, args.location_id,
-        tdb=ctx.tdb, branch=ctx.branch,
+        args.query,
+        args.location_id,
+        tdb=ctx.tdb,
+        branch=ctx.branch,
     )
 
 
@@ -403,9 +414,7 @@ class AddressBookToolsPlugin:
     """Queryd ToolSpec plugin for address-book operations."""
 
     name: str = "address_book_tools"
-    requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="address_book", range=">=0.1.0 <0.2.0")
-    ]
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="address_book", range=">=0.1.0 <0.2.0")]
 
     def tool_specs(self) -> list[ToolSpec]:
         return [

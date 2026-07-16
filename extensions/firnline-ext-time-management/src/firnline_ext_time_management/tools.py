@@ -15,7 +15,6 @@ import structlog
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext, Tool
 
-from firnline_core.base import _format_datetime
 from firnline_core.generated.core import Provenance
 from firnline_core.plugins import ModuleRequirement
 from firnline_core.repository import Repository, TransitionError as RepoTransitionError
@@ -25,7 +24,6 @@ from firnline_ext_time_management.models import (
     Activity,
     ActivitySpec,
     Area,
-    EventStatus,
     Goal,
     GoalStatus,
     Project,
@@ -396,7 +394,7 @@ async def _do_update_task(
     log.info("queryd: update_task", iri=task_iri, doc=doc)
 
     try:
-        await repo.tdb.insert_documents([doc], branch=branch, message=f"queryd: update {task_iri}")
+        await repo.tdb.replace_document(doc, branch=branch, message=f"queryd: update {task_iri}")
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
@@ -493,7 +491,7 @@ async def _do_update_routine(
     log.info("queryd: update_routine", iri=routine_iri, doc=doc)
 
     try:
-        await repo.tdb.insert_documents([doc], branch=branch, message=f"queryd: update {routine_iri}")
+        await repo.tdb.replace_document(doc, branch=branch, message=f"queryd: update {routine_iri}")
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
@@ -580,7 +578,7 @@ async def update_project(
     log.info("queryd: update_project", iri=project_iri, doc=doc)
 
     try:
-        await repo.tdb.insert_documents([doc], branch=branch, message=f"queryd: update {project_iri}")
+        await repo.tdb.replace_document(doc, branch=branch, message=f"queryd: update {project_iri}")
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
@@ -769,9 +767,17 @@ async def create_area(
 
 # Entity types that carry a ``contexts`` field and can be linked to Context
 # documents (Area, Project, Goal, etc.).
-_CONTEXTABLE_TYPES = frozenset({
-    "Task", "Event", "Project", "Goal", "Routine", "Activity", "Area",
-})
+_CONTEXTABLE_TYPES = frozenset(
+    {
+        "Task",
+        "Event",
+        "Project",
+        "Goal",
+        "Routine",
+        "Activity",
+        "Area",
+    }
+)
 
 
 @traced
@@ -819,7 +825,7 @@ async def assign_contexts(
     log.info("queryd: assign_contexts", iri=iri, added=context_iris, contexts=updated)
 
     try:
-        await repo.tdb.insert_documents([doc], branch=branch, message=f"queryd: assign_contexts {iri}")
+        await repo.tdb.replace_document(doc, branch=branch, message=f"queryd: assign_contexts {iri}")
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
@@ -863,7 +869,7 @@ async def remove_contexts(
     log.info("queryd: remove_contexts", iri=iri, removed=context_iris, contexts=updated)
 
     try:
-        await repo.tdb.insert_documents([doc], branch=branch, message=f"queryd: remove_contexts {iri}")
+        await repo.tdb.replace_document(doc, branch=branch, message=f"queryd: remove_contexts {iri}")
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
@@ -873,6 +879,7 @@ async def remove_contexts(
 # ---------------------------------------------------------------------------
 # Tool functions — Activity
 # ---------------------------------------------------------------------------
+
 
 async def _do_log_activity(
     name: str,
@@ -943,7 +950,8 @@ async def set_task_status(
 ) -> dict[str, object]:
     """Set the status of a Task document."""
     return await _do_set_task_status(
-        task_iri, status,
+        task_iri,
+        status,
         tdb=ctx.deps.tdb,
         branch=ctx.deps.settings.tdb_branch,
     )
@@ -957,7 +965,8 @@ async def set_event_status(
 ) -> dict[str, object]:
     """Set the status of an Event document."""
     return await _do_set_event_status(
-        event_iri, status,
+        event_iri,
+        status,
         tdb=ctx.deps.tdb,
         branch=ctx.deps.settings.tdb_branch,
     )
@@ -973,7 +982,10 @@ async def create_task(
 ) -> dict[str, object]:
     """Create a new Task document."""
     return await _do_create_task(
-        name, description, due_date, priority,
+        name,
+        description,
+        due_date,
+        priority,
         tdb=ctx.deps.tdb,
         branch=ctx.deps.settings.tdb_branch,
     )
@@ -994,7 +1006,11 @@ async def update_task(
     always bumped to now.
     """
     return await _do_update_task(
-        task_iri, name, description, due_date, priority,
+        task_iri,
+        name,
+        description,
+        due_date,
+        priority,
         tdb=ctx.deps.tdb,
         branch=ctx.deps.settings.tdb_branch,
     )
@@ -1018,7 +1034,9 @@ async def create_routine(
       - estimated_duration (int, optional): in minutes
     """
     return await _do_create_routine(
-        name, steps, required_context,
+        name,
+        steps,
+        required_context,
         tdb=ctx.deps.tdb,
         branch=ctx.deps.settings.tdb_branch,
     )
@@ -1039,7 +1057,10 @@ async def update_routine(
     is replaced.
     """
     return await _do_update_routine(
-        routine_iri, name, required_context, steps,
+        routine_iri,
+        name,
+        required_context,
+        steps,
         tdb=ctx.deps.tdb,
         branch=ctx.deps.settings.tdb_branch,
     )
@@ -1062,7 +1083,13 @@ async def log_activity(
     The referenced Routine must exist; otherwise the call fails with an error.
     """
     return await _do_log_activity(
-        name, start_datetime, end_datetime, description, priority, estimated_duration, routine_id,
+        name,
+        start_datetime,
+        end_datetime,
+        description,
+        priority,
+        estimated_duration,
+        routine_id,
         tdb=ctx.deps.tdb,
         branch=ctx.deps.settings.tdb_branch,
     )
@@ -1083,37 +1110,59 @@ async def _handle_set_event_status(args: SetEventStatusArgs, ctx: ToolContext) -
 
 async def _handle_create_task(args: CreateTaskArgs, ctx: ToolContext) -> dict[str, object]:
     return await _do_create_task(
-        args.name, args.description, args.due_date, args.priority,
-        tdb=ctx.tdb, branch=ctx.branch,
+        args.name,
+        args.description,
+        args.due_date,
+        args.priority,
+        tdb=ctx.tdb,
+        branch=ctx.branch,
     )
 
 
 async def _handle_update_task(args: UpdateTaskArgs, ctx: ToolContext) -> dict[str, object]:
     return await _do_update_task(
-        args.task_iri, args.name, args.description, args.due_date, args.priority,
-        tdb=ctx.tdb, branch=ctx.branch,
+        args.task_iri,
+        args.name,
+        args.description,
+        args.due_date,
+        args.priority,
+        tdb=ctx.tdb,
+        branch=ctx.branch,
     )
 
 
 async def _handle_create_routine(args: CreateRoutineArgs, ctx: ToolContext) -> dict[str, object]:
     return await _do_create_routine(
-        args.name, args.steps, args.required_context,
-        tdb=ctx.tdb, branch=ctx.branch,
+        args.name,
+        args.steps,
+        args.required_context,
+        tdb=ctx.tdb,
+        branch=ctx.branch,
     )
 
 
 async def _handle_update_routine(args: UpdateRoutineArgs, ctx: ToolContext) -> dict[str, object]:
     return await _do_update_routine(
-        args.routine_iri, args.name, args.required_context, args.steps,
-        tdb=ctx.tdb, branch=ctx.branch,
+        args.routine_iri,
+        args.name,
+        args.required_context,
+        args.steps,
+        tdb=ctx.tdb,
+        branch=ctx.branch,
     )
 
 
 async def _handle_log_activity(args: LogActivityArgs, ctx: ToolContext) -> dict[str, object]:
     return await _do_log_activity(
-        args.name, args.start_datetime, args.end_datetime, args.description,
-        args.priority, args.estimated_duration, args.routine_id,
-        tdb=ctx.tdb, branch=ctx.branch,
+        args.name,
+        args.start_datetime,
+        args.end_datetime,
+        args.description,
+        args.priority,
+        args.estimated_duration,
+        args.routine_id,
+        tdb=ctx.tdb,
+        branch=ctx.branch,
     )
 
 
@@ -1126,9 +1175,7 @@ class TimeManagementToolsPlugin:
     """Queryd write-tool plugin for time-management operations."""
 
     name: str = "time_management_tools"
-    requires: list[ModuleRequirement] = [
-        ModuleRequirement(name="time_management", range=">=0.1.0 <0.2.0")
-    ]
+    requires: list[ModuleRequirement] = [ModuleRequirement(name="time_management", range=">=0.1.0 <0.2.0")]
 
     def tools(self, deps: Any) -> list[Tool]:
         """Return pydantic-ai Tool objects for time-management write operations."""

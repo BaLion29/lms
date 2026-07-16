@@ -147,7 +147,8 @@ async def test_handle_set_task_status_happy_path(respx_mock):
         "status": "open",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
+    respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
 
     spec = next(s for s in tm_plugin.tool_specs() if s.name == "set_task_status")
     args = spec.args_model(task_iri="Task/abc", status="done")
@@ -195,7 +196,7 @@ async def test_handle_update_task_only_provided_fields_changed(respx_mock):
         "required_context": [],
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
 
     spec = next(s for s in tm_plugin.tool_specs() if s.name == "update_task")
     args = spec.args_model(task_iri="Task/abc", name="New name")
@@ -244,7 +245,7 @@ async def test_handle_update_routine_name_only(respx_mock):
         "steps": [],
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Routine/r1"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Routine/r1"])
 
     spec = next(s for s in tm_plugin.tool_specs() if s.name == "update_routine")
     args = spec.args_model(routine_iri="Routine/r1", name="New routine")
@@ -277,7 +278,8 @@ async def test_handle_set_event_status_happy_path(respx_mock):
         "status": "open",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Event/xyz"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Event/xyz"])
+    respx_mock.post(DOC_PATH).respond(json=["Event/xyz"])
 
     spec = next(s for s in tm_plugin.tool_specs() if s.name == "set_event_status")
     args = spec.args_model(event_iri="Event/xyz", status="closed")
@@ -313,9 +315,7 @@ async def test_handle_set_event_status_wrong_type(respx_mock):
 
 @pytest.mark.asyncio
 async def test_handle_log_activity_with_routine_link(respx_mock):
-    respx_mock.get(DOC_PATH).respond(
-        json={"@id": "Routine/r1", "@type": "Routine", "name": "Morning routine"}
-    )
+    respx_mock.get(DOC_PATH).respond(json={"@id": "Routine/r1", "@type": "Routine", "name": "Morning routine"})
     post_route = respx_mock.post(DOC_PATH).respond(
         json=["terminusdb:///data/Activity/act1"],
     )
@@ -344,4 +344,3 @@ async def test_handle_log_activity_with_routine_link(respx_mock):
     assert doc["end_datetime"] == "2026-07-08T08:00:00Z"
     assert doc["priority"] == 2
     assert doc["estimated_duration"] == 60
-

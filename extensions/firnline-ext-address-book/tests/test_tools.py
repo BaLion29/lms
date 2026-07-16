@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 from firnline_core.toolspec import ToolContext
 
@@ -18,8 +17,6 @@ from firnline_ext_address_book.tools import (
     _do_geocode,
     _do_get,
     _do_lookup,
-    _handle_create_location,
-    _handle_create_organization,
     _handle_create_person,
     _handle_geocode,
     _handle_get,
@@ -255,7 +252,6 @@ async def test_create_person_minimal():
 
     # Verify the doc body
     args, kwargs = tdb.insert_documents.call_args
-    docs = kwargs.get("branch") is not None and args[0] or kwargs.get("branch") is None and args[0]
     # Actually insert_documents(docs, branch=..., message=...) so args[0] is [doc]
     sent = args[0]
     doc = sent[0] if isinstance(sent, list) else sent
@@ -267,9 +263,7 @@ async def test_create_person_with_contact():
     tdb = MagicMock()
     tdb.insert_documents = AsyncMock(return_value=["terminusdb:///data/Person/p2"])
 
-    result = await _do_create_person(
-        "Bob", ["Bobby"], "bob@test.com", "+123", None, tdb=tdb, branch="main"
-    )
+    result = await _do_create_person("Bob", ["Bobby"], "bob@test.com", "+123", None, tdb=tdb, branch="main")
     assert result["ok"] is True
 
     sent = tdb.insert_documents.call_args[0][0]
@@ -284,9 +278,7 @@ async def test_create_person_with_valid_domicile():
     tdb.get_document = AsyncMock(return_value=dict(_LOCATION_OFFICE))
     tdb.insert_documents = AsyncMock(return_value=["terminusdb:///data/Person/p3"])
 
-    result = await _do_create_person(
-        "Alice", [], None, None, "Location/office", tdb=tdb, branch="main"
-    )
+    result = await _do_create_person("Alice", [], None, None, "Location/office", tdb=tdb, branch="main")
     assert result["ok"] is True
 
     sent = tdb.insert_documents.call_args[0][0]
@@ -299,9 +291,7 @@ async def test_create_person_invalid_domicile():
     tdb.get_document = AsyncMock(side_effect=RuntimeError("not found"))
     tdb.insert_documents = AsyncMock()
 
-    result = await _do_create_person(
-        "Alice", [], None, None, "Location/nope", tdb=tdb, branch="main"
-    )
+    result = await _do_create_person("Alice", [], None, None, "Location/nope", tdb=tdb, branch="main")
     assert result["ok"] is False
     assert "location not found" in result["error"]
     assert not tdb.insert_documents.called
@@ -312,9 +302,7 @@ async def test_create_person_domicile_wrong_type():
     tdb.get_document = AsyncMock(return_value=dict(_PERSON_BOB))  # not a Location
     tdb.insert_documents = AsyncMock()
 
-    result = await _do_create_person(
-        "Alice", [], None, None, "Person/bob", tdb=tdb, branch="main"
-    )
+    result = await _do_create_person("Alice", [], None, None, "Person/bob", tdb=tdb, branch="main")
     assert result["ok"] is False
     assert "not a Location" in result["error"]
     assert not tdb.insert_documents.called
@@ -343,9 +331,7 @@ async def test_create_location_with_coordinates():
     tdb = MagicMock()
     tdb.insert_documents = AsyncMock(return_value=["terminusdb:///data/Location/l2"])
 
-    result = await _do_create_location(
-        "HQ", ["Headquarters"], "123 Main St", 40.7128, -74.0060, tdb=tdb, branch="main"
-    )
+    result = await _do_create_location("HQ", ["Headquarters"], "123 Main St", 40.7128, -74.0060, tdb=tdb, branch="main")
     assert result["ok"] is True
 
     sent = tdb.insert_documents.call_args[0][0]
@@ -380,9 +366,7 @@ async def test_create_organization_with_valid_location():
     tdb.get_document = AsyncMock(return_value=dict(_LOCATION_OFFICE))
     tdb.insert_documents = AsyncMock(return_value=["terminusdb:///data/Organization/o2"])
 
-    result = await _do_create_organization(
-        "ACME", ["Acme Inc"], "Location/office", tdb=tdb, branch="main"
-    )
+    result = await _do_create_organization("ACME", ["Acme Inc"], "Location/office", tdb=tdb, branch="main")
     assert result["ok"] is True
 
     sent = tdb.insert_documents.call_args[0][0]
@@ -395,9 +379,7 @@ async def test_create_organization_invalid_location():
     tdb.get_document = AsyncMock(side_effect=RuntimeError("not found"))
     tdb.insert_documents = AsyncMock()
 
-    result = await _do_create_organization(
-        "ACME", [], "Location/nope", tdb=tdb, branch="main"
-    )
+    result = await _do_create_organization("ACME", [], "Location/nope", tdb=tdb, branch="main")
     assert result["ok"] is False
     assert "location not found" in result["error"]
 
@@ -449,7 +431,7 @@ async def test_geocode_by_query_geocoder_exception():
 async def test_geocode_by_location_id_persists():
     tdb = MagicMock()
     tdb.get_document = AsyncMock(return_value=dict(_LOCATION_OFFICE))
-    tdb.insert_documents = AsyncMock()
+    tdb.replace_document = AsyncMock()
 
     with patch(
         "firnline_ext_address_book.tools.GeocodingClient.geocode",
@@ -460,22 +442,22 @@ async def test_geocode_by_location_id_persists():
 
     assert result["ok"] is True
     assert result["coordinates"] == [40.7128, -74.0060]
-    assert tdb.insert_documents.called
+    assert tdb.replace_document.called
     # Verify coordinates were persisted
-    sent_docs = tdb.insert_documents.call_args[0][0]
-    assert sent_docs[0]["coordinates"] == [40.7128, -74.0060]
+    sent_docs = tdb.replace_document.call_args[0][0]
+    assert sent_docs["coordinates"] == [40.7128, -74.0060]
 
 
 async def test_geocode_by_location_id_already_has_coordinates():
     tdb = MagicMock()
     tdb.get_document = AsyncMock(return_value=dict(_LOCATION_HOME))
-    tdb.insert_documents = AsyncMock()
+    tdb.replace_document = AsyncMock()
 
     result = await _do_geocode(None, "Location/home", tdb=tdb, branch="main")
     assert result["ok"] is True
     assert result["coordinates"] == [40.7128, -74.0060]
     assert result.get("already_set") is True
-    assert not tdb.insert_documents.called
+    assert not tdb.replace_document.called
 
 
 async def test_geocode_by_location_id_not_found():
@@ -544,9 +526,7 @@ async def test_handler_create_person():
 
     from firnline_ext_address_book.tools import CreatePersonArgs
 
-    result = await _handle_create_person(
-        CreatePersonArgs(name="Alice", email="a@b.com"), ctx
-    )
+    result = await _handle_create_person(CreatePersonArgs(name="Alice", email="a@b.com"), ctx)
     assert result["ok"] is True
 
 

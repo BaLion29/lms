@@ -5,12 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from firnline_core.plugins import (
     ActionContext,
     ActionExecutor,
-    ExecutionResult,
     validate_plugin,
 )
 
@@ -154,7 +152,7 @@ async def test_geocode_success_updates_document() -> None:
     executor = _configured_executor()
 
     tdb_mock = AsyncMock()
-    tdb_mock.insert_documents = AsyncMock(return_value=["Location/loc1"])
+    tdb_mock.replace_document = AsyncMock(return_value=["Location/loc1"])
     ctx = _ctx(tdb=tdb_mock)
 
     subject: dict[str, object] = {
@@ -177,11 +175,9 @@ async def test_geocode_success_updates_document() -> None:
     assert "46.948" in result.detail
 
     # Verify TDB write
-    tdb_mock.insert_documents.assert_called_once()
-    call_args = tdb_mock.insert_documents.call_args
-    docs = call_args[0][0]
-    assert len(docs) == 1
-    updated = docs[0]
+    tdb_mock.replace_document.assert_called_once()
+    call_args = tdb_mock.replace_document.call_args
+    updated = call_args[0][0]
     assert updated["@id"] == "Location/loc1"
     assert updated["coordinates"] == [46.948, 7.4474]
 
@@ -194,7 +190,7 @@ async def test_geocode_falls_back_to_name() -> None:
     executor = _configured_executor()
 
     tdb_mock = AsyncMock()
-    tdb_mock.insert_documents = AsyncMock(return_value=["Location/loc1"])
+    tdb_mock.replace_document = AsyncMock(return_value=["Location/loc1"])
     ctx = _ctx(tdb=tdb_mock)
 
     subject: dict[str, object] = {
@@ -245,7 +241,7 @@ async def test_geocode_no_result_returns_retryable() -> None:
     assert result.ok is False
     assert result.retryable is True
     assert "no result" in result.detail.lower()
-    tdb_mock.insert_documents.assert_not_called()
+    tdb_mock.replace_document.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +254,7 @@ async def test_tdb_write_failure_returns_retryable() -> None:
     executor = _configured_executor()
 
     tdb_mock = AsyncMock()
-    tdb_mock.insert_documents = AsyncMock(side_effect=RuntimeError("TDB down"))
+    tdb_mock.replace_document = AsyncMock(side_effect=RuntimeError("TDB down"))
     ctx = _ctx(tdb=tdb_mock)
 
     subject: dict[str, object] = {
@@ -322,7 +318,7 @@ async def test_empty_address_falls_back_to_name() -> None:
     executor = _configured_executor()
 
     tdb_mock = AsyncMock()
-    tdb_mock.insert_documents = AsyncMock(return_value=["Location/loc1"])
+    tdb_mock.replace_document = AsyncMock(return_value=["Location/loc1"])
     ctx = _ctx(tdb=tdb_mock)
 
     subject: dict[str, object] = {
