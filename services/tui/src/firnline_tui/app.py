@@ -1,0 +1,59 @@
+"""FirnlineApp — the main Textual application."""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Footer, Header
+
+from firnline_tui.screen_registry import ScreenRegistry
+from firnline_tui.state.context import AppContext, default_context
+
+log = logging.getLogger(__name__)
+
+
+class FirnlineApp(App):
+    """The firnline terminal application."""
+
+    CSS_PATH = "ui/theme.tcss"
+    TITLE = "firnline"
+
+    BINDINGS = [
+        Binding("ctrl+b", "toggle_sidebar", "Toggle sidebar", show=False),
+        Binding("ctrl+p", "command_palette", "Command palette", show=False),
+        Binding("q", "quit", "Quit", show=True),
+    ]
+
+    def __init__(
+        self,
+        registry: ScreenRegistry,
+        ctx: AppContext | None = None,
+    ) -> None:
+        super().__init__()
+        self.registry = registry
+        self.ctx = ctx or default_context()
+        self._sidebar_visible = True
+
+    def on_mount(self) -> None:
+        """Install all screens and push the start screen."""
+        from firnline_tui.settings import get_settings
+
+        start = get_settings().start_screen
+
+        for spec in self.registry.specs:
+            try:
+                self.install_screen(spec.screen_factory, name=spec.screen_id)
+            except Exception:
+                pass  # screen may not exist yet during dev
+
+        # Push start screen
+        if self.registry.by_id(start) is None:
+            start = "dashboard"
+        self.push_screen(start)
+
+    def action_toggle_sidebar(self) -> None:
+        self._sidebar_visible = not self._sidebar_visible
+        self.refresh()

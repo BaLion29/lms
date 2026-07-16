@@ -1,0 +1,149 @@
+/* Design tokens — analog of firnline_webui/ui/theme.py */
+$fl-bg: #1a1b26;
+$fl-surface: #16161e;
+$fl-surface-2: #1f2335;
+$fl-border: #2a2a3c;
+$fl-accent: #7aa2f7;
+$fl-accent-dim: #3b4a6b;
+$fl-text: #c0caf5;
+$fl-text-muted: #565f89;
+$fl-ok: #9ece6a;
+$fl-warn: #e0af68;
+$fl-err: #f7768e;
+$fl-sidebar-width: 24;
+
+/* Header */
+FirnlineApp Header {
+    background: $fl-surface;
+    color: $fl-accent;
+}
+
+/* Footer */
+FirnlineApp Footer {
+    background: $fl-surface;
+}
+
+/* Nav sidebar */
+NavSidebar {
+    width: $fl-sidebar-width;
+    background: $fl-surface;
+    border-right: solid $fl-border;
+    padding: 0 1;
+}
+
+NavSidebar:hover {
+    background: $fl-surface-2;
+}
+
+/* Content area */
+#content {
+    padding: 1 2;
+}
+
+/* Cards */
+StatusCard {
+    border: solid $fl-border;
+    background: $fl-surface;
+    padding: 1 2;
+    height: auto;
+    min-height: 5;
+}
+
+StatBadge {
+    color: $fl-accent;
+    text-style: bold;
+}
+
+Chip {
+    color: $fl-text-muted;
+    text-style: dim;
+}
+
+InfoRow {
+    color: $fl-text;
+}
+
+/* Tables */
+DocTable {
+    height: 1fr;
+}
+
+/* Detail panel */
+JsonDetailPanel {
+    width: 40;
+    background: $fl-surface;
+    border-left: solid $fl-border;
+    padding: 1;
+}
+
+/* Feedback */
+ErrorBanner {
+    color: $fl-err;
+    background: $fl-surface;
+    border: solid $fl-err;
+    padding: 1 2;
+}
+
+EmptyState {
+    color: $fl-text-muted;
+    text-style: dim;
+    text-align: center;
+    padding: 2;
+}
+
+/* Shell screen layout */
+ShellScreen {
+    layout: horizontal;
+}
+
+ShellScreen > Horizontal {
+    height: 1fr;
+}
+
+/* Section labels in nav */
+.nav-section-label {
+    color: $fl-text-muted;
+    text-style: bold uppercase;
+    padding: 1 1 0 1;
+}
+
+/* Nav item */
+.nav-item {
+    padding: 0 1;
+    color: $fl-text;
+}
+
+.nav-item:focus {
+    background: $fl-accent-dim;
+    color: $fl-text;
+}
+
+.nav-item.--active {
+    background: $fl-accent-dim;
+    color: $fl-accent;
+    text-style: bold;
+}
+
+/* Page heading */
+.page-heading {
+    color: $fl-accent;
+    text-style: bold;
+    padding: 0 0 1 0;
+}
+
+.section-heading {
+    color: $fl-text;
+    text-style: bold;
+    padding: 1 0 0 0;
+}
+
+.card-title {
+    color: $fl-text;
+    text-style: bold;
+}
+
+/* Status colors */
+.status-ok { color: $fl-ok; }
+.status-warn { color: $fl-warn; }
+.status-err { color: $fl-err; }
+.status-unknown { color: $fl-text-muted; }
