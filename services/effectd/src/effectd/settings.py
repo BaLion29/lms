@@ -21,14 +21,6 @@ class EffectdSettings(TdbSettings):
     dry_run: bool = False
     """Global override: forces dry_run on ALL executions."""
 
-    legacy_notification_loop: bool = True
-    """Runs the legacy zero-config notification path (a.k.a. default_notify).
-
-    This is the default_notify behaviour in this release — zero-config
-    notification of every firing. Consolidating the nag policy onto
-    ActionExecution is a documented follow-up.
-    """
-
     default_notify_executor: str = "notify:gotify"
     """Default executor kind used when an Action document has no explicit executor field."""
     planning_lookback: str = "P7D"

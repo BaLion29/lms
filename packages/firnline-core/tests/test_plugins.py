@@ -13,14 +13,10 @@ from firnline_core.plugins import (
     CaptureContext,
     CaptureHandler,
     CapturePayload,
-    ChannelExecutorAdapter,
-    DeliveryResult,
     DiscoveryResult,
     EntityIndex,
     ExecutionResult,
     ModuleRequirement,
-    NotificationChannel,
-    NotifyContext,
     check_requirements,
     discover_plugins,
     select_plugins,
@@ -63,17 +59,13 @@ class TestCheckRequirements:
         ]
         reqs = [ModuleRequirement(name="planning", range=">=2.0.0")]
         violations = await check_requirements(tdb, reqs)
-        assert violations == [
-            "module 'planning' 1.0.0 does not satisfy '>=2.0.0'"
-        ]
+        assert violations == ["module 'planning' 1.0.0 does not satisfy '>=2.0.0'"]
 
     async def test_malformed_range(self, tdb: AsyncMock) -> None:
         tdb.get_documents.return_value = []
         reqs = [ModuleRequirement(name="xyz", range="not-a-range")]
         violations = await check_requirements(tdb, reqs)
-        assert violations == [
-            "module 'xyz' has malformed range 'not-a-range'"
-        ]
+        assert violations == ["module 'xyz' has malformed range 'not-a-range'"]
 
     async def test_registry_unavailable(self, tdb: AsyncMock) -> None:
         tdb.get_documents.side_effect = TdbError(400, "no such class")
@@ -90,17 +82,13 @@ class TestCheckRequirements:
         ]
         reqs = [ModuleRequirement(name="capture", range=">=1.0.0")]
         violations = await check_requirements(tdb, reqs)
-        assert any(
-            "has unparseable version" in v for v in violations
-        )
+        assert any("has unparseable version" in v for v in violations)
 
     async def test_uses_provided_branch(self, tdb: AsyncMock) -> None:
         tdb.get_documents.return_value = []
         reqs = [ModuleRequirement(name="capture", range=">=1.0.0")]
         await check_requirements(tdb, reqs, branch="staging")
-        tdb.get_documents.assert_called_once_with(
-            "SchemaModule", branch="staging"
-        )
+        tdb.get_documents.assert_called_once_with("SchemaModule", branch="staging")
 
     async def test_multiple_violations(self, tdb: AsyncMock) -> None:
         tdb.get_documents.return_value = [
@@ -136,14 +124,10 @@ class TestSelectPlugins:
         return plugin
 
     async def test_all_active(self, tdb: AsyncMock) -> None:
-        tdb.get_documents.return_value = [
-            {"name": "capture", "version": "1.0.0"}
-        ]
+        tdb.get_documents.return_value = [{"name": "capture", "version": "1.0.0"}]
         p1 = self._plugin("p1", [ModuleRequirement(name="capture", range=">=1.0.0")])
         p2 = self._plugin("p2", [])
-        discovered = DiscoveryResult(
-            active=[("p1", p1), ("p2", p2)], failed=[]
-        )
+        discovered = DiscoveryResult(active=[("p1", p1), ("p2", p2)], failed=[])
         sel = await select_plugins(tdb, discovered)
         assert len(sel.active) == 2
         assert sel.skipped == []
@@ -167,9 +151,7 @@ class TestSelectPlugins:
 
     async def test_strict_raises_on_discovery_failure(self, tdb: AsyncMock) -> None:
         tdb.get_documents.return_value = []
-        discovered = DiscoveryResult(
-            active=[], failed=[("bad_plugin", "ImportError: boom")]
-        )
+        discovered = DiscoveryResult(active=[], failed=[("bad_plugin", "ImportError: boom")])
         with pytest.raises(RuntimeError, match="Strict plugin mode"):
             await select_plugins(tdb, discovered, strict=True)
 
@@ -194,9 +176,7 @@ class TestDiscoverPlugins:
     def test_successful_discovery(self) -> None:
         obj = object()
         eps = [FakeEntryPoint("test_plugin", lambda: obj)]
-        with patch(
-            "importlib.metadata.entry_points", return_value=eps
-        ):
+        with patch("importlib.metadata.entry_points", return_value=eps):
             result = discover_plugins("firnline.test.group")
         assert len(result.active) == 1
         assert result.active[0] == ("test_plugin", obj)
@@ -207,9 +187,7 @@ class TestDiscoverPlugins:
             raise ImportError("cannot import plugin")
 
         eps = [FakeEntryPoint("bad_plugin", _fail)]
-        with patch(
-            "importlib.metadata.entry_points", return_value=eps
-        ):
+        with patch("importlib.metadata.entry_points", return_value=eps):
             result = discover_plugins("firnline.test.group")
         assert result.active == []
         assert len(result.failed) == 1
@@ -225,6 +203,7 @@ class TestDiscoverPlugins:
 class TestBuildContext:
     def test_default_now_is_datetime_now(self) -> None:
         from datetime import datetime
+
         ctx = BuildContext(tdb=None, captured_iri="test/1")
         now = ctx.now()
         assert isinstance(now, datetime)
@@ -367,10 +346,12 @@ class TestValidatePlugin:
         @runtime_checkable
         class MyProto(Protocol):
             name: str
+
             def do_it(self) -> str: ...
 
         class GoodImpl:
             name = "test"
+
             def do_it(self) -> str:
                 return "done"
 
@@ -383,6 +364,7 @@ class TestValidatePlugin:
         @runtime_checkable
         class MyProto(Protocol):
             name: str
+
             def do_it(self) -> str: ...
 
         class BadImpl:
@@ -399,6 +381,7 @@ class TestValidatePlugin:
         @runtime_checkable
         class MyProto(Protocol):
             name: str
+
             def do_it(self) -> str: ...
 
         class BadImpl:
@@ -413,6 +396,7 @@ class TestValidatePlugin:
         @runtime_checkable
         class MyProto(Protocol):
             name: str
+
             def do_it(self) -> str: ...
 
         class BadImpl:
@@ -462,9 +446,7 @@ class TestSelectPluginsCaching:
         ]
         p1 = self._plugin("p1", [ModuleRequirement(name="mod1", range=">=1.0.0")])
         p2 = self._plugin("p2", [ModuleRequirement(name="mod2", range=">=1.0.0")])
-        discovered = DiscoveryResult(
-            active=[("p1", p1), ("p2", p2)], failed=[]
-        )
+        discovered = DiscoveryResult(active=[("p1", p1), ("p2", p2)], failed=[])
         sel = await select_plugins(tdb, discovered)
         assert len(sel.active) == 2
         # get_documents should be called exactly once for SchemaModule
@@ -475,9 +457,7 @@ class TestSelectPluginsCaching:
         tdb.get_documents.side_effect = TdbError(400, "no class")
         p1 = self._plugin("p1", [ModuleRequirement(name="mod1", range=">=1.0.0")])
         p2 = self._plugin("p2", [ModuleRequirement(name="mod2", range=">=1.0.0")])
-        discovered = DiscoveryResult(
-            active=[("p1", p1), ("p2", p2)], failed=[]
-        )
+        discovered = DiscoveryResult(active=[("p1", p1), ("p2", p2)], failed=[])
         sel = await select_plugins(tdb, discovered)
         assert len(sel.skipped) == 2
         # get_documents still called once (then the TdbError is raised)
@@ -491,6 +471,7 @@ class TestSelectPluginsCaching:
         class MyProto(Protocol):
             name: str
             extra: str  # missing attribute
+
             def do_it(self) -> str: ...
 
         class MyPlugin:
@@ -514,6 +495,7 @@ class TestSelectPluginsCaching:
         @runtime_checkable
         class MyProto(Protocol):
             name: str
+
             def do_it(self) -> str: ...
 
         class MyPlugin:
@@ -564,6 +546,7 @@ class TestActionContext:
         ctx = ActionContext(tdb=None, logger=None)
         now = ctx.now()
         from datetime import timezone
+
         assert now.tzinfo is not None
         assert now.tzinfo.utcoffset(now) is not None
         assert now.utcoffset() == timezone.utc.utcoffset(None)
@@ -578,6 +561,7 @@ class TestActionContext:
 
     def test_custom_now(self) -> None:
         from datetime import datetime, timezone
+
         fixed = datetime(2025, 1, 1, tzinfo=timezone.utc)
         ctx = ActionContext(tdb=None, logger=None, now=lambda: fixed)
         assert ctx.now() == fixed
@@ -595,30 +579,6 @@ class TestActionContext:
 # ---------------------------------------------------------------------------
 # Deprecated aliases
 # ---------------------------------------------------------------------------
-
-
-class TestDeprecatedAliases:
-    def test_delivery_result_is_execution_result(self) -> None:
-        assert DeliveryResult is ExecutionResult
-
-    def test_notify_context_is_action_context(self) -> None:
-        assert NotifyContext is ActionContext
-
-    def test_delivery_result_instantiation(self) -> None:
-        """DeliveryResult(ok=True) creates an ExecutionResult."""
-        r = DeliveryResult(ok=True, detail="sent")
-        assert isinstance(r, ExecutionResult)
-        assert r.ok is True
-        assert r.detail == "sent"
-        assert r.external_ref is None
-
-    def test_notify_context_instantiation(self) -> None:
-        """NotifyContext(tdb, logger) creates an ActionContext."""
-        ctx = NotifyContext(tdb="fake", logger="fake")
-        assert isinstance(ctx, ActionContext)
-        assert ctx.tdb == "fake"
-        assert ctx.dry_run is False
-
 
 # ---------------------------------------------------------------------------
 # ActionExecutor protocol validation
@@ -689,121 +649,6 @@ class TestActionExecutorProtocol:
 
 
 # ---------------------------------------------------------------------------
-# ChannelExecutorAdapter
-# ---------------------------------------------------------------------------
-
-
-class TestChannelExecutorAdapter:
-    def test_adapter_passes_action_executor_validation(self) -> None:
-        class FakeChannel:
-            name = "email"
-            requires: list[ModuleRequirement] = []
-
-            async def deliver(self, firing, subject, ctx):
-                return DeliveryResult(ok=True)
-
-        channel = FakeChannel()
-        adapter = ChannelExecutorAdapter(channel)
-        violations = validate_plugin(adapter, ActionExecutor)
-        assert violations == []
-
-    async def test_adapter_kinds_matches_channel_name(self) -> None:
-        class FakeChannel:
-            name = "gotify"
-            requires: list[ModuleRequirement] = []
-
-            async def deliver(self, firing, subject, ctx):
-                return DeliveryResult(ok=True)
-
-        adapter = ChannelExecutorAdapter(FakeChannel())
-        assert adapter.kinds == ("notify:gotify",)
-
-    async def test_adapter_name_and_requires_delegated(self) -> None:
-        reqs = [ModuleRequirement(name="triggers", range=">=0.1.0")]
-        class FakeChannel:
-            name = "push"
-            requires = reqs
-
-            async def deliver(self, firing, subject, ctx):
-                return DeliveryResult(ok=True)
-
-        adapter = ChannelExecutorAdapter(FakeChannel())
-        assert adapter.name == "push"
-        assert adapter.requires == reqs
-
-    async def test_execute_calls_deliver_with_correct_args(self) -> None:
-        class FakeChannel:
-            name = "test"
-            requires: list[ModuleRequirement] = []
-            captured_firing = None
-            captured_subject = None
-            captured_ctx = None
-
-            async def deliver(self, firing, subject, ctx):
-                self.__class__.captured_firing = firing
-                self.__class__.captured_subject = subject
-                self.__class__.captured_ctx = ctx
-                return DeliveryResult(ok=True, detail="sent")
-
-        channel = FakeChannel()
-        adapter = ChannelExecutorAdapter(channel)
-        firing = {"@id": "f/1"}
-        subject = {"name": "Test"}
-        ctx = ActionContext(tdb=None, logger=None)
-
-        result = await adapter.execute({}, firing, subject, ctx)
-
-        assert result.ok is True
-        assert result.detail == "sent"
-        assert FakeChannel.captured_firing is firing
-        assert FakeChannel.captured_subject is subject
-        assert FakeChannel.captured_ctx is ctx
-
-    async def test_execute_normalizes_external_ref(self) -> None:
-        class FakeChannel:
-            name = "test"
-            requires: list[ModuleRequirement] = []
-
-            async def deliver(self, firing, subject, ctx):
-                return DeliveryResult(ok=True)
-
-        adapter = ChannelExecutorAdapter(FakeChannel())
-        ctx = ActionContext(tdb=None, logger=None)
-        result = await adapter.execute({}, {}, None, ctx)
-        assert result.ok is True
-        assert result.external_ref is None  # normalized from missing attr
-
-    async def test_execute_preserves_external_ref(self) -> None:
-        class FakeChannel:
-            name = "test"
-            requires: list[ModuleRequirement] = []
-
-            async def deliver(self, firing, subject, ctx):
-                return ExecutionResult(ok=True, external_ref="https://ext.example.com/1")
-
-        adapter = ChannelExecutorAdapter(FakeChannel())
-        ctx = ActionContext(tdb=None, logger=None)
-        result = await adapter.execute({}, {}, None, ctx)
-        assert result.ok is True
-        assert result.external_ref == "https://ext.example.com/1"
-
-    async def test_execute_passes_failure(self) -> None:
-        class FakeChannel:
-            name = "test"
-            requires: list[ModuleRequirement] = []
-
-            async def deliver(self, firing, subject, ctx):
-                return DeliveryResult(ok=False, detail="boom", retryable=True)
-
-        adapter = ChannelExecutorAdapter(FakeChannel())
-        ctx = ActionContext(tdb=None, logger=None)
-        result = await adapter.execute({}, {}, None, ctx)
-        assert result.ok is False
-        assert result.detail == "boom"
-        assert result.retryable is True
-
-
-# ---------------------------------------------------------------------------
 # firnline_core top-level exports
 # ---------------------------------------------------------------------------
 
@@ -811,55 +656,10 @@ class TestChannelExecutorAdapter:
 class TestTopLevelExports:
     def test_new_names_importable_from_firnline_core(self) -> None:
         import firnline_core
+
         assert hasattr(firnline_core, "ActionContext")
         assert hasattr(firnline_core, "ActionExecutor")
         assert hasattr(firnline_core, "ExecutionResult")
-        assert hasattr(firnline_core, "ChannelExecutorAdapter")
-
-
-# ---------------------------------------------------------------------------
-# NotificationChannel structural conformance
-# ---------------------------------------------------------------------------
-
-
-class TestNotificationChannelProtocol:
-    """A minimal class should satisfy the NotificationChannel Protocol."""
-
-    async def test_isinstance_check(self) -> None:
-        class EmailChannel:
-            name = "email"
-            requires: list[ModuleRequirement] = []
-
-            async def deliver(
-                self,
-                firing: dict,
-                subject: dict | None,
-                ctx: NotifyContext,
-            ) -> DeliveryResult:
-                return DeliveryResult(ok=True, detail="sent")
-
-        channel = EmailChannel()
-        assert isinstance(channel, NotificationChannel)
-
-    async def test_deliver_returns_delivery_result(self) -> None:
-        class EmailChannel:
-            name = "email"
-            requires: list[ModuleRequirement] = []
-
-            async def deliver(
-                self,
-                firing: dict,
-                subject: dict | None,
-                ctx: NotifyContext,
-            ) -> DeliveryResult:
-                return DeliveryResult(ok=False, detail="rate limited", retryable=True)
-
-        channel = EmailChannel()
-        ctx = NotifyContext(tdb=None, logger=None)
-        result = await channel.deliver({"msg": "hi"}, None, ctx)
-        assert result.ok is False
-        assert result.detail == "rate limited"
-        assert result.retryable is True
 
 
 # ---------------------------------------------------------------------------
@@ -877,18 +677,14 @@ class TestCheckRequirementsClasses:
             {"name": "capture", "version": "1.0.0", "exports": ["Reminder", "Note"]},
             {"name": "planning", "version": "1.0.0", "exports": ["Task", "Event"]},
         ]
-        violations = await check_requirements(
-            tdb, [], required_classes=["Reminder", "Event"]
-        )
+        violations = await check_requirements(tdb, [], required_classes=["Reminder", "Event"])
         assert violations == []
 
     async def test_required_class_missing(self, tdb: AsyncMock) -> None:
         tdb.get_documents.return_value = [
             {"name": "capture", "version": "1.0.0", "exports": ["Note"]},
         ]
-        violations = await check_requirements(
-            tdb, [], required_classes=["Reminder"]
-        )
+        violations = await check_requirements(tdb, [], required_classes=["Reminder"])
         assert len(violations) == 1
         assert "class 'Reminder' not exported by any installed module" in violations[0]
 
@@ -898,9 +694,7 @@ class TestCheckRequirementsClasses:
             {"name": "capture", "version": "1.0.0"},
             {"name": "planning", "version": "2.0.0"},
         ]
-        violations = await check_requirements(
-            tdb, [], required_classes=["Reminder"]
-        )
+        violations = await check_requirements(tdb, [], required_classes=["Reminder"])
         assert len(violations) == 1
         assert "registry has no exports information" in violations[0]
 
@@ -935,9 +729,7 @@ class TestCheckRequirementsClasses:
             {"name": "m1", "version": "1.0.0", "exports": ["A", "B"]},
             {"name": "m2", "version": "1.0.0", "exports": ["C"]},
         ]
-        violations = await check_requirements(
-            tdb, [], registry=registry, required_classes=["A", "C"]
-        )
+        violations = await check_requirements(tdb, [], registry=registry, required_classes=["A", "C"])
         assert violations == []
         tdb.get_documents.assert_not_called()
 
@@ -947,9 +739,7 @@ class TestCheckRequirementsClasses:
             {"name": "capture", "version": "1.0.0", "exports": ["Note"]},
         ]
         reqs = [ModuleRequirement(name="capture", range=">=1.0.0")]
-        violations = await check_requirements(
-            tdb, reqs, required_classes=["Note"]
-        )
+        violations = await check_requirements(tdb, reqs, required_classes=["Note"])
         assert violations == []
 
     async def test_required_classes_missing_and_module_unmet(self, tdb: AsyncMock) -> None:
@@ -958,9 +748,7 @@ class TestCheckRequirementsClasses:
             {"name": "capture", "version": "1.0.0", "exports": ["Note"]},
         ]
         reqs = [ModuleRequirement(name="planning", range=">=1.0.0")]
-        violations = await check_requirements(
-            tdb, reqs, required_classes=["Reminder"]
-        )
+        violations = await check_requirements(tdb, reqs, required_classes=["Reminder"])
         assert len(violations) == 2
         assert any("module 'planning' not installed" in v for v in violations)
         assert any("class 'Reminder' not exported" in v for v in violations)
@@ -1056,6 +844,7 @@ class TestPluginHostHappyPath:
     def _plugin(self, name: str) -> object:
         class P:
             pass
+
         p = P()
         p.name = name  # type: ignore[attr-defined]
         p.requires: list[ModuleRequirement] = []  # type: ignore[attr-defined]
@@ -1072,22 +861,22 @@ class TestPluginHostHappyPath:
         assert result.failed == []
 
     async def test_broken_entry_point_fatal(self, tdb: AsyncMock) -> None:
-        discovered = DiscoveryResult(
-            active=[], failed=[("bad_ep", "ImportError: boom")]
-        )
+        discovered = DiscoveryResult(active=[], failed=[("bad_ep", "ImportError: boom")])
         host = PluginHost(
-            group="test.group", protocol=None, tdb=tdb,
+            group="test.group",
+            protocol=None,
+            tdb=tdb,
             policy=HostPolicy(broken_entry_point_fatal=True),
         )
         with pytest.raises(RuntimeError, match="failed to load"):
             await host.start(discovered=discovered)
 
     async def test_broken_entry_point_non_fatal(self, tdb: AsyncMock) -> None:
-        discovered = DiscoveryResult(
-            active=[], failed=[("bad_ep", "ImportError: boom")]
-        )
+        discovered = DiscoveryResult(active=[], failed=[("bad_ep", "ImportError: boom")])
         host = PluginHost(
-            group="test.group", protocol=None, tdb=tdb,
+            group="test.group",
+            protocol=None,
+            tdb=tdb,
             policy=HostPolicy(broken_entry_point_fatal=False),
         )
         result = await host.start(discovered=discovered)
@@ -1097,7 +886,9 @@ class TestPluginHostHappyPath:
     async def test_zero_active_fatal(self, tdb: AsyncMock) -> None:
         discovered = DiscoveryResult(active=[], failed=[])
         host = PluginHost(
-            group="test.group", protocol=None, tdb=tdb,
+            group="test.group",
+            protocol=None,
+            tdb=tdb,
             policy=HostPolicy(zero_active_fatal=True),
         )
         with pytest.raises(RuntimeError, match="No active plugins"):
@@ -1106,7 +897,9 @@ class TestPluginHostHappyPath:
     async def test_zero_active_non_fatal(self, tdb: AsyncMock) -> None:
         discovered = DiscoveryResult(active=[], failed=[])
         host = PluginHost(
-            group="test.group", protocol=None, tdb=tdb,
+            group="test.group",
+            protocol=None,
+            tdb=tdb,
             policy=HostPolicy(zero_active_fatal=False),
         )
         result = await host.start(discovered=discovered)
@@ -1123,6 +916,7 @@ class TestPluginHostCollisions:
     def _plugin(self, name: str, keys: list[str]) -> object:
         class P:
             pass
+
         p = P()
         p.name = name  # type: ignore[attr-defined]
         p.requires: list[ModuleRequirement] = []  # type: ignore[attr-defined]
@@ -1160,6 +954,7 @@ class TestPluginHostGracefulDegradation:
     def _plugin(self, name: str) -> object:
         class P:
             pass
+
         p = P()
         p.name = name  # type: ignore[attr-defined]
         p.requires: list[ModuleRequirement] = []  # type: ignore[attr-defined]
@@ -1170,7 +965,9 @@ class TestPluginHostGracefulDegradation:
         p1 = self._plugin("p1")
         discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
         host = PluginHost(
-            group="test.group", protocol=None, tdb=tdb,
+            group="test.group",
+            protocol=None,
+            tdb=tdb,
             policy=HostPolicy(tdb_unavailable_fatal=True),
         )
         with pytest.raises(TdbError, match="connection refused"):
@@ -1182,7 +979,9 @@ class TestPluginHostGracefulDegradation:
         p2 = self._plugin("p2")
         discovered = DiscoveryResult(active=[("p1", p1), ("p2", p2)], failed=[])
         host = PluginHost(
-            group="test.group", protocol=None, tdb=tdb,
+            group="test.group",
+            protocol=None,
+            tdb=tdb,
             policy=HostPolicy(tdb_unavailable_fatal=False),
         )
         result = await host.start(discovered=discovered)
@@ -1196,7 +995,9 @@ class TestPluginHostGracefulDegradation:
         p1 = self._plugin("p1")
         discovered = DiscoveryResult(active=[("p1", p1)], failed=[])
         host = PluginHost(
-            group="test.group", protocol=None, tdb=tdb,
+            group="test.group",
+            protocol=None,
+            tdb=tdb,
             policy=HostPolicy(tdb_unavailable_fatal=False),
         )
         result = await host.start(discovered=discovered)
@@ -1217,6 +1018,7 @@ class TestPluginHostPolicyMatrix:
     def _plugin(self, name: str) -> object:
         class P:
             pass
+
         p = P()
         p.name = name  # type: ignore[attr-defined]
         p.requires: list[ModuleRequirement] = []  # type: ignore[attr-defined]
@@ -1224,13 +1026,16 @@ class TestPluginHostPolicyMatrix:
 
     async def test_strict_skipped_raises(self, tdb: AsyncMock) -> None:
         """When strict=True and a plugin has unmet requirements, RuntimeError."""
+
         class PWithReq:
             name = "p1"
             requires = [ModuleRequirement(name="missing", range=">=1.0.0")]
 
         discovered = DiscoveryResult(active=[("p1", PWithReq())], failed=[])
         host = PluginHost(
-            group="test.group", protocol=None, tdb=tdb,
+            group="test.group",
+            protocol=None,
+            tdb=tdb,
             policy=HostPolicy(strict=True),
         )
         with pytest.raises(RuntimeError, match="Strict plugin mode"):
@@ -1238,11 +1043,11 @@ class TestPluginHostPolicyMatrix:
 
     async def test_broken_ep_non_fatal_zero_active_fatal(self, tdb: AsyncMock) -> None:
         """Broken EP tolerated, but then zero active is fatal."""
-        discovered = DiscoveryResult(
-            active=[], failed=[("bad", "error")]
-        )
+        discovered = DiscoveryResult(active=[], failed=[("bad", "error")])
         host = PluginHost(
-            group="test.group", protocol=None, tdb=tdb,
+            group="test.group",
+            protocol=None,
+            tdb=tdb,
             policy=HostPolicy(
                 broken_entry_point_fatal=False,
                 zero_active_fatal=True,
@@ -1274,6 +1079,7 @@ class TestPluginHostLogEvents:
     def _plugin(self, name: str) -> object:
         class P:
             pass
+
         p = P()
         p.name = name  # type: ignore[attr-defined]
         p.requires: list[ModuleRequirement] = []  # type: ignore[attr-defined]
@@ -1289,6 +1095,7 @@ class TestPluginHostLogEvents:
             def __init__(self):
                 super().__init__()
                 self.records: list[logging.LogRecord] = []
+
             def emit(self, record: logging.LogRecord) -> None:
                 self.records.append(record)
 
@@ -1307,6 +1114,7 @@ class TestPluginHostLogEvents:
 
     async def test_log_skipped_plugin(self, tdb: AsyncMock) -> None:
         """Plugin with unmet requirement gets a 'plugin_skipped' log event."""
+
         class PWithReq:
             name = "p1"
             requires = [ModuleRequirement(name="missing", range=">=1.0.0")]
@@ -1318,6 +1126,7 @@ class TestPluginHostLogEvents:
             def __init__(self):
                 super().__init__()
                 self.records: list[logging.LogRecord] = []
+
             def emit(self, record: logging.LogRecord) -> None:
                 self.records.append(record)
 
@@ -1336,15 +1145,14 @@ class TestPluginHostLogEvents:
 
     async def test_log_broken_entry_point_non_fatal(self, tdb: AsyncMock) -> None:
         """Non-fatal broken EP logs a warning."""
-        discovered = DiscoveryResult(
-            active=[], failed=[("bad", "ImportError: nope")]
-        )
+        discovered = DiscoveryResult(active=[], failed=[("bad", "ImportError: nope")])
         import logging
 
         class CollectHandler(logging.Handler):
             def __init__(self):
                 super().__init__()
                 self.records: list[logging.LogRecord] = []
+
             def emit(self, record: logging.LogRecord) -> None:
                 self.records.append(record)
 
@@ -1354,7 +1162,9 @@ class TestPluginHostLogEvents:
         log_stream.addHandler(handler)
         try:
             host = PluginHost(
-                group="test.group", protocol=None, tdb=tdb,
+                group="test.group",
+                protocol=None,
+                tdb=tdb,
                 policy=HostPolicy(broken_entry_point_fatal=False),
             )
             await host.start(discovered=discovered)

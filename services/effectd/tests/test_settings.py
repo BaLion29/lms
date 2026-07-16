@@ -16,7 +16,6 @@ def test_settings_defaults():
     assert s.liveness_file == "/tmp/effectd-alive"
     # ── Action execution engine defaults ─────────────────────────────
     assert s.dry_run is False
-    assert s.legacy_notification_loop is True
     assert s.default_notify_executor == "notify:gotify"
     assert s.planning_lookback == "P7D"
     assert s.max_executions_per_cycle == 50
@@ -51,7 +50,6 @@ def test_settings_from_env(monkeypatch):
 def test_engine_settings_from_env(monkeypatch):
     """Action-execution-engine settings read from EFFECTD_ env vars."""
     monkeypatch.setenv("EFFECTD_DRY_RUN", "true")
-    monkeypatch.setenv("EFFECTD_LEGACY_NOTIFICATION_LOOP", "false")
     monkeypatch.setenv("EFFECTD_DEFAULT_NOTIFY_EXECUTOR", "notify:custom")
     monkeypatch.setenv("EFFECTD_PLANNING_LOOKBACK", "P14D")
     monkeypatch.setenv("EFFECTD_MAX_EXECUTIONS_PER_CYCLE", "10")
@@ -65,7 +63,6 @@ def test_engine_settings_from_env(monkeypatch):
 
     s = EffectdSettings()  # type: ignore[call-arg]
     assert s.dry_run is True
-    assert s.legacy_notification_loop is False
     assert s.default_notify_executor == "notify:custom"
     assert s.planning_lookback == "P14D"
     assert s.max_executions_per_cycle == 10

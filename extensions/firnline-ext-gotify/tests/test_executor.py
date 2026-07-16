@@ -12,8 +12,6 @@ from httpx import Response
 from firnline_core.plugins import (
     ActionContext,
     ActionExecutor,
-    ExecutionResult,
-    ModuleRequirement,
     validate_plugin,
 )
 
@@ -91,9 +89,7 @@ async def test_missing_config_returns_not_retryable() -> None:
 
     ctx = ActionContext(tdb=None, logger=MagicMock())
 
-    result = await executor.execute(
-        {}, {"scheduled_for": "2026-07-07T10:00:00Z"}, {"name": "Test"}, ctx
-    )
+    result = await executor.execute({}, {"scheduled_for": "2026-07-07T10:00:00Z"}, {"name": "Test"}, ctx)
 
     assert result.ok is False
     assert result.retryable is False
@@ -135,9 +131,7 @@ async def test_subject_name_used_for_title(monkeypatch):
     ctx = ActionContext(tdb=None, logger=MagicMock())
 
     with respx.mock(assert_all_called=False) as mock:
-        route = mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(200, json={})
-        )
+        route = mock.post("https://gotify.example.com/message").mock(return_value=Response(200, json={}))
         result = await executor.execute({}, {}, {"name": "Walk dog"}, ctx)
 
     assert result.ok
@@ -151,9 +145,7 @@ async def test_subject_title_fallback(monkeypatch):
     ctx = ActionContext(tdb=None, logger=MagicMock())
 
     with respx.mock(assert_all_called=False) as mock:
-        route = mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(200, json={})
-        )
+        route = mock.post("https://gotify.example.com/message").mock(return_value=Response(200, json={}))
         result = await executor.execute({}, {}, {"title": "Team meeting"}, ctx)
 
     assert result.ok
@@ -167,9 +159,7 @@ async def test_subject_type_fallback(monkeypatch):
     ctx = ActionContext(tdb=None, logger=MagicMock())
 
     with respx.mock(assert_all_called=False) as mock:
-        route = mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(200, json={})
-        )
+        route = mock.post("https://gotify.example.com/message").mock(return_value=Response(200, json={}))
         result = await executor.execute({}, {}, {"@type": "Task"}, ctx)
 
     assert result.ok
@@ -183,9 +173,7 @@ async def test_subject_id_fallback(monkeypatch):
     ctx = ActionContext(tdb=None, logger=MagicMock())
 
     with respx.mock(assert_all_called=False) as mock:
-        route = mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(200, json={})
-        )
+        route = mock.post("https://gotify.example.com/message").mock(return_value=Response(200, json={}))
         result = await executor.execute({}, {}, {"@id": "Task/abc123"}, ctx)
 
     assert result.ok
@@ -199,9 +187,7 @@ async def test_subject_none_title_fallback(monkeypatch):
     ctx = ActionContext(tdb=None, logger=MagicMock())
 
     with respx.mock(assert_all_called=False) as mock:
-        route = mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(200, json={})
-        )
+        route = mock.post("https://gotify.example.com/message").mock(return_value=Response(200, json={}))
         result = await executor.execute({}, {}, None, ctx)
 
     assert result.ok
@@ -224,9 +210,7 @@ async def test_title_template_rendered(monkeypatch):
     subject = {"name": "Walk dog"}
 
     with respx.mock(assert_all_called=False) as mock:
-        route = mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(200, json={})
-        )
+        route = mock.post("https://gotify.example.com/message").mock(return_value=Response(200, json={}))
         result = await executor.execute(action, firing, subject, ctx)
 
     assert result.ok
@@ -247,9 +231,7 @@ async def test_body_template_rendered(monkeypatch):
     subject = {"name": "Walk dog"}
 
     with respx.mock(assert_all_called=False) as mock:
-        route = mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(200, json={})
-        )
+        route = mock.post("https://gotify.example.com/message").mock(return_value=Response(200, json={}))
         result = await executor.execute(action, firing, subject, ctx)
 
     assert result.ok
@@ -267,9 +249,7 @@ async def test_template_vars_include_idempotency_key(monkeypatch):
     subject = None
 
     with respx.mock(assert_all_called=False) as mock:
-        route = mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(200, json={})
-        )
+        route = mock.post("https://gotify.example.com/message").mock(return_value=Response(200, json={}))
         result = await executor.execute(action, firing, subject, ctx)
 
     assert result.ok
@@ -291,9 +271,7 @@ async def test_successful_delivery(monkeypatch):
     firing = {"scheduled_for": "2026-07-07T10:00:00Z", "occurrence_key": "abc"}
 
     with respx.mock(assert_all_called=False) as mock:
-        route = mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(200, json={"id": 42})
-        )
+        route = mock.post("https://gotify.example.com/message").mock(return_value=Response(200, json={"id": 42}))
         result = await executor.execute(action, firing, {"name": "Test"}, ctx)
 
     assert result.ok is True
@@ -317,9 +295,7 @@ async def test_successful_delivery_with_external_ref(monkeypatch):
     ctx = ActionContext(tdb=None, logger=MagicMock(), idempotency_key="ik-2")
 
     with respx.mock(assert_all_called=False) as mock:
-        mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(200, json={"id": 99})
-        )
+        mock.post("https://gotify.example.com/message").mock(return_value=Response(200, json={"id": 99}))
         result = await executor.execute({}, {}, {"name": "X"}, ctx)
 
     assert result.ok
@@ -332,9 +308,7 @@ async def test_success_without_id_in_response(monkeypatch):
     ctx = ActionContext(tdb=None, logger=MagicMock())
 
     with respx.mock(assert_all_called=False) as mock:
-        mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(200, json={})
-        )
+        mock.post("https://gotify.example.com/message").mock(return_value=Response(200, json={}))
         result = await executor.execute({}, {}, {"name": "X"}, ctx)
 
     assert result.ok
@@ -347,8 +321,9 @@ async def test_success_without_id_in_response(monkeypatch):
 
 
 async def test_dry_run_no_http_call(monkeypatch):
-    """ctx.dry_run=True returns ok without making any HTTP call."""
-    executor = _configured_executor()
+    """ctx.dry_run=True returns ok without making any HTTP call, even when unconfigured."""
+    executor = GotifyExecutor()
+    executor._settings = GotifySettings(url="", token="", priority=5, timeout_seconds=10)
     ctx = ActionContext(tdb=None, logger=MagicMock(), dry_run=True)
 
     with respx.mock(assert_all_called=False) as mock:
@@ -372,14 +347,34 @@ async def test_500_retryable(monkeypatch):
     ctx = ActionContext(tdb=None, logger=MagicMock())
 
     with respx.mock(assert_all_called=False) as mock:
-        mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(500, json={"error": "boom"})
-        )
+        mock.post("https://gotify.example.com/message").mock(return_value=Response(500, json={"error": "boom"}))
         result = await executor.execute({}, {}, {"name": "X"}, ctx)
 
     assert result.ok is False
     assert result.retryable is True
     assert "500" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# 5xx response text truncation
+# ---------------------------------------------------------------------------
+
+
+async def test_5xx_text_truncation(monkeypatch):
+    """Response text > 500 chars is truncated to 500 on 5xx error."""
+    executor = _configured_executor()
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+
+    long_text = "y" * 600
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("https://gotify.example.com/message").mock(return_value=Response(500, text=long_text))
+        result = await executor.execute({}, {}, {"name": "X"}, ctx)
+
+    assert result.ok is False
+    assert result.retryable is True
+    assert "500" in result.detail
+    assert "y" * 500 in result.detail
+    assert "y" * 600 not in result.detail
 
 
 # ---------------------------------------------------------------------------
@@ -393,9 +388,7 @@ async def test_401_not_retryable(monkeypatch):
     ctx = ActionContext(tdb=None, logger=MagicMock())
 
     with respx.mock(assert_all_called=False) as mock:
-        mock.post("https://gotify.example.com/message").mock(
-            return_value=Response(401, json={"error": "unauthorized"})
-        )
+        mock.post("https://gotify.example.com/message").mock(return_value=Response(401, json={"error": "unauthorized"}))
         result = await executor.execute({}, {}, {"name": "X"}, ctx)
 
     assert result.ok is False
@@ -414,14 +407,71 @@ async def test_timeout_retryable(monkeypatch):
     ctx = ActionContext(tdb=None, logger=MagicMock())
 
     with respx.mock(assert_all_called=False) as mock:
-        mock.post("https://gotify.example.com/message").mock(
-            side_effect=httpx.TimeoutException("timed out")
-        )
+        mock.post("https://gotify.example.com/message").mock(side_effect=httpx.TimeoutException("timed out"))
         result = await executor.execute({}, {}, {"name": "X"}, ctx)
 
     assert result.ok is False
     assert result.retryable is True
     assert "timeout" in result.detail.lower() or "network" in result.detail.lower()
+
+
+# ---------------------------------------------------------------------------
+# Connect error → retryable
+# ---------------------------------------------------------------------------
+
+
+async def test_connect_error_retryable(monkeypatch):
+    """httpx.ConnectError → ExecutionResult(ok=False, retryable=True)."""
+    executor = _configured_executor()
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("https://gotify.example.com/message").mock(side_effect=httpx.ConnectError("connection refused"))
+        result = await executor.execute({}, {}, {"name": "X"}, ctx)
+
+    assert result.ok is False
+    assert result.retryable is True
+
+
+# ---------------------------------------------------------------------------
+# Unexpected exception → retryable (catch-all)
+# ---------------------------------------------------------------------------
+
+
+async def test_unexpected_exception_retryable(monkeypatch):
+    """Unexpected RuntimeError → ExecutionResult(ok=False, retryable=True)."""
+    executor = _configured_executor()
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("https://gotify.example.com/message").mock(side_effect=RuntimeError("boom"))
+        result = await executor.execute({}, {}, {"name": "X"}, ctx)
+
+    assert result.ok is False
+    assert result.retryable is True
+
+
+# ---------------------------------------------------------------------------
+# 4xx response text truncation
+# ---------------------------------------------------------------------------
+
+
+async def test_4xx_text_truncation(monkeypatch):
+    """Response text > 500 chars is truncated to 500 on 4xx error."""
+    executor = _configured_executor()
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+
+    long_text = "x" * 600
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("https://gotify.example.com/message").mock(return_value=Response(404, text=long_text))
+        result = await executor.execute({}, {}, {"name": "X"}, ctx)
+
+    assert result.ok is False
+    assert result.retryable is False
+    assert "404" in result.detail
+    # The text should be truncated to 500 chars
+    assert "x" * 500 in result.detail
+    assert "x" * 600 not in result.detail
 
 
 # ---------------------------------------------------------------------------

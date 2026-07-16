@@ -8,24 +8,16 @@ import pathlib
 import signal
 import sys
 from typing import Any
-import warnings
 
 import structlog
 
 from effectd.engine import EffectEngine
 from effectd.settings import EffectdSettings
-from firnline_core.plugins import (
-    ActionExecutor,
-    ChannelExecutorAdapter,
-    HostPolicy,
-    NotificationChannel,
-    PluginHost,
-)
+from firnline_core.plugins import ActionExecutor, HostPolicy, PluginHost
 from firnline_core.repository import Repository
 from firnline_core.logging import configure_logging
 from firnline_core.tdb import TdbClient
 
-_CHANNEL_GROUP = "firnline.notifyd.channels"
 _EXECUTOR_GROUP = "firnline.effectd.executors"
 
 
@@ -37,33 +29,6 @@ async def run_cycle_safe(engine: EffectEngine, should_stop: asyncio.Event | None
         structlog.get_logger(__name__).exception("cycle_failed")
         return False
     return True
-
-
-async def _discover_channel_plugins_async(
-    tdb: TdbClient,
-    branch: str,
-    logger: Any,
-    strict: bool = False,
-) -> list[object]:
-    """Discover notification channel plugins, check requirements, return active ones.
-
-    Zero active channels is NOT fatal: the service idles gracefully,
-    logging a clear message once at startup.
-    """
-    host = PluginHost(
-        group=_CHANNEL_GROUP,
-        protocol=NotificationChannel,
-        tdb=tdb,
-        branch=branch,
-        policy=HostPolicy(
-            broken_entry_point_fatal=False,
-            zero_active_fatal=False,
-            strict=strict,
-        ),
-        logger=logger,
-    )
-    result = await host.start(collision_key=lambda c: [c.name])
-    return [obj for _, obj in result.active]
 
 
 async def _discover_executor_plugins_async(
@@ -89,77 +54,6 @@ async def _discover_executor_plugins_async(
     return [obj for _, obj in result.active]
 
 
-def _adapt_channels(
-    channels: list[object],
-    native_executors: list[Any],
-    logger: Any,
-) -> list[Any]:
-    """Adapt legacy channels to executors, skipping kind collisions.
-
-    Skips any channel whose ``notify:<name>`` kind already appears
-    among native executor kinds (forward-compat for M4 dual registration).
-    Logs a ``DeprecationWarning``-style warning for each adapted plugin.
-    """
-    native_kinds: set[str] = set()
-    for ex in native_executors:
-        for kind in ex.kinds:
-            native_kinds.add(kind)
-
-    adapted: list[Any] = []
-    for channel in channels:
-        name = getattr(channel, "name", "?")
-        kind = f"notify:{name}"
-        if kind in native_kinds:
-            if logger is not None:
-                logger.info("channel_adapt_skipped_duplicate_kind", channel=name, kind=kind)
-            continue
-        adapter = ChannelExecutorAdapter(channel)
-        adapted.append(adapter)
-        warnings.warn(
-            f"Adapting legacy channel '{name}' to ActionExecutor — "
-            f"migrate to native executor plugin registering as kind '{kind}'",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if logger is not None:
-            logger.warning("channel_adapted_as_executor", channel=name, kind=kind)
-
-    return adapted
-
-
-def _check_merged_kind_collisions(
-    native_executors: list[Any],
-    adapted_executors: list[Any],
-    logger: Any,  # pylint: disable=unused-argument — kept for future use
-) -> None:
-    """Check for kind collisions across native and adapted executors.
-
-    PluginHost collision detection runs per-group, so we manually verify
-    that the merged set has no duplicated kinds.
-    """
-    seen: dict[str, tuple[str, str]] = {}  # kind → (source_name, source)
-    for ex in native_executors:
-        source = getattr(ex, "name", "?")
-        for kind in ex.kinds:
-            if kind in seen:
-                other_name, other_source = seen[kind]
-                raise RuntimeError(
-                    f"Executor kind collision on {kind!r}: "
-                    f"native '{source}' and '{other_name}' ({other_source})"
-                )
-            seen[kind] = (source, "native")
-    for ex in adapted_executors:
-        source = getattr(ex, "name", "?")
-        for kind in ex.kinds:
-            if kind in seen:
-                other_name, other_source = seen[kind]
-                raise RuntimeError(
-                    f"Executor kind collision on {kind!r}: "
-                    f"adapted '{source}' and '{other_name}' ({other_source})"
-                )
-            seen[kind] = (source, "adapted")
-
-
 async def async_main(
     once: bool,
     should_stop: asyncio.Event,
@@ -179,44 +73,33 @@ async def async_main(
         author="service:effectd",
     )
 
-    repo = Repository(tdb, transitions={
-        "TriggerFiring": {
-            "pending": ["notified"],
-            "notified": ["acknowledged", "snoozed", "expired"],
-            "snoozed": ["notified", "expired"],
-            "acknowledged": [],
-            "expired": [],
+    repo = Repository(
+        tdb,
+        transitions={
+            "TriggerFiring": {
+                "pending": ["notified"],
+                "notified": ["acknowledged", "snoozed", "expired"],
+                "snoozed": ["notified", "expired"],
+                "acknowledged": [],
+                "expired": [],
+            },
+            "ActionExecution": {
+                "pending_approval": ["pending"],
+                "pending": ["succeeded", "failed", "dead"],
+                "succeeded": [],
+                "failed": [],
+                "dead": [],
+                "skipped": [],
+            },
         },
-        "ActionExecution": {
-            "pending_approval": ["pending"],
-            "pending": ["succeeded", "failed", "dead"],
-            "succeeded": [],
-            "failed": [],
-            "dead": [],
-            "skipped": [],
-        },
-    })
-
-    # ── Discover channel plugins ────────────────────────────────────
-    try:
-        channels = await _discover_channel_plugins_async(
-            repo.tdb, branch, logger,
-            strict=settings.strict_plugins,
-        )
-    except (RuntimeError, ValueError):
-        logger.exception("channel_plugin_discovery_failed")
-        sys.exit(1)
-
-    logger.info(
-        "plugin_startup_complete",
-        channel_count=len(channels),
-        channel_names=[getattr(c, "name", "?") for c in channels],
     )
 
     # ── Discover native ActionExecutor plugins ──────────────────────
     try:
         native_executors = await _discover_executor_plugins_async(
-            repo.tdb, branch, logger,
+            repo.tdb,
+            branch,
+            logger,
             strict=settings.strict_plugins,
         )
     except (RuntimeError, ValueError):
@@ -229,23 +112,9 @@ async def async_main(
         executor_names=[getattr(e, "name", "?") for e in native_executors],
     )
 
-    # ── Adapt legacy channels to executors ──────────────────────────
-    adapted_executors = _adapt_channels(channels, native_executors, logger)
-
-    # ── Merge and collision-check ───────────────────────────────────
-    _check_merged_kind_collisions(native_executors, adapted_executors, logger)
-    all_executors = native_executors + adapted_executors
-
-    logger.info(
-        "executors_ready",
-        native_count=len(native_executors),
-        adapted_count=len(adapted_executors),
-    )
-
     engine = EffectEngine(
         repo=repo,
-        channels=channels,  # raw channels for legacy loop
-        executors=all_executors,
+        executors=native_executors,
         settings=settings,
         logger=logger,
     )

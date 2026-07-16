@@ -8,7 +8,6 @@ from typing import Any, TYPE_CHECKING
 
 import structlog
 
-from effectd.legacy_notify import LegacyNotifyLoop, _strip_nones
 from firnline_core.base import _format_datetime
 from firnline_core.conventions import agent_id, utc_now
 from firnline_core.durations import parse_duration, parse_iso_datetime
@@ -26,23 +25,29 @@ logger = structlog.get_logger(__name__)
 _CONCRETE_ACTION_TYPES = ("WebhookAction", "NotifyAction")
 
 
+def _strip_nones(value: Any) -> Any:
+    """Recursively remove ``None`` values from mappings and sequences."""
+    if isinstance(value, dict):
+        return {key: _strip_nones(item) for key, item in value.items() if item is not None}
+    if isinstance(value, list):
+        return [_strip_nones(item) for item in value if item is not None]
+    return value
+
+
 class EffectEngine:
     """Effect delivery engine.
 
-    Each ``run_cycle`` executes three phases in order:
+    Each ``run_cycle`` executes two phases in order:
 
     1. **PLAN** — enumerate (action, firing) pairs missing an
        ActionExecution and insert exactly one per pair.
     2. **EXECUTE** — pick up pending ActionExecution documents, resolve
        executor, invoke with timeout, persist outcomes.
-    3. **LEGACY** — delegate to :class:`LegacyNotifyLoop` when
-       ``settings.legacy_notification_loop`` is enabled (default).
     """
 
     def __init__(
         self,
         repo: Any,
-        channels: list[object],
         *,
         executors: list[Any] | None = None,
         settings: EffectdSettings | None = None,
@@ -50,29 +55,18 @@ class EffectEngine:
         logger: Any = None,
     ) -> None:
         self.repo = repo
-        self.channels = channels
         self.executors: list[Any] = executors or []
         self.settings = settings
         self.log = logger or structlog.get_logger(__name__)
         self._now = now if now is not None else utc_now
         self._agent = agent_id("service", "effectd")
 
-        if settings is None or settings.legacy_notification_loop:
-            self._legacy = LegacyNotifyLoop(
-                repo=repo,
-                channels=channels,
-                now=now,
-                logger=logger,
-            )
-        else:
-            self._legacy = None
-
     # ------------------------------------------------------------------
     # run_cycle — top-level phase dispatcher
     # ------------------------------------------------------------------
 
     async def run_cycle(self, should_stop: Any = None) -> None:
-        """Run one full delivery cycle: plan → execute → legacy.
+        """Run one full delivery cycle: plan → execute.
 
         Plan and execute run in the same cycle by design, so auto-mode
         executions planned this tick execute immediately (fast auto path, not
@@ -92,9 +86,6 @@ class EffectEngine:
             await self._execute(now)
         except Exception:
             self.log.warning("execute_phase_failed", exc_info=True)
-
-        if self._legacy is not None:
-            await self._legacy.run_cycle(should_stop)
 
     # ------------------------------------------------------------------
     # Phase 1 — PLAN
@@ -417,10 +408,8 @@ class EffectEngine:
                 # retryable, not yet exhausted → stay pending, set backoff
                 try:
                     doc = await repo.get_document(execution_iri)
-                    backoff_secs = backoff_td.total_seconds() * (2 ** prior_attempt)
-                    next_at = now_str if backoff_secs == 0 else _format_datetime(
-                        now + backoff_td * (2 ** prior_attempt)
-                    )
+                    backoff_secs = backoff_td.total_seconds() * (2**prior_attempt)
+                    next_at = now_str if backoff_secs == 0 else _format_datetime(now + backoff_td * (2**prior_attempt))
                     doc["attempt"] = new_attempt
                     doc["executed_at"] = now_str
                     doc["next_attempt_at"] = next_at
@@ -517,9 +506,7 @@ def _scheduled_after(firing: dict[str, Any], window_start: datetime) -> bool:
         return False  # exclude if unparseable
 
 
-def _select_executor(
-    executors: list[Any], kind: str
-) -> Any | None:
+def _select_executor(executors: list[Any], kind: str) -> Any | None:
     """Return the first executor whose ``kinds`` contains *kind*."""
     for ex in executors:
         if kind in ex.kinds:

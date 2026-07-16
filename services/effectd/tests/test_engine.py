@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 import structlog
 
 from effectd.engine import EffectEngine, _scheduled_after
-from effectd.legacy_notify import _strip_nones
 from effectd.settings import EffectdSettings
 from firnline_core.base import _format_datetime
-from firnline_core.plugins import ExecutionResult, HostResult, ModuleRequirement
-from firnline_core.tdb import TdbConflictError
+from firnline_core.plugins import ExecutionResult, ModuleRequirement
 
 UTC = timezone.utc
 
@@ -103,14 +101,12 @@ class FakeRepo:
 def _make_engine(
     *,
     executors: list | None = None,
-    channels: list | None = None,
     actions: list[dict] | None = None,
     firings: list[dict] | None = None,
     executions: list[dict] | None = None,
     now: datetime | None = None,
     settings: EffectdSettings | None = None,
     dry_run_global: bool = False,
-    legacy_notification_loop: bool = False,
 ) -> tuple[EffectEngine, AsyncMock]:
     """Build an EffectEngine backed by an AsyncMock TdbClient wrapped in FakeRepo."""
     tdb = AsyncMock()
@@ -124,11 +120,11 @@ def _make_engine(
 
     # Build lookup of all docs by @id for get_document
     all_docs_by_id: dict[str, dict] = {}
-    for a in (actions or []):
+    for a in actions or []:
         all_docs_by_id[a["@id"]] = dict(a)
-    for f_ in (firings or []):
+    for f_ in firings or []:
         all_docs_by_id[f_["@id"]] = dict(f_)
-    for e_ in (executions or []):
+    for e_ in executions or []:
         all_docs_by_id[e_["@id"]] = dict(e_)
 
     # Route get_documents by type
@@ -169,7 +165,6 @@ def _make_engine(
         settings = EffectdSettings(
             tdb_db="test",
             tdb_password="pw",
-            legacy_notification_loop=legacy_notification_loop,
         )
     else:
         settings = settings
@@ -179,7 +174,6 @@ def _make_engine(
 
     engine = EffectEngine(
         repo=repo,
-        channels=channels or [],
         executors=executors,
         settings=settings,
         now=lambda: now,
@@ -187,8 +181,15 @@ def _make_engine(
     return engine, tdb
 
 
-def _action(*, iri: str, type_: str = "WebhookAction", trigger: str, mode: str = "auto",
-            enabled: bool = True, executor: str = "webhook") -> dict:
+def _action(
+    *,
+    iri: str,
+    type_: str = "WebhookAction",
+    trigger: str,
+    mode: str = "auto",
+    enabled: bool = True,
+    executor: str = "webhook",
+) -> dict:
     return {
         "@id": iri,
         "@type": type_,
@@ -200,8 +201,7 @@ def _action(*, iri: str, type_: str = "WebhookAction", trigger: str, mode: str =
     }
 
 
-def _firing(*, iri: str, trigger: str, scheduled_for: str | None = None,
-            subject: str | None = None) -> dict:
+def _firing(*, iri: str, trigger: str, scheduled_for: str | None = None, subject: str | None = None) -> dict:
     return {
         "@id": iri,
         "@type": "TriggerFiring",
@@ -281,10 +281,10 @@ class TestPlanner:
         now = _frozen_now()
         old_time = now - timedelta(days=30)
         action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
-        old_firing = _firing(iri="TriggerFiring/old", trigger="OneShotTrigger/t1",
-                              scheduled_for=_utc_iso(old_time))
-        recent_firing = _firing(iri="TriggerFiring/recent", trigger="OneShotTrigger/t1",
-                                 scheduled_for=_utc_iso(now - timedelta(hours=1)))
+        old_firing = _firing(iri="TriggerFiring/old", trigger="OneShotTrigger/t1", scheduled_for=_utc_iso(old_time))
+        recent_firing = _firing(
+            iri="TriggerFiring/recent", trigger="OneShotTrigger/t1", scheduled_for=_utc_iso(now - timedelta(hours=1))
+        )
 
         engine, tdb = _make_engine(
             actions=[action],
@@ -413,7 +413,10 @@ class TestModeRouting:
         firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
 
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing], now=now, dry_run_global=True,
+            actions=[action],
+            firings=[firing],
+            now=now,
+            dry_run_global=True,
         )
         engine.repo.create = AsyncMock()
 
@@ -444,8 +447,11 @@ class TestExecutorSuccess:
 
         executor = FakeExecutor(kinds=("webhook",), ok=True, external_ref="ext-123")
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[execution], executors=[executor], now=now,
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
         )
         engine.repo.create = AsyncMock()
 
@@ -453,7 +459,10 @@ class TestExecutorSuccess:
 
         # Transition called
         engine.repo.transition.assert_called_once_with(
-            "ActionExecution/ae1", "status", "pending", "succeeded",
+            "ActionExecution/ae1",
+            "status",
+            "pending",
+            "succeeded",
             agent="service:effectd",
         )
         # Executor invoked
@@ -462,8 +471,7 @@ class TestExecutorSuccess:
         # insert_documents called for field update
         assert tdb.insert_documents.call_count >= 1
         # Find the success insert call
-        success_calls = [c for c in tdb.insert_documents.call_args_list
-                         if "success" in str(c)]
+        success_calls = [c for c in tdb.insert_documents.call_args_list if "success" in str(c)]
         # Actually just check the last insert call
         last_call = tdb.insert_documents.call_args_list[-1]
         docs = last_call[0][0]
@@ -493,11 +501,13 @@ class TestRetryBackoff:
             "idempotency_key": "wa#f1",
         }
 
-        executor = FakeExecutor(kinds=("webhook",), ok=False, retryable=True,
-                                detail="transient error")
+        executor = FakeExecutor(kinds=("webhook",), ok=False, retryable=True, detail="transient error")
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[execution], executors=[executor], now=now,
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
         )
         engine.repo.create = AsyncMock()
 
@@ -507,8 +517,7 @@ class TestRetryBackoff:
         engine.repo.transition.assert_not_called()
 
         # Field update via insert_documents
-        retry_calls = [c for c in tdb.insert_documents.call_args_list
-                       if "retry" in str(c)]
+        retry_calls = [c for c in tdb.insert_documents.call_args_list if "retry" in str(c)]
         assert len(retry_calls) == 1
         updated = retry_calls[0][0][0][0]
         assert updated["attempt"] == 1
@@ -538,15 +547,17 @@ class TestRetryBackoff:
 
         executor = FakeExecutor(kinds=("webhook",), ok=False, retryable=True, detail="still failing")
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[execution], executors=[executor], now=now,
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
         )
         engine.repo.create = AsyncMock()
 
         await engine.run_cycle()
 
-        retry_calls = [c for c in tdb.insert_documents.call_args_list
-                       if "retry" in str(c)]
+        retry_calls = [c for c in tdb.insert_documents.call_args_list if "retry" in str(c)]
         assert len(retry_calls) == 1
         updated = retry_calls[0][0][0][0]
         assert updated["attempt"] == 2
@@ -574,15 +585,21 @@ class TestRetryBackoff:
 
         executor = FakeExecutor(kinds=("webhook",), ok=False, retryable=True, detail="exhausted")
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[execution], executors=[executor], now=now,
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
         )
         engine.repo.create = AsyncMock()
 
         await engine.run_cycle()
 
         engine.repo.transition.assert_called_once_with(
-            "ActionExecution/ae1", "status", "pending", "dead",
+            "ActionExecution/ae1",
+            "status",
+            "pending",
+            "dead",
             agent="service:effectd",
         )
 
@@ -604,15 +621,21 @@ class TestRetryBackoff:
 
         executor = FakeExecutor(kinds=("webhook",), ok=False, retryable=False, detail="bad request")
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[execution], executors=[executor], now=now,
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
         )
         engine.repo.create = AsyncMock()
 
         await engine.run_cycle()
 
         engine.repo.transition.assert_called_once_with(
-            "ActionExecution/ae1", "status", "pending", "failed",
+            "ActionExecution/ae1",
+            "status",
+            "pending",
+            "failed",
             agent="service:effectd",
         )
 
@@ -648,11 +671,15 @@ class TestTimeout:
         # Executor sleeps for 2s, timeout is 1s → times out
         executor = FakeExecutor(kinds=("webhook",), sleep=2.0, ok=True)
         settings = EffectdSettings(
-            tdb_db="test", tdb_password="pw", legacy_notification_loop=False,
+            tdb_db="test",
+            tdb_password="pw",
         )
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[execution], executors=[executor], now=now,
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
             settings=settings,
         )
         engine.repo.create = AsyncMock()
@@ -660,8 +687,7 @@ class TestTimeout:
         await engine.run_cycle()
 
         # Should get a retry persistence (timeout → retryable)
-        retry_calls = [c for c in tdb.insert_documents.call_args_list
-                       if "retry" in str(c)]
+        retry_calls = [c for c in tdb.insert_documents.call_args_list if "retry" in str(c)]
         assert len(retry_calls) >= 1
         updated = retry_calls[0][0][0][0]
         assert updated["result_detail"] == "timeout"
@@ -684,16 +710,18 @@ class TestTimeout:
 
         executor = FakeExecutor(kinds=("webhook",), exception=ValueError("boom"))
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[execution], executors=[executor], now=now,
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
         )
         engine.repo.create = AsyncMock()
 
         await engine.run_cycle()
 
         # Should be retryable with detail containing the exception
-        retry_calls = [c for c in tdb.insert_documents.call_args_list
-                       if "retry" in str(c)]
+        retry_calls = [c for c in tdb.insert_documents.call_args_list if "retry" in str(c)]
         assert len(retry_calls) >= 1
         updated = retry_calls[0][0][0][0]
         assert "boom" in updated.get("result_detail", "")
@@ -722,8 +750,11 @@ class TestNextAttemptAt:
 
         executor = FakeExecutor(kinds=("webhook",))
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[execution], executors=[executor], now=now,
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
         )
         engine.repo.create = AsyncMock()
 
@@ -752,8 +783,11 @@ class TestNextAttemptAt:
 
         executor = FakeExecutor(kinds=("webhook",), ok=True)
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[execution], executors=[executor], now=now,
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
         )
         engine.repo.create = AsyncMock()
 
@@ -786,8 +820,11 @@ class TestMissingExecutor:
         # but with a different kind so the lookup fails.
         dummy_executor = FakeExecutor(kinds=("other_kind",))
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[execution], executors=[dummy_executor], now=now,
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[dummy_executor],
+            now=now,
         )
         engine.repo.create = AsyncMock()
 
@@ -828,8 +865,11 @@ class TestMissingExecutor:
 
         dummy_executor = FakeExecutor(kinds=("other_kind",))
         engine, tdb = _make_engine(
-            actions=[action, action2], firings=[firing],
-            executions=[exec1, exec2], executors=[dummy_executor], now=now,
+            actions=[action, action2],
+            firings=[firing],
+            executions=[exec1, exec2],
+            executors=[dummy_executor],
+            now=now,
         )
         engine.repo.create = AsyncMock()
 
@@ -872,13 +912,17 @@ class TestOrderingAndCap:
 
         executor = FakeExecutor(kinds=("webhook",), ok=True)
         settings = EffectdSettings(
-            tdb_db="test", tdb_password="pw", legacy_notification_loop=False,
+            tdb_db="test",
+            tdb_password="pw",
             max_executions_per_cycle=1,  # only 1 gets executed
         )
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[exec_new, exec_old], executors=[executor],
-            now=now, settings=settings,
+            actions=[action],
+            firings=[firing],
+            executions=[exec_new, exec_old],
+            executors=[executor],
+            now=now,
+            settings=settings,
         )
         engine.repo.create = AsyncMock()
 
@@ -932,14 +976,17 @@ class TestOrderingAndCap:
 
         executor = FakeExecutor(kinds=("webhook",), ok=True)
         settings = EffectdSettings(
-            tdb_db="test", tdb_password="pw", legacy_notification_loop=False,
+            tdb_db="test",
+            tdb_password="pw",
             max_executions_per_cycle=1,  # only 1 slot, but the due one is position 3
         )
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
+            actions=[action],
+            firings=[firing],
             executions=[exec_not_due_1, exec_not_due_2, exec_due],
             executors=[executor],
-            now=now, settings=settings,
+            now=now,
+            settings=settings,
         )
         engine.repo.create = AsyncMock()
 
@@ -961,7 +1008,9 @@ class TestProvenance:
         firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
 
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing], now=now,
+            actions=[action],
+            firings=[firing],
+            now=now,
         )
         engine.repo.create = AsyncMock()
 
@@ -1008,10 +1057,13 @@ class TestAcceptanceRespx:
             async def execute(self, action, firing, subject, ctx):
                 url = action.get("url", "http://fake.example.com/webhook")
                 async with httpx.AsyncClient() as client:
-                    resp = await client.post(url, json={
-                        "idempotency_key": ctx.idempotency_key,
-                        "firing_id": firing.get("@id"),
-                    })
+                    resp = await client.post(
+                        url,
+                        json={
+                            "idempotency_key": ctx.idempotency_key,
+                            "firing_id": firing.get("@id"),
+                        },
+                    )
                 return ExecutionResult(
                     ok=resp.is_success,
                     detail="ok" if resp.is_success else "fail",
@@ -1025,8 +1077,10 @@ class TestAcceptanceRespx:
             route = router.post("https://example.com/webhook").respond(200)
 
             engine, tdb = _make_engine(
-                actions=[action], firings=[firing],
-                executions=[execution], executors=[WebhookExecutor()],
+                actions=[action],
+                firings=[firing],
+                executions=[execution],
+                executors=[WebhookExecutor()],
                 now=now,
             )
             engine.repo.create = AsyncMock()
@@ -1038,32 +1092,12 @@ class TestAcceptanceRespx:
 
             # Transition to succeeded
             engine.repo.transition.assert_called_once_with(
-                "ActionExecution/ae1", "status", "pending", "succeeded",
+                "ActionExecution/ae1",
+                "status",
+                "pending",
+                "succeeded",
                 agent="service:effectd",
             )
-
-
-class TestEffectEngineDelegation:
-    """Legacy loop delegation tests (existing)."""
-
-    @pytest.mark.asyncio
-    async def test_legacy_loop_delegates_when_enabled(self):
-        """When legacy_notification_loop is True (or settings is None), run_cycle delegates."""
-        repo = FakeRepo(AsyncMock())
-        engine = EffectEngine(repo=repo, channels=[])
-        assert engine._legacy is not None
-        engine._legacy.run_cycle = AsyncMock()
-        await engine.run_cycle()
-        engine._legacy.run_cycle.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_legacy_loop_skipped_when_disabled(self):
-        """When legacy_notification_loop=False, run_cycle is a no-op."""
-        settings = EffectdSettings(tdb_db="db", tdb_password="pw", legacy_notification_loop=False)
-        repo = FakeRepo(AsyncMock())
-        engine = EffectEngine(repo=repo, channels=[], settings=settings, executors=[])
-        assert engine._legacy is None
-        await engine.run_cycle()  # no-op, should not raise
 
 
 class TestGotifyExecutorE2E:
@@ -1110,13 +1144,12 @@ class TestGotifyExecutorE2E:
         )
 
         settings = EffectdSettings(
-            tdb_db="test", tdb_password="pw", legacy_notification_loop=False,
+            tdb_db="test",
+            tdb_password="pw",
         )
 
         async with respx.MockRouter() as router:
-            route = router.post("https://gotify.example.com/message").respond(
-                200, json={"id": 55}
-            )
+            route = router.post("https://gotify.example.com/message").respond(200, json={"id": 55})
 
             engine, tdb = _make_engine(
                 actions=[action],
@@ -1143,15 +1176,15 @@ class TestGotifyExecutorE2E:
 
             # ── Transition to succeeded ──
             engine.repo.transition.assert_called_once_with(
-                "ActionExecution/ae1", "status", "pending", "succeeded",
+                "ActionExecution/ae1",
+                "status",
+                "pending",
+                "succeeded",
                 agent="service:effectd",
             )
 
             # ── external_ref persisted ──
-            success_calls = [
-                c for c in tdb.insert_documents.call_args_list
-                if "success" in str(c)
-            ]
+            success_calls = [c for c in tdb.insert_documents.call_args_list if "success" in str(c)]
             assert len(success_calls) >= 1
             updated = success_calls[-1][0][0][0]
             assert updated.get("external_ref") == "55"
@@ -1196,7 +1229,8 @@ class TestScheduledAfter:
 def test_module_imports_with_zero_extensions():
     """All modules import successfully even with no extensions installed."""
     import importlib
-    for mod in ("effectd", "effectd.main", "effectd.engine", "effectd.legacy_notify", "effectd.settings"):
+
+    for mod in ("effectd", "effectd.main", "effectd.engine", "effectd.settings"):
         importlib.import_module(mod)
 
 
@@ -1232,13 +1266,15 @@ class TestDefaultNotifyExecutorFallback:
         settings = EffectdSettings(
             tdb_db="test",
             tdb_password="pw",
-            legacy_notification_loop=False,
             default_notify_executor="notify:gotify",
         )
         engine, tdb = _make_engine(
-            actions=[action], firings=[firing],
-            executions=[execution], executors=[executor],
-            now=now, settings=settings,
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
+            settings=settings,
         )
         engine.repo.create = AsyncMock()
 
@@ -1247,30 +1283,9 @@ class TestDefaultNotifyExecutorFallback:
         # Executor was called (default_notify_executor matched)
         assert len(executor.calls) == 1
         engine.repo.transition.assert_called_once_with(
-            "ActionExecution/ae1", "status", "pending", "succeeded",
+            "ActionExecution/ae1",
+            "status",
+            "pending",
+            "succeeded",
             agent="service:effectd",
         )
-
-
-class TestStrictChannelDiscovery:
-    """strict parameter is correctly passed to channel plugin discovery."""
-
-    @pytest.mark.asyncio
-    async def test_strict_passed_to_channel_discovery(self):
-        """When strict=True, HostPolicy for channel discovery gets strict=True."""
-        from effectd.main import _discover_channel_plugins_async
-
-        # Patch PluginHost and HostPolicy
-        with patch("effectd.main.PluginHost") as mock_host_cls, \
-             patch("effectd.main.HostPolicy") as mock_policy_cls:
-            mock_policy = mock_policy_cls.return_value
-            mock_host = mock_host_cls.return_value
-            mock_host.start = AsyncMock(return_value=HostResult(active=[]))
-
-            tdb = AsyncMock()
-            await _discover_channel_plugins_async(tdb, "main", None, strict=True)
-
-            # Verify HostPolicy was called with strict=True
-            mock_policy_cls.assert_called_once()
-            _, kwargs = mock_policy_cls.call_args
-            assert kwargs.get("strict") is True
