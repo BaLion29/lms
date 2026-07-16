@@ -21,6 +21,7 @@ class JsonDetailPanel(VerticalScroll):
         """Display a document's JSON."""
         self._iri = iri
         content = self.query_one("#detail-content", Static)
+        content.remove_class("status-err")
         # Pretty-print JSON with syntax highlighting via Rich
         try:
             parsed = json.loads(json_str)
@@ -34,12 +35,14 @@ class JsonDetailPanel(VerticalScroll):
         self._iri = None
         content = self.query_one("#detail-content", Static)
         content.update(f"Error: {error}")
+        content.add_class("status-err")
 
     def clear(self) -> None:
         """Clear the panel."""
         self._iri = None
         content = self.query_one("#detail-content", Static)
-        content.update("Select a row to view document details.", classes="chip")
+        content.remove_class("status-err")
+        content.update("Select a row to view document details.")
 
     @property
     def current_iri(self) -> str | None:
