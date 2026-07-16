@@ -10,7 +10,7 @@ from pydantic_settings import SettingsConfigDict
 class Settings(FirnlineBaseSettings):
     """Application settings loaded from environment variables prefixed with TUI_."""
 
-    model_config = SettingsConfigDict(env_prefix="TUI_")
+    model_config = SettingsConfigDict(env_prefix="TUI_", env_file=".env")
 
     # Service URLs — localhost defaults (TUI runs on host, not in compose)
     captured_url: str = "http://localhost:8080"

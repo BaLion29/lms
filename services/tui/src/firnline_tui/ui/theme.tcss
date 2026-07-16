@@ -188,3 +188,14 @@ ErrorBanner {
     padding: 1 2;
     margin: 1 0;
 }
+
+/* Time Management screen */
+#tm-main {
+    width: 1fr;
+}
+#tm-tabs {
+    height: 1fr;
+}
+TabPane {
+    padding: 0;
+}

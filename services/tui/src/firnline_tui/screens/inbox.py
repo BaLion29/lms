@@ -20,10 +20,10 @@ class InboxScreen(ShellScreen):
     TITLE = "Inbox"
     BINDINGS = [
         Binding("r", "refresh", "Refresh"),
-        Binding("a", "filter_all", "All"),
-        Binding("p", "filter_pending", "Pending"),
-        Binding("c", "filter_captured", "Captured"),
-        Binding("f", "filter_failed", "Failed"),
+        Binding("1", "filter_all", "All"),
+        Binding("2", "filter_pending", "Pending"),
+        Binding("3", "filter_captured", "Captured"),
+        Binding("4", "filter_failed", "Failed"),
         Binding("escape", "clear_detail", "Clear"),
     ]
 
@@ -42,7 +42,7 @@ class InboxScreen(ShellScreen):
         yield ErrorBanner(id="error")
         yield LoadingIndicator(id="loading")
         yield Static(
-            "Filter: [a]ll  [p]ending  [c]aptured  [f]ailed",
+            "Filter: [1]all  [2]pending  [3]captured  [4]failed",
             classes="chip",
             id="filter-hint",
         )

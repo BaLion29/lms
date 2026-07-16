@@ -28,6 +28,9 @@ time_management_indexer = "firnline_ext_time_management.indexer:plugin"
 [project.entry-points."firnline.webui.pages"]
 time_management_webui = "firnline_ext_time_management.webui:plugin"
 
+[project.entry-points."firnline.tui.screens"]
+time_management_tui = "firnline_ext_time_management.tui:plugin"
+
 [tool.uv.sources]
 firnline-core = { workspace = true }
 firnline-ext-address-book = { workspace = true }
