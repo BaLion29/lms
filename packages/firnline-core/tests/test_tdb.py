@@ -12,6 +12,7 @@ from firnline_core.tdb import (
     StaleCommitError,
     TdbClient,
     TdbConflictError,
+    TdbDocumentExistsError,
     TdbError,
     full_iri,
     short_iri,
@@ -1401,6 +1402,45 @@ def test_tdbconflict_error_attributes():
     e = TdbConflictError("abc", "xyz")
     assert e.expected == "abc"
     assert e.actual == "xyz"
+
+
+# ---------------------------------------------------------------------------
+# TdbDocumentExistsError
+# ---------------------------------------------------------------------------
+
+
+async def test_insert_duplicate_id_raises_document_exists_error(client, respx_mock):
+    body = '{"api:error":{"@type":"api:DocumentIdAlreadyExists","api:message":"Document already exists"}}'
+    respx_mock.post(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(status_code=400, text=body)
+
+    docs = [{"@type": "Captured", "content": "hello"}]
+    with pytest.raises(TdbDocumentExistsError) as exc_info:
+        await client.insert_documents(docs)
+
+    assert exc_info.value.status == 400
+    assert "DocumentIdAlreadyExists" in exc_info.value.body
+
+
+def test_document_exists_error_is_tdb_error():
+    e = TdbDocumentExistsError(400, "api:DocumentIdAlreadyExists")
+    assert isinstance(e, TdbError)
+    assert not isinstance(e, TdbConflictError)
+
+
+async def test_other_400_still_raises_plain_tdb_error(client, respx_mock):
+    body = '{"api:error":{"@type":"api:SchemaCheckFailure","api:message":"Schema check failed"}}'
+    respx_mock.post(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(status_code=400, text=body)
+
+    docs = [{"@type": "Captured"}]
+    with pytest.raises(TdbError) as exc_info:
+        await client.insert_documents(docs)
+
+    assert exc_info.value.status == 400
+    assert not isinstance(exc_info.value, TdbDocumentExistsError)
 
 
 # ---------------------------------------------------------------------------
