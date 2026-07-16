@@ -1604,6 +1604,41 @@ class TestDedupEncodingNormalization:
         # Dedup should match despite URL encoding mismatch
         engine.repo.create.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_trigger_matching_with_url_encoded_trigger_iri(self):
+        """Trigger comparison must match when trigger field is URL-encoded."""
+        now = _frozen_now()
+        # Action stores trigger as decoded full IRI
+        action = {
+            "@id": "WebhookAction/wa",
+            "@type": "WebhookAction",
+            "trigger": "terminusdb:///data/OneShotTrigger/t1",
+            "mode": "auto",
+            "enabled": True,
+            "executor": "webhook",
+            "name": "wa",
+        }
+        # Firing stores trigger as URL-ENCODED full IRI
+        firing = {
+            "@id": "TriggerFiring/terminusdb:///data/OneShotTrigger/t1+2026-07-16T17:00:00Z",
+            "@type": "TriggerFiring",
+            "trigger": "terminusdb%3A%2F%2F%2Fdata%2FOneShotTrigger%2Ft1",
+            "scheduled_for": _utc_iso(now),
+            "status": "pending",
+        }
+
+        engine, tdb = _make_engine(
+            actions=[action],
+            firings=[firing],
+            now=now,
+        )
+        engine.repo.create = AsyncMock()
+
+        await engine.run_cycle()
+
+        # If trigger matching works, create IS called (the firing matches the action)
+        engine.repo.create.assert_called_once()
+
 
 # ===================================================================
 # Fix 3: Re-check status before executing (prevents double webhooks)
@@ -1665,3 +1700,111 @@ class TestStaleExecutionSkip:
             "executor must not be called for a stale (already succeeded) execution"
         )
         engine.repo.transition.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_skips_non_pending_execution_logs_stale_skipped(self):
+        """Stale execution skip emits execution_stale_skipped log with status."""
+        now = _frozen_now()
+        action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+        execution = {
+            "@id": "ActionExecution/ae1",
+            "@type": "ActionExecution",
+            "action": "WebhookAction/wa",
+            "firing": "TriggerFiring/f1",
+            "status": "pending",
+            "attempt": 0,
+            "idempotency_key": "wa#f1",
+        }
+
+        executor = FakeExecutor(kinds=("webhook",), ok=True)
+        engine, tdb = _make_engine(
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
+        )
+        engine.repo.create = AsyncMock()
+
+        orig_get_doc = tdb.get_document.side_effect
+
+        async def custom_get_doc(iri, branch="main"):
+            if iri == "ActionExecution/ae1":
+                return {
+                    "@id": "ActionExecution/ae1",
+                    "@type": "ActionExecution",
+                    "action": "WebhookAction/wa",
+                    "firing": "TriggerFiring/f1",
+                    "status": "succeeded",
+                    "attempt": 1,
+                    "idempotency_key": "wa#f1",
+                }
+            return await orig_get_doc(iri, branch=branch)
+
+        tdb.get_document.side_effect = custom_get_doc
+
+        with structlog.testing.capture_logs() as captured:
+            await engine.run_cycle()
+
+        logs_by_event = {e.get("event") for e in captured}
+        assert "execution_stale_skipped" in logs_by_event
+        stale_log = [e for e in captured if e.get("event") == "execution_stale_skipped"][0]
+        assert stale_log.get("status") == "succeeded"
+        assert len(executor.calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_refetch_failure_skips_execution(self):
+        """If re-fetch of execution fails, execution is skipped with execution_refetch_failed log."""
+        now = _frozen_now()
+        action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+        execution = {
+            "@id": "ActionExecution/ae1",
+            "@type": "ActionExecution",
+            "action": "WebhookAction/wa",
+            "firing": "TriggerFiring/f1",
+            "status": "pending",
+            "attempt": 0,
+            "idempotency_key": "wa#f1",
+        }
+
+        executor = FakeExecutor(kinds=("webhook",), ok=True)
+        engine, tdb = _make_engine(
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
+        )
+        engine.repo.create = AsyncMock()
+
+        orig_get_doc = tdb.get_document.side_effect
+        call_count = 0
+
+        async def custom_get_doc(iri, branch="main"):
+            nonlocal call_count
+            # First call for ActionExecution/ae1 (re-fetch check) raises
+            if iri == "ActionExecution/ae1":
+                call_count += 1
+                if call_count == 1:
+                    raise Exception("refetch failed")
+                return {
+                    "@id": "ActionExecution/ae1",
+                    "@type": "ActionExecution",
+                    "action": "WebhookAction/wa",
+                    "firing": "TriggerFiring/f1",
+                    "status": "pending",
+                    "attempt": 0,
+                    "idempotency_key": "wa#f1",
+                }
+            return await orig_get_doc(iri, branch=branch)
+
+        tdb.get_document.side_effect = custom_get_doc
+
+        with structlog.testing.capture_logs() as captured:
+            await engine.run_cycle()
+
+        logs_by_event = {e.get("event") for e in captured}
+        assert "execution_refetch_failed" in logs_by_event
+        assert len(executor.calls) == 0

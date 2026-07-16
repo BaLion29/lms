@@ -223,12 +223,12 @@ class EffectEngine:
         """Create ActionExecution docs for one action across all matching firings."""
         action_iri = action.get("@id", "")
         action_short = urllib.parse.unquote(short_iri(action_iri))
-        action_trigger = short_iri(action.get("trigger", ""))
+        action_trigger = short_iri(urllib.parse.unquote(action.get("trigger", "")))
         action_mode = action.get("mode", "approval")  # default: approval
         action_name = action.get("name", action_short)
 
         for firing in firings:
-            firing_trigger = short_iri(firing.get("trigger", ""))
+            firing_trigger = short_iri(urllib.parse.unquote(firing.get("trigger", "")))
             if firing_trigger != action_trigger:
                 continue
 
