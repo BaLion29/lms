@@ -30,6 +30,7 @@ class EffectdSettings(TdbSettings):
     """
 
     default_notify_executor: str = "notify:gotify"
+    """Default executor kind used when an Action document has no explicit executor field."""
     planning_lookback: str = "P7D"
     """ISO-8601 duration bounding the planner query window."""
 

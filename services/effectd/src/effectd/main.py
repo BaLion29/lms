@@ -7,10 +7,10 @@ import asyncio
 import pathlib
 import signal
 import sys
+from typing import Any
 import warnings
 
 import structlog
-from typing import Any
 
 from effectd.engine import EffectEngine
 from effectd.settings import EffectdSettings
@@ -58,6 +58,7 @@ async def _discover_channel_plugins_async(
         policy=HostPolicy(
             broken_entry_point_fatal=False,
             zero_active_fatal=False,
+            strict=strict,
         ),
         logger=logger,
     )

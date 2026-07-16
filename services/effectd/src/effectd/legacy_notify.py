@@ -20,8 +20,6 @@ from firnline_core.repository import TransitionError as RepoTransitionError
 
 logger = structlog.get_logger(__name__)
 
-_UTC = timezone.utc
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -31,17 +29,6 @@ _UTC = timezone.utc
 def _strip_nones(doc: dict[str, Any]) -> dict[str, Any]:
     """Return a shallow copy of *doc* with all ``None``-valued keys removed."""
     return {k: v for k, v in doc.items() if v is not None}
-
-
-_TRANSITIONS = {
-    "TriggerFiring": {
-        "pending": ["notified"],
-        "notified": ["acknowledged", "snoozed", "expired"],
-        "snoozed": ["notified", "expired"],
-        "acknowledged": [],
-        "expired": [],
-    },
-}
 
 
 # ---------------------------------------------------------------------------

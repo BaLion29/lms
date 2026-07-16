@@ -88,6 +88,9 @@ async def test_once_failed_cycle_exits_nonzero(_patch_discovery, _patch_tdb, mon
 
 def test_imports():
     """All public modules can be imported."""
+    import importlib
+    for mod in ("effectd", "effectd.main", "effectd.engine", "effectd.legacy_notify", "effectd.settings"):
+        importlib.import_module(mod)
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +157,7 @@ class TestAdaptChannels:
     def test_real_gotify_channel_skipped_for_native_executor(self):
         """With the real GotifyChannel + GotifyExecutor both named 'gotify',
         the channel is skipped and the native executor wins (no collision)."""
+        pytest.importorskip("firnline_ext_gotify")
         from firnline_ext_gotify.channel import GotifyChannel
         from firnline_ext_gotify.executor import GotifyExecutor
 
