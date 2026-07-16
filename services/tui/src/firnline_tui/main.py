@@ -24,15 +24,16 @@ def main() -> None:
     settings = get_settings()
     tdb = make_tdb_browser()
 
-    try:
-        registry = asyncio.run(
-            build_screen_registry(
+    async def _build():
+        try:
+            return await build_screen_registry(
                 tdb,
                 timeout=settings.plugin_registry_timeout_seconds,
             )
-        )
-    finally:
-        asyncio.run(tdb.aclose())
+        finally:
+            await tdb.aclose()
+
+    registry = asyncio.run(_build())
 
     app = FirnlineApp(registry=registry)
     app.run()

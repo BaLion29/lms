@@ -15,7 +15,7 @@ from firnline_tui.state.capture import CaptureResult, submit_note
 from firnline_tui.state.selection import SelectionController
 from firnline_tui.state.dashboard import DashboardData, ServiceHealth, load_dashboard
 from firnline_tui.state.browse import BrowseData, load_browse
-from firnline_tui.state.browse_class import ClassPageData, load_class, load_class_with_search
+from firnline_tui.state.browse_class import ClassPageData, load_class
 from firnline_tui.state.browse_helpers import (
     _compute_references,
     _row_matches,

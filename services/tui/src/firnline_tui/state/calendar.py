@@ -33,34 +33,29 @@ async def load_calendar(ctx: AppContext) -> CalendarData:
     tdb = ctx.make_tdb()
     try:
         schema = await tdb.get_schema()
+
+        specs = calendarable_classes(schema)
+
+        all_events: list[dict] = []
+        failed: list[str] = []
+
+        for spec in specs:
+            try:
+                docs = await tdb.get_documents(spec["class_id"])
+                class_events = parse_events(docs, spec)
+                color = _color_for_class(spec["class_id"])
+                for ev in class_events:
+                    ev["color"] = color
+                all_events.extend(class_events)
+            except UiClientError as exc:
+                failed.append(f"{spec['class_id']}: {exc.detail}")
+                continue
     except UiClientError as exc:
-        await tdb.aclose()
         return CalendarData(error=f"Failed to load schema: {exc.detail}")
+    finally:
+        await tdb.aclose()
 
-    specs = calendarable_classes(schema)
-
-    # Fetch documents for all calendarable classes
-    all_events: list[dict] = []
-    failed: list[str] = []
-
-    for spec in specs:
-        try:
-            docs = await tdb.get_documents(spec["class_id"])
-            class_events = parse_events(docs, spec)
-            color = _color_for_class(spec["class_id"])
-            for ev in class_events:
-                ev["color"] = color
-            all_events.extend(class_events)
-        except UiClientError as exc:
-            failed.append(f"{spec['class_id']}: {exc.detail}")
-            continue
-
-    await tdb.aclose()
-
-    error = ""
-    if failed:
-        error = " | ".join(failed)
-
+    error = " | ".join(failed) if failed else ""
     return CalendarData(
         available_classes=tuple(specs),
         events=tuple(all_events),

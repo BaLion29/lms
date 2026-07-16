@@ -46,8 +46,8 @@ class FirnlineApp(App):
         for spec in self.registry.specs:
             try:
                 self.install_screen(spec.screen_factory, name=spec.screen_id)
-            except Exception:
-                pass  # screen may not exist yet during dev
+            except Exception as exc:
+                log.warning("screen_install_failed screen_id=%s error=%s", spec.screen_id, exc)
 
         # Push start screen
         if self.registry.by_id(start) is None:
@@ -55,5 +55,10 @@ class FirnlineApp(App):
         self.push_screen(start)
 
     def action_toggle_sidebar(self) -> None:
+        """Toggle the navigation sidebar visibility."""
         self._sidebar_visible = not self._sidebar_visible
-        self.refresh()
+        try:
+            sidebar = self.query_one("NavSidebar")
+            sidebar.display = self._sidebar_visible
+        except Exception:
+            pass  # No sidebar on screen yet

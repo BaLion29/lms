@@ -30,27 +30,26 @@ async def load_history(ctx: AppContext) -> HistoryData:
     tdb = ctx.make_tdb()
     try:
         commits = await tdb.get_commit_log(_LOG_COUNT)
+
+        formatted: list[dict] = []
+        for c in commits:
+            formatted.append(
+                {
+                    "id": c.get("id", ""),
+                    "short_id": c.get("short_id", ""),
+                    "author": c.get("author", ""),
+                    "message": c.get("message", ""),
+                    "timestamp": c.get("timestamp"),
+                    "timestamp_fmt": _format_ts(c.get("timestamp")),
+                }
+            )
     except UiClientError as exc:
-        await tdb.aclose()
         return HistoryData(error=f"Failed to load commit log: {exc.detail}")
     except Exception as exc:
-        await tdb.aclose()
         return HistoryData(error=f"Failed to load commit log: {exc!s}")
+    finally:
+        await tdb.aclose()
 
-    formatted: list[dict] = []
-    for c in commits:
-        formatted.append(
-            {
-                "id": c.get("id", ""),
-                "short_id": c.get("short_id", ""),
-                "author": c.get("author", ""),
-                "message": c.get("message", ""),
-                "timestamp": c.get("timestamp"),
-                "timestamp_fmt": _format_ts(c.get("timestamp")),
-            }
-        )
-
-    await tdb.aclose()
     return HistoryData(commits=tuple(formatted))
 
 

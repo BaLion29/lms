@@ -9,7 +9,7 @@ from textual import work
 
 from firnline_tui.state.selection import SelectionController
 from firnline_tui.ui.detail import JsonDetailPanel
-from firnline_tui.ui.feedback import ErrorBanner, EmptyState, LoadingIndicator
+from firnline_tui.ui.feedback import ErrorBanner, LoadingIndicator
 from firnline_tui.ui.shell import ShellScreen
 from firnline_tui.ui.tables import DocTable
 from firnline_tui.ui.typography import page_heading

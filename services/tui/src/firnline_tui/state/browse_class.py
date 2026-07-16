@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from firnline_core.introspect import row_from_doc
 from firnline_core.uiclients import UiClientError, class_display_fields, schema_classes
 
-from firnline_tui.state.browse_helpers import _compute_references, _row_matches, _sort_key
+from firnline_tui.state.browse_helpers import _compute_references, _sort_key
 from firnline_tui.state.context import AppContext
 
 HYBRID_THRESHOLD = 1000
@@ -117,87 +117,6 @@ async def load_class(
             class_name=class_name,
             error=f"Failed to load: {exc.detail}",
         )
-    finally:
-        await tdb.aclose()
-
-
-async def load_class_with_search(
-    ctx: AppContext,
-    class_name: str,
-    search_text: str = "",
-    page_index: int = 0,
-    page_size: int = 25,
-    sort_field: str = "",
-    sort_dir: str = "asc",
-) -> ClassPageData:
-    """Like load_class but with client-side search filtering.
-
-    Only works in hybrid mode; server-pagination results are returned as-is
-    (search not applicable for large datasets).
-    """
-    data = await load_class(ctx, class_name, page_index=0, page_size=0,
-                            sort_field=sort_field, sort_dir=sort_dir)
-    if data.error or data.not_found:
-        return data
-    if data.use_server_pagination:
-        return data  # search not supported in server mode
-
-    # Re-fetch with full data (page_size=0 triggers no pagination in hybrid)
-    # Actually, we need a different approach: fetch all, filter, paginate
-    return await _load_class_hybrid_search(
-        ctx, class_name, data.display_fields, data.known_class_ids,
-        search_text, page_index, page_size, sort_field, sort_dir,
-    )
-
-
-async def _load_class_hybrid_search(
-    ctx: AppContext,
-    class_name: str,
-    fields: tuple[str, ...],
-    known_ids: tuple[str, ...],
-    search_text: str,
-    page_index: int,
-    page_size: int,
-    sort_field: str,
-    sort_dir: str,
-) -> ClassPageData:
-    """Fetch all documents and apply client-side search/sort/pagination."""
-    tdb = ctx.make_tdb()
-    try:
-        total = await tdb.count_documents(class_name)
-        docs = await tdb.get_documents(class_name)
-        all_rows = [row_from_doc(d, list(fields)) for d in docs]
-
-        # Filter
-        q = search_text.strip().lower()
-        if q:
-            all_rows = [r for r in all_rows if _row_matches(r, q)]
-
-        # Sort
-        if sort_field:
-            reverse = sort_dir == "desc"
-            all_rows = sorted(
-                all_rows,
-                key=lambda r: _sort_key(r.get(sort_field, "")),
-                reverse=reverse,
-            )
-
-        filtered_count = len(all_rows)
-        start = page_index * page_size
-        page_rows = all_rows[start : start + page_size]
-
-        return ClassPageData(
-            class_name=class_name,
-            display_fields=fields,
-            rows=tuple(page_rows),
-            total_count=filtered_count,
-            page_index=page_index,
-            page_size=page_size,
-            use_server_pagination=False,
-            known_class_ids=known_ids,
-        )
-    except UiClientError as exc:
-        return ClassPageData(class_name=class_name, error=f"Failed to load: {exc.detail}")
     finally:
         await tdb.aclose()
 

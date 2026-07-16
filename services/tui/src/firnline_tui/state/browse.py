@@ -28,28 +28,29 @@ async def load_browse(ctx: AppContext) -> BrowseData:
         await tdb.aclose()
         return BrowseData(error=f"Failed to load data: {exc.detail}")
 
-    all_ids = browsable_classes(schema)
-    groups_dict = group_classes_by_module(all_ids, modules)
+    try:
+        all_ids = browsable_classes(schema)
+        groups_dict = group_classes_by_module(all_ids, modules)
 
-    # Convert to sorted tuple of (module_name, tuple(class_names))
-    sorted_modules = sorted(groups_dict.keys())
-    if "other" in sorted_modules:
-        sorted_modules.remove("other")
-        sorted_modules.sort()
-        sorted_modules.append("other")
-    groups: list[tuple[str, tuple[str, ...]]] = [
-        (m, tuple(groups_dict[m])) for m in sorted_modules
-    ]
+        # Convert to sorted tuple of (module_name, tuple(class_names))
+        sorted_modules = sorted(groups_dict.keys())
+        if "other" in sorted_modules:
+            sorted_modules.remove("other")
+            sorted_modules.sort()
+            sorted_modules.append("other")
+        groups: list[tuple[str, tuple[str, ...]]] = [
+            (m, tuple(groups_dict[m])) for m in sorted_modules
+        ]
 
-    # Extract module versions
-    versions: dict[str, str] = {}
-    for mod in modules:
-        name = mod.get("name", mod.get("@id", ""))
-        ver = str(mod.get("version", ""))
-        if name and ver:
-            versions[str(name)] = ver
-
-    await tdb.aclose()
+        # Extract module versions
+        versions: dict[str, str] = {}
+        for mod in modules:
+            name = mod.get("name", mod.get("@id", ""))
+            ver = str(mod.get("version", ""))
+            if name and ver:
+                versions[str(name)] = ver
+    finally:
+        await tdb.aclose()
 
     # Fetch counts with semaphore
     all_class_ids = [cid for _, ids in groups for cid in ids]

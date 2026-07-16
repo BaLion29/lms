@@ -25,7 +25,6 @@ async def load_automations(ctx: AppContext) -> AutomationsData:
     try:
         data = await _load_automations_data(tdb)
     except UiClientError as exc:
-        await tdb.aclose()
         return AutomationsData(error=f"Failed to load schema: {exc.detail}")
     finally:
         await tdb.aclose()

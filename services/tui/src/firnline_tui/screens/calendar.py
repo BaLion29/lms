@@ -7,7 +7,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Label, Static
 from textual import work
 
-from firnline_tui.ui.feedback import ErrorBanner, EmptyState, LoadingIndicator
+from firnline_tui.ui.feedback import ErrorBanner, LoadingIndicator
 from firnline_tui.ui.shell import ShellScreen
 from firnline_tui.ui.typography import page_heading
 

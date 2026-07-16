@@ -40,6 +40,18 @@ NavSidebar:hover {
     padding: 1 2;
 }
 
+/* Chip — muted label class */
+.chip {
+    color: $fl-text-muted;
+    text-style: dim;
+}
+
+/* ErrorBanner — error label class */
+.error-banner {
+    color: $fl-err;
+    padding: 1 2;
+}
+
 /* Cards */
 StatusCard {
     border: solid $fl-border;

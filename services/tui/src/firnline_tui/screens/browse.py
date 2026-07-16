@@ -7,7 +7,6 @@ from textual.containers import Horizontal
 from textual.widgets import Input, Tree
 from textual import work
 
-from firnline_tui.state.selection import SelectionController
 from firnline_tui.ui.detail import JsonDetailPanel
 from firnline_tui.ui.feedback import ErrorBanner, EmptyState, LoadingIndicator
 from firnline_tui.ui.shell import ShellScreen
