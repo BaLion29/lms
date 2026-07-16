@@ -113,6 +113,9 @@ def _make_engine(
     tdb.get_document = AsyncMock()
     tdb.get_documents = AsyncMock()
     tdb.insert_documents = AsyncMock(return_value=["fake-iri"])
+    # Default: schema fetch raises so _get_concrete_action_types falls back
+    # to the hardcoded _CONCRETE_ACTION_TYPES for tests that don't mock it.
+    tdb.get_schema = AsyncMock(side_effect=RuntimeError("schema not mocked"))
 
     if now is None:
         now = _frozen_now()
@@ -470,9 +473,7 @@ class TestExecutorSuccess:
 
         # insert_documents called for field update
         assert tdb.insert_documents.call_count >= 1
-        # Find the success insert call
-        # success_calls not needed — we check the last insert call directly
-        # Actually just check the last insert call
+        # Check the last insert call directly for field updates
         last_call = tdb.insert_documents.call_args_list[-1]
         docs = last_call[0][0]
         assert len(docs) == 1
@@ -1397,3 +1398,120 @@ class TestBranchThreading:
         create_call = engine.repo.create.call_args
         assert create_call is not None
         assert create_call.kwargs.get("branch") == "production"
+
+    @pytest.mark.asyncio
+    async def test_execute_phase_uses_configured_branch(self):
+        """Execute phase: get_documents_by_status, get_document, transition, insert_documents all use tdb_branch."""
+        now = _frozen_now()
+        action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+        execution = {
+            "@id": "ActionExecution/ae1",
+            "@type": "ActionExecution",
+            "action": "WebhookAction/wa",
+            "firing": "TriggerFiring/f1",
+            "status": "pending",
+            "attempt": 0,
+            "idempotency_key": "wa#f1",
+        }
+
+        executor = FakeExecutor(kinds=("webhook",), ok=True, external_ref="ext-123")
+        settings = EffectdSettings(
+            tdb_db="test",
+            tdb_password="pw",
+            tdb_branch="production",
+        )
+
+        engine, tdb = _make_engine(
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
+            settings=settings,
+        )
+        engine.repo.create = AsyncMock()
+
+        await engine.run_cycle()
+
+        # get_documents_by_status called with branch="production"
+        for call in tdb.get_documents_by_status.call_args_list:
+            assert call.kwargs.get("branch") == "production", (
+                f"get_documents_by_status called with branch={call.kwargs.get('branch')!r}, expected 'production'"
+            )
+
+        # get_document calls (action, firing, and post-transition doc refetch) use branch="production"
+        for call in tdb.get_document.call_args_list:
+            assert call.kwargs.get("branch") == "production", (
+                f"get_document called with branch={call.kwargs.get('branch')!r}, expected 'production'"
+            )
+
+        # transition called with branch="production"
+        engine.repo.transition.assert_called_once()
+        assert engine.repo.transition.call_args.kwargs.get("branch") == "production", (
+            f"transition called with branch={engine.repo.transition.call_args.kwargs.get('branch')!r}, expected 'production'"
+        )
+
+        # insert_documents called with branch="production"
+        assert tdb.insert_documents.call_count >= 1
+        for call in tdb.insert_documents.call_args_list:
+            assert call.kwargs.get("branch") == "production", (
+                f"insert_documents called with branch={call.kwargs.get('branch')!r}, expected 'production'"
+            )
+
+
+# ===================================================================
+# Schema scan regression tests
+# ===================================================================
+
+
+class TestSchemaScanRegression:
+    """Guard the _get_concrete_action_types fallback contract."""
+
+    @pytest.mark.asyncio
+    async def test_schema_fetch_failure_falls_back_to_hardcoded_tuple(self):
+        """When get_schema raises, _get_concrete_action_types returns _CONCRETE_ACTION_TYPES."""
+        now = _frozen_now()
+        action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+
+        engine, tdb = _make_engine(
+            actions=[action],
+            firings=[firing],
+            now=now,
+        )
+        engine.repo.create = AsyncMock()
+
+        # Make get_schema raise to trigger the fallback path
+        tdb.get_schema = AsyncMock(side_effect=RuntimeError("tdb schema unavailable"))
+
+        await engine.run_cycle()
+
+        # Fallback to hardcoded types → WebhookAction was fetched and planned
+        engine.repo.create.assert_called_once()
+        doc = engine.repo.create.call_args[0][0]
+        assert doc["action"] == "WebhookAction/wa"
+        assert doc["firing"] == "TriggerFiring/f1"
+
+    @pytest.mark.asyncio
+    async def test_empty_schema_does_not_fallback_to_hardcoded_tuple(self):
+        """Successful schema scan returning empty set must NOT fall back to _CONCRETE_ACTION_TYPES."""
+        now = _frozen_now()
+        action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+
+        engine, tdb = _make_engine(
+            actions=[action],
+            firings=[firing],
+            now=now,
+        )
+        engine.repo.create = AsyncMock()
+
+        # Return an empty schema — no Action classes at all
+        tdb.get_schema = AsyncMock(return_value=[])
+
+        await engine.run_cycle()
+
+        # The planner must NOT have fallen back to _CONCRETE_ACTION_TYPES:
+        # no action types discovered → no executions should be created
+        engine.repo.create.assert_not_called()

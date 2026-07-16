@@ -158,8 +158,6 @@ class EffectEngine:
         # Abstract "Action" is not queryable per terminusdb-notes §8.
         # Discover concrete subclasses dynamically via schema scan.
         action_types = await self._get_concrete_action_types(branch)
-        if not action_types:
-            action_types = set(_CONCRETE_ACTION_TYPES)
 
         actions: list[dict[str, Any]] = []
         for type_ in action_types:
