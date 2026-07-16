@@ -8,10 +8,10 @@ from textual.widgets import Input, Tree
 from textual import work
 
 from firnline_tui.ui.detail import JsonDetailPanel
-from firnline_tui.ui.feedback import ErrorBanner, EmptyState, LoadingIndicator
+from firnline_tui.ui.feedback import ErrorBanner, LoadingIndicator
 from firnline_tui.ui.shell import ShellScreen
 from firnline_tui.ui.tables import DocTable, PaginationBar
-from firnline_tui.ui.typography import page_heading, section_heading
+from firnline_tui.ui.typography import page_heading
 
 
 class BrowseScreen(ShellScreen):
@@ -21,6 +21,8 @@ class BrowseScreen(ShellScreen):
     TITLE = "Browse"
     BINDINGS = [
         Binding("r", "refresh", "Refresh"),
+        Binding("slash", "focus_search", "Search", show=False),
+        Binding("escape", "clear_search", "Clear search", show=False),
     ]
 
     def __init__(self) -> None:
@@ -31,13 +33,15 @@ class BrowseScreen(ShellScreen):
         yield page_heading("Browse")
         yield ErrorBanner(id="error")
         yield LoadingIndicator(id="loading")
-        yield Input(placeholder="Search classes\u2026", id="browse-search")
+        yield Input(
+            placeholder="Search classes… (Esc to clear, / to focus)",
+            id="browse-search"
+        )
         yield Tree("Classes", id="browse-tree")
 
     def on_mount(self) -> None:
-        # Prevent Input auto-focus so navigation hotkeys work.
-        # The user can click or tab to the search input when needed.
-        self.query_one("#browse-tree", Tree).focus()
+        # Auto-focus the search input so the user can start typing immediately.
+        self.query_one("#browse-search", Input).focus()
         self.load()
 
     @work
@@ -108,6 +112,25 @@ class BrowseScreen(ShellScreen):
 
     def action_refresh(self) -> None:
         self.load()
+
+    def action_focus_search(self) -> None:
+        """Focus the search input (vim-style / binding)."""
+        self.query_one("#browse-search", Input).focus()
+
+    def action_clear_search(self) -> None:
+        """Clear the search input and refocus the tree."""
+        inp = self.query_one("#browse-search", Input)
+        if inp.value:
+            inp.value = ""
+            # Restore all nodes visibility
+            tree = self.query_one("#browse-tree", Tree)
+            for child in tree.root.children:
+                child.display = True
+                for leaf in child.children:
+                    leaf.display = True
+        else:
+            # No search active; just move focus to the tree
+            self.query_one("#browse-tree", Tree).focus()
 
 
 class BrowseClassScreen(ShellScreen):

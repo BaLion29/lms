@@ -1,7 +1,6 @@
 """ShellScreen — base class for all TUI screens with sidebar + content layout."""
 from __future__ import annotations
 
-from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical

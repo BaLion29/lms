@@ -753,8 +753,9 @@ class TestBuildDocuments:
         assert len(ctx.ensure_entity_calls) == 1
         assert ctx.ensure_entity_calls[0][0] == "Area"
         assert ctx.ensure_entity_calls[0][1] == "Health"
-        # The factory should NOT be called since the entity already exists
+        # The factory should be available but never called (entity already exists)
         factory = ctx.ensure_entity_calls[0][2]
+        assert callable(factory)
 
     # ── Goal ──────────────────────────────────────────────────────────
 

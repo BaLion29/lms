@@ -1,7 +1,7 @@
 """History state — commit log browsing (framework-free)."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from firnline_core.uiclients import UiClientError

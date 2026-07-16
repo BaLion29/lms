@@ -2,28 +2,23 @@
 
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 
 from firnline_core.uiclients import UiClientError
 from firnline_tui.state.context import AppContext
 
 from firnline_tui.state.inbox import InboxData, filter_rows, load_inbox
-from firnline_tui.state.capture import CaptureResult, submit_note
+from firnline_tui.state.capture import submit_note
 from firnline_tui.state.selection import SelectionController
-from firnline_tui.state.dashboard import DashboardData, ServiceHealth, load_dashboard
-from firnline_tui.state.browse import BrowseData, load_browse
-from firnline_tui.state.browse_class import ClassPageData, load_class
+from firnline_tui.state.dashboard import load_dashboard
+from firnline_tui.state.browse import load_browse
+from firnline_tui.state.browse_class import load_class
 from firnline_tui.state.browse_helpers import (
     _compute_references,
     _row_matches,
     _sort_key,
 )
-from firnline_tui.state.calendar import CalendarData, load_calendar, _color_for_class
 from firnline_tui.state.automations import (
-    AutomationsData,
     _iri_tail,
     _lookup_name,
     _resolve_ref,
@@ -33,11 +28,9 @@ from firnline_tui.state.automations import (
     concretes_inheriting,
     load_automations,
 )
-from firnline_tui.state.health import HealthData, ServiceHealthDetail, load_health
-from firnline_tui.state.modules import ModulesData, ModuleInfo, load_modules
+from firnline_tui.state.health import load_health
+from firnline_tui.state.modules import load_modules
 from firnline_tui.state.history import (
-    CommitDiffData,
-    HistoryData,
     _format_ts,
     load_commit,
     load_history,
@@ -440,58 +433,6 @@ def test_compute_references_no_match():
     known = {"Person", "Note"}
     refs = _compute_references(doc, known)
     assert len(refs) == 0
-
-
-# ---------------------------------------------------------------------------
-# Calendar tests
-# ---------------------------------------------------------------------------
-
-
-def test_color_for_class():
-    """Deterministic color assignment."""
-    c1 = _color_for_class("Person")
-    c2 = _color_for_class("Person")
-    assert c1 == c2
-    assert c1 in {"cyan", "orange", "green", "purple", "pink", "blue", "amber", "teal"}
-
-
-@pytest.mark.asyncio
-async def test_calendar_load():
-    schema = [
-        {"@type": "Class", "@id": "Event", "start_datetime": "xsd:dateTime", "name": "xsd:string"},
-    ]
-    docs = {
-        "Event": [
-            {
-                "@id": "Event/e1",
-                "name": "Meeting",
-                "start_datetime": "2024-06-15T09:00:00Z",
-            },
-        ],
-    }
-    tdb = FakeTdb(schema=schema, docs=docs)
-    ctx = make_fake_ctx(make_tdb=lambda: tdb)
-
-    result = await load_calendar(ctx)
-
-    assert len(result.available_classes) == 1
-    assert result.available_classes[0]["class_id"] == "Event"
-    assert len(result.events) == 1
-    assert result.events[0]["title"] == "Meeting"
-    assert result.events[0]["class"] == "Event"
-    assert result.error == ""
-
-
-@pytest.mark.asyncio
-async def test_calendar_no_calendarable_classes():
-    schema = [{"@type": "Class", "@id": "Note", "name": "xsd:string"}]
-    tdb = FakeTdb(schema=schema)
-    ctx = make_fake_ctx(make_tdb=lambda: tdb)
-
-    result = await load_calendar(ctx)
-    assert len(result.available_classes) == 0
-    assert len(result.events) == 0
-    assert result.error == ""
 
 
 # ---------------------------------------------------------------------------

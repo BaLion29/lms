@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
-from firnline_core.plugins import BuildContext, EntityIndex
+from firnline_core.plugins import EntityIndex
 from firnline_ext_address_book.extract import (
     AddressBookLinkingPlugin,
     LocationProposal,

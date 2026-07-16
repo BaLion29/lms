@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from textual.app import App, ComposeResult
+from textual.app import App
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header
+from textual.command import DiscoveryHit, Hit, Hits, Provider
 
 from firnline_tui.screen_registry import ScreenRegistry
 from firnline_tui.state.context import AppContext, default_context
@@ -15,11 +13,45 @@ from firnline_tui.state.context import AppContext, default_context
 log = logging.getLogger(__name__)
 
 
+class FirnlineCaptureProvider(Provider):
+    """Command palette provider for Quick Capture."""
+
+    async def discover(self) -> Hits:
+        """Show Quick Capture in the default command list."""
+        yield DiscoveryHit(
+            "Quick Capture",
+            self._trigger_capture,
+            text="Quick Capture",
+            help="Capture a quick note",
+        )
+
+    async def search(self, query: str) -> Hits:
+        """Match Quick Capture when user searches."""
+        matcher = self.matcher(query)
+        score = matcher.match("Quick Capture")
+        if score > 0:
+            yield Hit(
+                score,
+                matcher.highlight("Quick Capture"),
+                self._trigger_capture,
+                text="Quick Capture",
+                help="Capture a quick note",
+            )
+
+    def _trigger_capture(self) -> None:
+        """Push the CaptureModal onto the screen stack."""
+        from firnline_tui.screens.capture import CaptureModal
+
+        self.app.push_screen(CaptureModal())
+
+
 class FirnlineApp(App):
     """The firnline terminal application."""
 
     CSS_PATH = "ui/theme.tcss"
     TITLE = "firnline"
+
+    COMMANDS = {FirnlineCaptureProvider}
 
     # Base bindings — screen hotkeys are added dynamically in on_mount
     BINDINGS = [
@@ -51,7 +83,8 @@ class FirnlineApp(App):
             except Exception as exc:
                 log.warning("screen_install_failed screen_id=%s error=%s", spec.screen_id, exc)
 
-        # Register dynamic hotkeys for screens that have a key binding
+        # Register dynamic hotkeys for screens that have a key binding.
+        # Non-priority bindings let focused Input widgets consume keys first.
         for spec in self.registry.specs:
             if spec.key and spec.nav_section is not None:
                 self._bindings.bind(
@@ -59,7 +92,6 @@ class FirnlineApp(App):
                     f"switch_screen('{spec.screen_id}')",
                     description=spec.title,
                     show=False,
-                    priority=True,
                 )
 
         # Push start screen

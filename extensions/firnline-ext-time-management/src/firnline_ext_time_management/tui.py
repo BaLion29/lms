@@ -10,8 +10,6 @@ which are only loaded inside the TUI process.  The extension's
 
 from __future__ import annotations
 
-from typing import Any
-
 from firnline_core.plugins import ModuleRequirement
 from firnline_core.screenspec import ScreenSpec
 

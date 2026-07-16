@@ -1,7 +1,7 @@
 """BrowseClassState — load documents for a single class (framework-free)."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from firnline_core.introspect import row_from_doc
 from firnline_core.uiclients import UiClientError, class_display_fields, schema_classes
