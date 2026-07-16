@@ -59,10 +59,6 @@ Chip {
     text-style: dim;
 }
 
-InfoRow {
-    color: $fl-text;
-}
-
 /* Tables */
 DocTable {
     height: 1fr;
@@ -74,21 +70,6 @@ JsonDetailPanel {
     background: $fl-surface;
     border-left: solid $fl-border;
     padding: 1;
-}
-
-/* Feedback */
-ErrorBanner {
-    color: $fl-err;
-    background: $fl-surface;
-    border: solid $fl-err;
-    padding: 1 2;
-}
-
-EmptyState {
-    color: $fl-text-muted;
-    text-style: dim;
-    text-align: center;
-    padding: 2;
 }
 
 /* Shell screen layout */
@@ -147,3 +128,51 @@ ShellScreen > Horizontal {
 .status-warn { color: $fl-warn; }
 .status-err { color: $fl-err; }
 .status-unknown { color: $fl-text-muted; }
+
+/* Additional widget styles */
+
+/* InfoRow */
+InfoRow {
+    height: 1;
+    padding: 0 1;
+}
+InfoRow > Label {
+    width: auto;
+}
+InfoRow > .info-value {
+    color: $fl-text;
+}
+
+/* PaginationBar */
+PaginationBar {
+    height: 1;
+    padding: 0 1;
+    background: $fl-surface;
+}
+
+/* LoadingIndicator */
+.loading-indicator {
+    color: $fl-text-muted;
+    text-style: italic;
+    padding: 1;
+}
+
+/* EmptyState */
+EmptyState {
+    height: auto;
+    min-height: 5;
+    text-align: center;
+    padding: 2;
+}
+.empty-state-msg {
+    color: $fl-text-muted;
+}
+
+/* ErrorBanner */
+ErrorBanner {
+    color: $fl-err;
+    background: $fl-surface;
+    border: solid $fl-err;
+    padding: 1 2;
+    margin: 1 0;
+}
