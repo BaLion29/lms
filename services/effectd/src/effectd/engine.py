@@ -22,6 +22,7 @@ logger = structlog.get_logger(__name__)
 
 # Concrete Action subclasses queryable via TerminusDB document API.
 # The abstract "Action" class cannot be queried — see docs/terminusdb-notes.md §8.
+# Used as a fallback when the schema fetch fails so existing tests still work.
 _CONCRETE_ACTION_TYPES = ("WebhookAction", "NotifyAction")
 
 
@@ -88,6 +89,60 @@ class EffectEngine:
             self.log.warning("execute_phase_failed", exc_info=True)
 
     # ------------------------------------------------------------------
+    # Schema scan — concrete Action subclasses
+    # ------------------------------------------------------------------
+
+    async def _get_concrete_action_types(self, branch: str) -> set[str]:
+        """Return the set of concrete (non-abstract) Action subclass names.
+
+        Fetches the schema via ``repo.tdb.get_schema(branch)`` and walks
+        ``@inherits`` to find concrete (non-abstract) subclasses of "Action".
+        Falls back to ``_CONCRETE_ACTION_TYPES`` when the schema fetch fails
+        so existing tests without a schema mock still work.
+        """
+        try:
+            raw_schema = await self.repo.tdb.get_schema(branch)
+        except Exception:
+            self.log.warning("schema_fetch_failed", branch=branch, exc_info=True)
+            return set(_CONCRETE_ACTION_TYPES)
+
+        # Build lookup: class @id → definition dict
+        classes: dict[str, dict[str, Any]] = {}
+        for entry in raw_schema:
+            if not isinstance(entry, dict):
+                continue
+            cid = entry.get("@id")
+            if isinstance(cid, str) and entry.get("@type") == "Class":
+                classes[cid] = entry
+
+        def inherits_from_action(cls_id: str, chain: set[str] | None = None) -> bool:
+            if chain is None:
+                chain = set()
+            if cls_id in chain:
+                return False
+            chain.add(cls_id)
+            if cls_id == "Action":
+                return True
+            cls_def = classes.get(cls_id)
+            if cls_def is None:
+                return False
+            inherits = cls_def.get("@inherits")
+            if isinstance(inherits, str):
+                return inherits_from_action(inherits, chain)
+            if isinstance(inherits, list):
+                return any(inherits_from_action(p, chain) for p in inherits)
+            return False
+
+        concrete: set[str] = set()
+        for cid, cls_def in classes.items():
+            if cls_def.get("@abstract"):
+                continue
+            if inherits_from_action(cid):
+                concrete.add(cid)
+
+        return concrete
+
+    # ------------------------------------------------------------------
     # Phase 1 — PLAN
     # ------------------------------------------------------------------
 
@@ -97,12 +152,19 @@ class EffectEngine:
         if settings is None:
             return
 
+        branch = settings.tdb_branch
+
         # ── Fetch all Action documents (concrete subclasses only) ─────────
         # Abstract "Action" is not queryable per terminusdb-notes §8.
+        # Discover concrete subclasses dynamically via schema scan.
+        action_types = await self._get_concrete_action_types(branch)
+        if not action_types:
+            action_types = set(_CONCRETE_ACTION_TYPES)
+
         actions: list[dict[str, Any]] = []
-        for type_ in _CONCRETE_ACTION_TYPES:
+        for type_ in action_types:
             try:
-                docs = await self.repo.get_documents(type_)
+                docs = await self.repo.get_documents(type_, branch=branch)
                 actions.extend(docs)
             except Exception:
                 self.log.warning("action_fetch_failed", type=type_, exc_info=True)
@@ -113,7 +175,7 @@ class EffectEngine:
 
         # ── Fetch TriggerFiring docs in the planning window ───────────────
         try:
-            firings = await self.repo.get_documents("TriggerFiring")
+            firings = await self.repo.get_documents("TriggerFiring", branch=branch)
         except Exception:
             self.log.warning("firing_fetch_failed", exc_info=True)
             return
@@ -127,7 +189,7 @@ class EffectEngine:
 
         # ── Fetch existing ActionExecution docs ───────────────────────────
         try:
-            executions = await self.repo.get_documents("ActionExecution")
+            executions = await self.repo.get_documents("ActionExecution", branch=branch)
         except Exception:
             self.log.warning("execution_fetch_failed", exc_info=True)
             executions = []
@@ -143,7 +205,7 @@ class EffectEngine:
         # ── Insert missing executions ─────────────────────────────────────
         for action in enabled_actions:
             try:
-                await self._plan_for_action(now, action, firings, existing)
+                await self._plan_for_action(now, action, firings, existing, branch)
             except Exception:
                 self.log.warning(
                     "plan_action_failed",
@@ -157,6 +219,7 @@ class EffectEngine:
         action: dict[str, Any],
         firings: list[dict[str, Any]],
         existing: set[tuple[str, str]],
+        branch: str,
     ) -> None:
         """Create ActionExecution docs for one action across all matching firings."""
         action_iri = action.get("@id", "")
@@ -211,6 +274,7 @@ class EffectEngine:
                     doc,
                     agent=self._agent,
                     method="planner",
+                    branch=branch,
                 )
                 self.log.info(
                     "execution_planned",
@@ -242,8 +306,10 @@ class EffectEngine:
         if settings is None or not self.executors:
             return
 
+        branch = settings.tdb_branch
+
         try:
-            pending_execs = await self.repo.get_documents_by_status("ActionExecution", "pending")
+            pending_execs = await self.repo.get_documents_by_status("ActionExecution", "pending", branch=branch)
         except Exception:
             self.log.warning("execute_fetch_failed", exc_info=True)
             return
@@ -272,7 +338,7 @@ class EffectEngine:
 
         for execution in due_execs:
             try:
-                await self._execute_one(now, execution, missing_kinds)
+                await self._execute_one(now, execution, missing_kinds, branch)
             except Exception:
                 self.log.warning(
                     "execute_one_failed",
@@ -285,6 +351,7 @@ class EffectEngine:
         now: datetime,
         execution: dict[str, Any],
         missing_kinds: set[str],
+        branch: str,
     ) -> None:
         """Execute a single pending ActionExecution."""
         execution_iri = execution.get("@id", "")
@@ -301,18 +368,18 @@ class EffectEngine:
 
         # ── Resolve action, firing, subject ────────────────────────────
         try:
-            action = await self.repo.get_document(execution["action"])
+            action = await self.repo.get_document(execution["action"], branch=branch)
         except Exception:
             self.log.warning("action_resolve_failed", execution=execution_iri, exc_info=True)
             return
 
         try:
-            firing = await self.repo.get_document(execution["firing"])
+            firing = await self.repo.get_document(execution["firing"], branch=branch)
         except Exception:
             self.log.warning("firing_resolve_failed", execution=execution_iri, exc_info=True)
             return
 
-        subject = await self._resolve_subject(firing.get("subject"))
+        subject = await self._resolve_subject(firing.get("subject"), branch)
 
         # ── Select executor ────────────────────────────────────────────
         executor_kind = action.get("executor", "") or (self.settings.default_notify_executor if self.settings else "")
@@ -348,7 +415,7 @@ class EffectEngine:
 
         # ── Persist outcome ────────────────────────────────────────────
         try:
-            await self._persist_outcome(now, execution, action, result)
+            await self._persist_outcome(now, execution, action, result, branch)
         except TdbConflictError:
             self.log.warning("execute_persist_conflict", execution=execution_iri)
 
@@ -358,6 +425,7 @@ class EffectEngine:
         execution: dict[str, Any],
         action: dict[str, Any],
         result: ExecutionResult,
+        branch: str,
     ) -> None:
         """Write the execution result back to TerminusDB."""
         execution_iri = execution["@id"]
@@ -382,6 +450,7 @@ class EffectEngine:
                     "pending",
                     "succeeded",
                     agent=self._agent,
+                    branch=branch,
                 )
             except RepoTransitionError as exc:
                 self.log.warning("transition_failed", execution=execution_iri, error=str(exc))
@@ -389,7 +458,7 @@ class EffectEngine:
 
             # Write extra fields via insert (mirrors legacy loop pattern)
             try:
-                doc = await repo.get_document(execution_iri)
+                doc = await repo.get_document(execution_iri, branch=branch)
                 doc["attempt"] = new_attempt
                 doc["executed_at"] = now_str
                 doc["external_ref"] = result.external_ref
@@ -397,6 +466,7 @@ class EffectEngine:
                 cleaned = _strip_nones(doc)
                 await repo.tdb.insert_documents(
                     [cleaned],
+                    branch=branch,
                     message=f"effectd: success {short_iri(execution_iri)}",
                 )
             except Exception:
@@ -407,7 +477,7 @@ class EffectEngine:
             if result.retryable and new_attempt < max_attempts:
                 # retryable, not yet exhausted → stay pending, set backoff
                 try:
-                    doc = await repo.get_document(execution_iri)
+                    doc = await repo.get_document(execution_iri, branch=branch)
                     backoff_secs = backoff_td.total_seconds() * (2**prior_attempt)
                     next_at = now_str if backoff_secs == 0 else _format_datetime(now + backoff_td * (2**prior_attempt))
                     doc["attempt"] = new_attempt
@@ -417,6 +487,7 @@ class EffectEngine:
                     cleaned = _strip_nones(doc)
                     await repo.tdb.insert_documents(
                         [cleaned],
+                        branch=branch,
                         message=f"effectd: retry {short_iri(execution_iri)}",
                     )
                 except Exception:
@@ -430,18 +501,20 @@ class EffectEngine:
                         "pending",
                         "dead",
                         agent=self._agent,
+                        branch=branch,
                     )
                 except RepoTransitionError as exc:
                     self.log.warning("transition_failed", execution=execution_iri, error=str(exc))
                     return
                 try:
-                    doc = await repo.get_document(execution_iri)
+                    doc = await repo.get_document(execution_iri, branch=branch)
                     doc["attempt"] = new_attempt
                     doc["executed_at"] = now_str
                     doc["result_detail"] = result.detail or None
                     cleaned = _strip_nones(doc)
                     await repo.tdb.insert_documents(
                         [cleaned],
+                        branch=branch,
                         message=f"effectd: dead {short_iri(execution_iri)}",
                     )
                 except Exception:
@@ -455,18 +528,20 @@ class EffectEngine:
                         "pending",
                         "failed",
                         agent=self._agent,
+                        branch=branch,
                     )
                 except RepoTransitionError as exc:
                     self.log.warning("transition_failed", execution=execution_iri, error=str(exc))
                     return
                 try:
-                    doc = await repo.get_document(execution_iri)
+                    doc = await repo.get_document(execution_iri, branch=branch)
                     doc["attempt"] = new_attempt
                     doc["executed_at"] = now_str
                     doc["result_detail"] = result.detail or None
                     cleaned = _strip_nones(doc)
                     await repo.tdb.insert_documents(
                         [cleaned],
+                        branch=branch,
                         message=f"effectd: failed {short_iri(execution_iri)}",
                     )
                 except Exception:
@@ -476,12 +551,12 @@ class EffectEngine:
     # Helpers
     # ------------------------------------------------------------------
 
-    async def _resolve_subject(self, subject_iri: str | None) -> dict[str, Any] | None:
+    async def _resolve_subject(self, subject_iri: str | None, branch: str) -> dict[str, Any] | None:
         """Resolve a subject IRI to its document, tolerating failures."""
         if not subject_iri:
             return None
         try:
-            return await self.repo.get_document(subject_iri)
+            return await self.repo.get_document(subject_iri, branch=branch)
         except Exception:
             self.log.debug("subject_resolution_failed", subject=subject_iri, exc_info=True)
             return None

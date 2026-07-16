@@ -11,7 +11,6 @@ import structlog
 
 from effectd.engine import EffectEngine, _scheduled_after
 from effectd.settings import EffectdSettings
-from firnline_core.base import _format_datetime
 from firnline_core.plugins import ExecutionResult, ModuleRequirement
 
 UTC = timezone.utc
@@ -464,6 +463,7 @@ class TestExecutorSuccess:
             "pending",
             "succeeded",
             agent="service:effectd",
+            branch="main",
         )
         # Executor invoked
         assert len(executor.calls) == 1
@@ -471,7 +471,7 @@ class TestExecutorSuccess:
         # insert_documents called for field update
         assert tdb.insert_documents.call_count >= 1
         # Find the success insert call
-        success_calls = [c for c in tdb.insert_documents.call_args_list if "success" in str(c)]
+        # success_calls not needed — we check the last insert call directly
         # Actually just check the last insert call
         last_call = tdb.insert_documents.call_args_list[-1]
         docs = last_call[0][0]
@@ -601,6 +601,7 @@ class TestRetryBackoff:
             "pending",
             "dead",
             agent="service:effectd",
+            branch="main",
         )
 
     @pytest.mark.asyncio
@@ -637,6 +638,7 @@ class TestRetryBackoff:
             "pending",
             "failed",
             agent="service:effectd",
+            branch="main",
         )
 
 
@@ -889,8 +891,6 @@ class TestOrderingAndCap:
         now = _frozen_now()
         action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
         firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
-        older = _format_datetime(now - timedelta(hours=2))
-        newer = _format_datetime(now - timedelta(hours=1))
         exec_old = {
             "@id": "ActionExecution/ae_old",
             "@type": "ActionExecution",
@@ -1097,6 +1097,7 @@ class TestAcceptanceRespx:
                 "pending",
                 "succeeded",
                 agent="service:effectd",
+                branch="main",
             )
 
 
@@ -1181,6 +1182,7 @@ class TestGotifyExecutorE2E:
                 "pending",
                 "succeeded",
                 agent="service:effectd",
+                branch="main",
             )
 
             # ── external_ref persisted ──
@@ -1288,4 +1290,110 @@ class TestDefaultNotifyExecutorFallback:
             "pending",
             "succeeded",
             agent="service:effectd",
+            branch="main",
         )
+
+
+# ===================================================================
+# Schema-based Action discovery
+# ===================================================================
+
+
+class TestSchemaActionDiscovery:
+    """Planner discovers custom Action subclasses via schema scan."""
+
+    @pytest.mark.asyncio
+    async def test_discovers_custom_action_type_from_schema(self):
+        """A custom Action subclass (EmailAction) in the schema is fetched by the planner."""
+        now = _frozen_now()
+
+        # Custom action type that is NOT in the hardcoded _CONCRETE_ACTION_TYPES
+        action = _action(
+            iri="EmailAction/ea1",
+            type_="EmailAction",
+            trigger="OneShotTrigger/t1",
+            executor="email",
+        )
+        action["name"] = "ea1"
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+
+        engine, tdb = _make_engine(actions=[action], firings=[firing], now=now)
+
+        # Provide a fake schema with an EmailAction class inheriting from Action
+        fake_schema = [
+            {"@id": "Action", "@type": "Class", "@abstract": True},
+            {"@id": "WebhookAction", "@type": "Class", "@inherits": "Action"},
+            {"@id": "NotifyAction", "@type": "Class", "@inherits": "Action"},
+            {"@id": "EmailAction", "@type": "Class", "@inherits": "Action"},
+        ]
+        tdb.get_schema = AsyncMock(return_value=fake_schema)
+
+        # Also need _get_docs to return EmailAction docs
+        async def _get_docs_with_email(type_: str, branch: str = "main"):
+            if type_ == "EmailAction":
+                return [dict(a) for a in [action]]
+            if type_ == "WebhookAction":
+                return []
+            if type_ == "NotifyAction":
+                return []
+            if type_ == "TriggerFiring":
+                return [dict(f_) for f_ in [firing]]
+            if type_ == "ActionExecution":
+                return []
+            return []
+
+        tdb.get_documents.side_effect = _get_docs_with_email
+
+        engine.repo.create = AsyncMock()
+
+        await engine.run_cycle()
+
+        # The planner should have created an ActionExecution for the EmailAction
+        engine.repo.create.assert_called_once()
+        doc = engine.repo.create.call_args[0][0]
+        assert doc["@type"] == "ActionExecution"
+        assert doc["action"] == "EmailAction/ea1"
+        assert doc["firing"] == "TriggerFiring/f1"
+
+
+# ===================================================================
+# Branch threading
+# ===================================================================
+
+
+class TestBranchThreading:
+    """effectd respects settings.tdb_branch for all repo/tdb calls."""
+
+    @pytest.mark.asyncio
+    async def test_uses_configured_branch(self):
+        """When settings.tdb_branch is non-main, all get_documents calls use that branch."""
+        now = _frozen_now()
+        action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+
+        settings = EffectdSettings(
+            tdb_db="test",
+            tdb_password="pw",
+            tdb_branch="production",
+        )
+
+        engine, tdb = _make_engine(
+            actions=[action],
+            firings=[firing],
+            now=now,
+            settings=settings,
+        )
+        engine.repo.create = AsyncMock()
+
+        await engine.run_cycle()
+
+        # Every get_documents call should have been called with branch="production"
+        for call in tdb.get_documents.call_args_list:
+            assert call.kwargs.get("branch") == "production", (
+                f"get_documents called with branch={call.kwargs.get('branch')!r}, expected 'production'"
+            )
+
+        # repo.create should also use the configured branch
+        create_call = engine.repo.create.call_args
+        assert create_call is not None
+        assert create_call.kwargs.get("branch") == "production"
