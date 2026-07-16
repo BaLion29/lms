@@ -327,6 +327,31 @@ class WebUIPagePlugin(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# TUI screen plugin protocol
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class TuiScreenPlugin(Protocol):
+    """Protocol for TUI screen plugins.
+
+    Entry-point group: ``firnline.tui.screens``
+
+    Plugins implementing this protocol provide
+    :class:`~firnline_core.screenspec.ScreenSpec` objects that the TUI
+    service installs as Textual screens.
+    """
+
+    name: str
+    requires: list[ModuleRequirement]
+
+    def screens(self) -> list[Any]:
+        """Return a list of ScreenSpec objects (typed Any to keep
+        firnline-core free of a textual dependency)."""
+        ...
+
+
+# ---------------------------------------------------------------------------
 # Capture plugins (for the captured service)
 # ---------------------------------------------------------------------------
 
