@@ -12,6 +12,7 @@ import structlog
 from effectd.engine import EffectEngine, _scheduled_after
 from effectd.settings import EffectdSettings
 from firnline_core.plugins import ExecutionResult, ModuleRequirement
+from firnline_core.tdb import TdbDocumentExistsError
 
 UTC = timezone.utc
 
@@ -1518,3 +1519,149 @@ class TestSchemaScanRegression:
         # The planner must NOT have fallen back to _CONCRETE_ACTION_TYPES:
         # no action types discovered → no executions should be created
         engine.repo.create.assert_not_called()
+
+
+# ===================================================================
+# Fix 1: TdbDocumentExistsError → execution_plan_conflict (not traceback)
+# ===================================================================
+
+
+class TestDuplicateInsertHandling:
+    """TdbDocumentExistsError from insert_documents is treated as benign plan conflict."""
+
+    @pytest.mark.asyncio
+    async def test_duplicate_insert_logs_conflict_not_traceback(self):
+        """Duplicate insert (TdbDocumentExistsError) → execution_plan_conflict, NOT execution_plan_failed."""
+        now = _frozen_now()
+        action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+
+        engine, tdb = _make_engine(
+            actions=[action],
+            firings=[firing],
+            now=now,
+        )
+        engine.repo.create = AsyncMock(
+            side_effect=TdbDocumentExistsError(400, "api:DocumentIdAlreadyExists")
+        )
+
+        with structlog.testing.capture_logs() as captured:
+            await engine.run_cycle()
+
+        logs_by_event = {e.get("event") for e in captured}
+        assert "execution_plan_conflict" in logs_by_event, (
+            "expected execution_plan_conflict for TdbDocumentExistsError"
+        )
+        assert "execution_plan_failed" not in logs_by_event, (
+            "TdbDocumentExistsError must NOT produce execution_plan_failed traceback"
+        )
+        engine.repo.create.assert_called_once()
+
+
+# ===================================================================
+# Fix 2: Dedup key normalization with URL unquote
+# ===================================================================
+
+
+class TestDedupEncodingNormalization:
+    """Dedup key normalizes URL-encoded IRIs so planner does not create duplicates."""
+
+    @pytest.mark.asyncio
+    async def test_dedup_matches_url_encoded_firing_iri(self):
+        """Existing execution with URL-encoded firing link matches decoded firing @id."""
+        now = _frozen_now()
+        action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
+
+        # Firing whose @id contains an embedded full IRI (decoded form)
+        firing = {
+            "@id": "TriggerFiring/terminusdb:///data/OneShotTrigger/t1+2026-07-16T17:00:00Z",
+            "@type": "TriggerFiring",
+            "trigger": "terminusdb:///data/OneShotTrigger/t1",
+            "scheduled_for": _utc_iso(now),
+            "status": "pending",
+        }
+
+        # Existing execution whose firing field is the URL-ENCODED form
+        execution = {
+            "@id": "ActionExecution/ae1",
+            "@type": "ActionExecution",
+            "action": "WebhookAction/wa",
+            "firing": "TriggerFiring/terminusdb%3A%2F%2F%2Fdata%2FOneShotTrigger%2Ft1+2026-07-16T17%3A00%3A00Z",
+            "status": "pending",
+            "attempt": 0,
+        }
+
+        engine, tdb = _make_engine(
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            now=now,
+        )
+        engine.repo.create = AsyncMock()
+
+        await engine.run_cycle()
+
+        # Dedup should match despite URL encoding mismatch
+        engine.repo.create.assert_not_called()
+
+
+# ===================================================================
+# Fix 3: Re-check status before executing (prevents double webhooks)
+# ===================================================================
+
+
+class TestStaleExecutionSkip:
+    """Re-check execution status right before running to avoid duplicate webhooks."""
+
+    @pytest.mark.asyncio
+    async def test_execute_skips_non_pending_execution(self):
+        """Execution already succeeded by another process → skipped, executor not called."""
+        now = _frozen_now()
+        action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+        execution = {
+            "@id": "ActionExecution/ae1",
+            "@type": "ActionExecution",
+            "action": "WebhookAction/wa",
+            "firing": "TriggerFiring/f1",
+            "status": "pending",
+            "attempt": 0,
+            "idempotency_key": "wa#f1",
+        }
+
+        executor = FakeExecutor(kinds=("webhook",), ok=True)
+        engine, tdb = _make_engine(
+            actions=[action],
+            firings=[firing],
+            executions=[execution],
+            executors=[executor],
+            now=now,
+        )
+        engine.repo.create = AsyncMock()
+
+        # Capture the original get_document side_effect
+        orig_get_doc = tdb.get_document.side_effect
+
+        async def custom_get_doc(iri, branch="main"):
+            if iri == "ActionExecution/ae1":
+                # Re-fetch returns "succeeded" — another process already did it
+                return {
+                    "@id": "ActionExecution/ae1",
+                    "@type": "ActionExecution",
+                    "action": "WebhookAction/wa",
+                    "firing": "TriggerFiring/f1",
+                    "status": "succeeded",
+                    "attempt": 1,
+                    "idempotency_key": "wa#f1",
+                }
+            return await orig_get_doc(iri, branch=branch)
+
+        tdb.get_document.side_effect = custom_get_doc
+
+        await engine.run_cycle()
+
+        # Executor must NOT be called — stale execution was skipped
+        assert len(executor.calls) == 0, (
+            "executor must not be called for a stale (already succeeded) execution"
+        )
+        engine.repo.transition.assert_not_called()

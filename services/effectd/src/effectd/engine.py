@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from typing import Any, TYPE_CHECKING
+import urllib.parse
 
 import structlog
 
@@ -13,7 +14,7 @@ from firnline_core.conventions import agent_id, utc_now
 from firnline_core.durations import parse_duration, parse_iso_datetime
 from firnline_core.plugins import ActionContext, ExecutionResult
 from firnline_core.repository import TransitionError as RepoTransitionError
-from firnline_core.tdb import TdbConflictError, short_iri
+from firnline_core.tdb import TdbConflictError, TdbDocumentExistsError, short_iri
 
 if TYPE_CHECKING:
     from effectd.settings import EffectdSettings
@@ -195,8 +196,8 @@ class EffectEngine:
         # Index by (short_action_iri, short_firing_iri)
         existing: set[tuple[str, str]] = set()
         for ex in executions:
-            action_iri = short_iri(ex.get("action", ""))
-            firing_iri = short_iri(ex.get("firing", ""))
+            action_iri = urllib.parse.unquote(short_iri(ex.get("action", "")))
+            firing_iri = urllib.parse.unquote(short_iri(ex.get("firing", "")))
             if action_iri and firing_iri:
                 existing.add((action_iri, firing_iri))
 
@@ -221,7 +222,7 @@ class EffectEngine:
     ) -> None:
         """Create ActionExecution docs for one action across all matching firings."""
         action_iri = action.get("@id", "")
-        action_short = short_iri(action_iri)
+        action_short = urllib.parse.unquote(short_iri(action_iri))
         action_trigger = short_iri(action.get("trigger", ""))
         action_mode = action.get("mode", "approval")  # default: approval
         action_name = action.get("name", action_short)
@@ -231,7 +232,7 @@ class EffectEngine:
             if firing_trigger != action_trigger:
                 continue
 
-            firing_short = short_iri(firing.get("@id", ""))
+            firing_short = urllib.parse.unquote(short_iri(firing.get("@id", "")))
             if (action_short, firing_short) in existing:
                 continue
 
@@ -280,7 +281,7 @@ class EffectEngine:
                     firing=firing_key,
                     status=status,
                 )
-            except TdbConflictError:
+            except (TdbConflictError, TdbDocumentExistsError):
                 self.log.warning(
                     "execution_plan_conflict",
                     action=action_name,
@@ -363,6 +364,20 @@ class EffectEngine:
                     return  # not yet due
             except Exception:
                 pass  # unparseable → proceed
+
+        # ── Re-check status (another process may have already executed this) ───
+        try:
+            fresh = await self.repo.get_document(execution_iri, branch=branch)
+        except Exception:
+            self.log.warning("execution_refetch_failed", execution=execution_iri, exc_info=True)
+            return
+        if fresh.get("status") != "pending":
+            self.log.info(
+                "execution_stale_skipped",
+                execution=execution_iri,
+                status=fresh.get("status"),
+            )
+            return
 
         # ── Resolve action, firing, subject ────────────────────────────
         try:
