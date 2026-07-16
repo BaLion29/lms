@@ -84,6 +84,13 @@ class TdbConflictError(TdbError):
         super().__init__(status=409, body=msg)
 
 
+class TdbDocumentExistsError(TdbError):
+    """Raised when insert_documents targets a document @id that already exists (HTTP 400 DocumentIdAlreadyExists)."""
+
+    def __init__(self, status: int, body: str) -> None:
+        super().__init__(status, body)
+
+
 @dataclass
 class ChangeEvent:
     """A single commit event in a TerminusDB change feed.
@@ -162,6 +169,8 @@ class TdbClient:
     async def _raise_on_error(self, response: httpx.Response) -> None:
         if response.is_success:
             return
+        if response.status_code == 400 and "DocumentIdAlreadyExists" in response.text:
+            raise TdbDocumentExistsError(response.status_code, response.text)
         raise TdbError(response.status_code, response.text)
 
     # ------------------------------------------------------------------
@@ -252,7 +261,11 @@ class TdbClient:
         branch: str = "main",
         message: str = "ingestd",
     ) -> list[str]:
-        """Insert *docs* and return the list of full IRIs."""
+        """Insert *docs* and return the list of full IRIs.
+
+        Raises ``TdbDocumentExistsError`` if any document's ``@id``
+        already exists in TerminusDB (HTTP 400 DocumentIdAlreadyExists).
+        """
         response = await self._client.post(
             self._doc_path(branch),
             params={

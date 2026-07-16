@@ -16,6 +16,8 @@ class EffectdSettings(TdbSettings):
     log_level: str = "INFO"
     poll_interval_seconds: int = 30
     liveness_file: str = "/tmp/effectd-alive"
+    lock_file: str = "/tmp/effectd.lock"
+    """Exclusive lock file acquired at startup to prevent concurrent effectd processes."""
 
     # ── Action execution engine ──────────────────────────────────────
     dry_run: bool = False

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import errno
+import fcntl
+import os
 import pathlib
 import signal
 import sys
@@ -19,6 +22,32 @@ from firnline_core.logging import configure_logging
 from firnline_core.tdb import TdbClient
 
 _EXECUTOR_GROUP = "firnline.effectd.executors"
+
+
+class SingletonLockError(RuntimeError):
+    """Raised when another effectd process holds the singleton lock."""
+
+
+def acquire_singleton_lock(path: str) -> int:
+    """Acquire an exclusive non-blocking flock on *path*.
+
+    Returns the open file descriptor (caller must keep it open for the
+    process lifetime to hold the lock). Raises SingletonLockError if
+    another process already holds the lock. Raises OSError on other
+    I/O failures.
+    """
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        os.close(fd)
+        if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+            raise SingletonLockError(path) from exc
+        raise
+    # Write our PID for diagnostics (lock still held by the fd).
+    os.write(fd, f"{os.getpid()}\n".encode())
+    os.lseek(fd, 0, os.SEEK_SET)
+    return fd
 
 
 async def run_cycle_safe(engine: EffectEngine, should_stop: asyncio.Event | None) -> bool:
@@ -157,6 +186,24 @@ def main() -> None:
         help="Run a single delivery cycle and exit.",
     )
     args = parser.parse_args()
+
+    # ── Singleton lock ─────────────────────────────────────────────
+    try:
+        _singleton_lock_fd = acquire_singleton_lock(settings.lock_file)
+    except SingletonLockError:
+        structlog.get_logger(__name__).error(
+            "singleton_lock_held", lock_file=settings.lock_file
+        )
+        print(
+            f"effectd is already running (lock held: {settings.lock_file})",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except OSError:
+        structlog.get_logger(__name__).exception(
+            "singleton_lock_error", lock_file=settings.lock_file
+        )
+        sys.exit(1)
 
     should_stop = asyncio.Event()
     loop = asyncio.new_event_loop()
