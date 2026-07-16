@@ -8,8 +8,8 @@ from textual.widgets import Static, Label
 class StatusCard(Vertical):
     """A card showing a service status with title, status, and optional detail."""
 
-    def __init__(self, title: str, status: str = "unknown", version: str = "", error: str = "") -> None:
-        super().__init__()
+    def __init__(self, title: str, status: str = "unknown", version: str = "", error: str = "", **kwargs) -> None:
+        super().__init__(**kwargs)
         self._title = title
         self._status = status
         self._version = version
@@ -28,8 +28,8 @@ class StatusCard(Vertical):
 class StatBadge(Static):
     """A bold stat number with a label."""
 
-    def __init__(self, value: str | int, label: str = "") -> None:
-        super().__init__()
+    def __init__(self, value: str | int, label: str = "", **kwargs) -> None:
+        super().__init__(**kwargs)
         if label:
             self.update(f"{value} {label}")
         else:
@@ -39,16 +39,16 @@ class StatBadge(Static):
 class Chip(Static):
     """A small muted text badge."""
 
-    def __init__(self, text: str) -> None:
-        super().__init__(text)
+    def __init__(self, text: str, **kwargs) -> None:
+        super().__init__(text, **kwargs)
         self.add_class("chip")
 
 
 class InfoRow(Horizontal):
     """A key-value row: label on the left, value on the right."""
 
-    def __init__(self, label: str, value: str) -> None:
-        super().__init__()
+    def __init__(self, label: str, value: str, **kwargs) -> None:
+        super().__init__(**kwargs)
         self._label = label
         self._value = value
 

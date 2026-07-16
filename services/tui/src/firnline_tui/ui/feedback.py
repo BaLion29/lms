@@ -8,8 +8,8 @@ from textual.containers import Vertical
 class ErrorBanner(Static):
     """A red-bordered error banner."""
 
-    def __init__(self, message: str = "", id: str | None = None) -> None:
-        super().__init__(id=id)
+    def __init__(self, message: str = "", **kwargs) -> None:
+        super().__init__(**kwargs)
         if message:
             self.update(message)
         else:
@@ -30,8 +30,8 @@ class ErrorBanner(Static):
 class EmptyState(Vertical):
     """An empty-state placeholder with an icon, message, and optional hint."""
 
-    def __init__(self, message: str = "Nothing here yet.", hint: str = "") -> None:
-        super().__init__()
+    def __init__(self, message: str = "Nothing here yet.", hint: str = "", **kwargs) -> None:
+        super().__init__(**kwargs)
         self._message = message
         self._hint = hint
 
@@ -44,6 +44,6 @@ class EmptyState(Vertical):
 class LoadingIndicator(Static):
     """A simple loading indicator."""
 
-    def __init__(self, message: str = "Loading…") -> None:
-        super().__init__(f"⟳ {message}")
+    def __init__(self, message: str = "Loading…", **kwargs) -> None:
+        super().__init__(f"⟳ {message}", **kwargs)
         self.add_class("loading-indicator")

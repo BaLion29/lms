@@ -51,8 +51,8 @@ class DocTable(DataTable):
 class PaginationBar(Horizontal):
     """Pagination controls — page X of Y, prev/next indicators."""
 
-    def __init__(self, page_index: int = 0, total_pages: int = 0) -> None:
-        super().__init__()
+    def __init__(self, page_index: int = 0, total_pages: int = 0, **kwargs) -> None:
+        super().__init__(**kwargs)
         self._page_index = page_index
         self._total_pages = total_pages
 
