@@ -199,3 +199,11 @@ ErrorBanner {
 TabPane {
     padding: 0;
 }
+
+/* Address Book screen */
+#ab-main {
+    width: 1fr;
+}
+#ab-tabs {
+    height: 1fr;
+}

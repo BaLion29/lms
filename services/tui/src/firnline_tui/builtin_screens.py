@@ -18,11 +18,6 @@ class BuiltinScreens:
 
             return DashboardScreen()
 
-        def _capture():
-            from firnline_tui.screens.capture import CaptureScreen
-
-            return CaptureScreen()
-
         def _inbox():
             from firnline_tui.screens.inbox import InboxScreen
 
@@ -37,11 +32,6 @@ class BuiltinScreens:
             from firnline_tui.screens.browse import BrowseClassScreen
 
             return BrowseClassScreen()
-
-        def _calendar():
-            from firnline_tui.screens.calendar import CalendarScreen
-
-            return CalendarScreen()
 
         def _automations():
             from firnline_tui.screens.automations import AutomationsScreen
@@ -74,15 +64,6 @@ class BuiltinScreens:
                 key="d",
             ),
             ScreenSpec(
-                screen_id="capture",
-                title="Capture",
-                screen_factory=_capture,
-                nav_section="MAIN",
-                nav_icon="✎",
-                nav_order=10,
-                key="c",
-            ),
-            ScreenSpec(
                 screen_id="inbox",
                 title="Inbox",
                 screen_factory=_inbox,
@@ -107,15 +88,6 @@ class BuiltinScreens:
                 nav_section=None,
                 nav_icon=None,
                 nav_order=100,
-            ),
-            ScreenSpec(
-                screen_id="calendar",
-                title="Calendar",
-                screen_factory=_calendar,
-                nav_section="MAIN",
-                nav_icon="▦",
-                nav_order=40,
-                key="a",
             ),
             ScreenSpec(
                 screen_id="automations",

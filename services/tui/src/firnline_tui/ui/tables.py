@@ -30,8 +30,8 @@ class DocTable(DataTable):
     def populate(self, rows: list[dict], key_field: str = "id") -> None:
         """Populate the table with rows. Each row must have key_field."""
         self.clear()
-        for row in rows:
-            key = row.get(key_field, "")
+        for i, row in enumerate(rows):
+            key = row.get(key_field) or row.get("@id") or f"__row_{i}"
             values = [str(row.get(col, "")) for col in self._columns]
             try:
                 self.add_row(*values, key=key)

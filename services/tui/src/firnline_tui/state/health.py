@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
-from firnline_core.uiclients import UiClientError
 
 from firnline_tui.state.context import AppContext
 

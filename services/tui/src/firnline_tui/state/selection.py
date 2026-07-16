@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 
-from firnline_core.uiclients import TdbBrowser, UiClientError
 
 from firnline_tui.state.context import AppContext
 

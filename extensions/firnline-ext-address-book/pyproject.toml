@@ -28,6 +28,9 @@ address_book_geocoder = "firnline_ext_address_book.enrich:plugin"
 [project.entry-points."firnline.queryd.tools"]
 address_book_tools = "firnline_ext_address_book.tools:plugin"
 
+[project.entry-points."firnline.tui.screens"]
+address_book_tui = "firnline_ext_address_book.tui:plugin"
+
 [tool.uv.sources]
 firnline-core = { workspace = true }
 

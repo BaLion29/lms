@@ -72,7 +72,6 @@ class InboxScreen(ShellScreen):
             self.query_one("#loading", LoadingIndicator).display = False
 
     def _apply_filter(self, filter_fn, data) -> None:
-        from firnline_tui.state.inbox import InboxData
 
         filtered = filter_fn(data, self._current_filter)
         table = self.query_one("#inbox-table", DocTable)

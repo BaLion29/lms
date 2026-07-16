@@ -4,7 +4,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
-from textual.widgets import Label, Static
+from textual.widgets import Label
 from textual import work
 
 from firnline_tui.ui.feedback import ErrorBanner, LoadingIndicator

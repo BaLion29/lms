@@ -1,7 +1,7 @@
 """Automations state — introspection-driven trigger firings & action executions view."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from firnline_core.uiclients import TdbBrowser, UiClientError
 

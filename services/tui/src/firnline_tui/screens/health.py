@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
-from textual.widgets import Label
+from textual.containers import Vertical
 from textual import work
 
 from firnline_tui.ui.cards import InfoRow, StatusCard, status_dot

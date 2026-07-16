@@ -58,7 +58,7 @@ class DashboardScreen(ShellScreen):
                 for cap in data.recent_captures[:10]:
                     status = cap.get("status", "")
                     preview = cap.get("preview", "")
-                    doc_id = cap.get("id", "")
+                    _doc_id = cap.get("id", "")
                     label = Label(f"[{status}] {preview[:120]}", classes="chip")
                     recent_container.mount(label)
             else:
