@@ -1,8 +1,6 @@
-"""Async HTTP clients — re-exported from firnline_core.uiclients.
+"""TUI clients — thin re-exports of firnline_core.uiclients + settings-bound factories."""
+from __future__ import annotations
 
-The canonical implementation now lives in firnline_core.uiclients so
-both the WebUI and the TUI share one source of truth.
-"""
 from firnline_core.uiclients import (  # noqa: F401
     CapturedClient,
     QuerydClient,
@@ -13,13 +11,13 @@ from firnline_core.uiclients import (  # noqa: F401
     schema_classes,
 )
 
-# Backward-compat alias
-WebuiClientError = UiClientError
+# TUI-specific alias for naming symmetry
+TuiClientError = UiClientError
 
 
 def make_tdb_browser() -> TdbBrowser:
-    """Return a TdbBrowser configured from WebUI application settings."""
-    from firnline_webui.settings import get_settings
+    """Return a TdbBrowser configured from TUI application settings."""
+    from firnline_tui.settings import get_settings
 
     s = get_settings()
     return TdbBrowser(
@@ -30,13 +28,13 @@ def make_tdb_browser() -> TdbBrowser:
         s.tdb_password,
         branch=s.tdb_branch,
         timeout=s.request_timeout_seconds,
-        author="service:webui",
+        author="service:tui",
     )
 
 
-def make_health_clients():
+def make_health_clients() -> tuple[CapturedClient, QuerydClient, ServiceHealthClient, ServiceHealthClient]:
     """Return (CapturedClient, QuerydClient, indexed_client, mcpd_client)."""
-    from firnline_webui.settings import get_settings
+    from firnline_tui.settings import get_settings
 
     s = get_settings()
     timeout = s.request_timeout_seconds
@@ -46,3 +44,11 @@ def make_health_clients():
         ServiceHealthClient(s.indexed_url, token=s.indexed_api_token, timeout=timeout),
         ServiceHealthClient(s.mcpd_url, timeout=timeout),
     )
+
+
+def make_captured_client() -> CapturedClient:
+    """Return a CapturedClient configured from TUI settings."""
+    from firnline_tui.settings import get_settings
+
+    s = get_settings()
+    return CapturedClient(s.captured_url, s.captured_api_token, timeout=s.request_timeout_seconds)
