@@ -6,7 +6,6 @@ Entry-point group: ``firnline.effectd.executors``
 from __future__ import annotations
 
 import logging
-from datetime import timezone
 from typing import Any
 
 from firnline_core.plugins import ActionContext, ExecutionResult, ModuleRequirement
@@ -111,15 +110,12 @@ class AddressBookGeocoderExecutor:
             )
 
         # ── Write coordinates back ───────────────────────────────────
-        now = ctx.now()
-        now_str = now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
         updated: dict[str, Any] = dict(subject)
         updated["coordinates"] = list(coords)
 
         try:
-            await ctx.tdb.insert_documents(
-                [updated],
+            await ctx.tdb.replace_document(
+                updated,
                 message=f"effectd: geocoded {doc_id}",
             )
         except Exception as exc:

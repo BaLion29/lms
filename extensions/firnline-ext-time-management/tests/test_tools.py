@@ -125,7 +125,8 @@ async def test_set_task_status_happy_path(respx_mock):
         "required_context": [],
     }
     get_route = respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
+    respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
 
     ctx = _make_ctx()
     result = await set_task_status(ctx, "Task/abc", "done")
@@ -136,9 +137,8 @@ async def test_set_task_status_happy_path(respx_mock):
 
     req = post_route.calls.last.request
     sent = json.loads(req.read())
-    assert isinstance(sent, list)
-    assert len(sent) == 2
-    updated_doc = sent[0]
+    assert isinstance(sent, dict)
+    updated_doc = sent
     assert updated_doc["status"] == "done"
     assert updated_doc["name"] == orig_doc["name"]
     assert updated_doc["@type"] == "Task"
@@ -183,7 +183,8 @@ async def test_set_event_status_happy_path(respx_mock):
         "status": "open",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Event/xyz"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Event/xyz"])
+    respx_mock.post(DOC_PATH).respond(json=["Event/xyz"])
 
     ctx = _make_ctx()
     result = await set_event_status(ctx, "Event/xyz", "closed")
@@ -192,9 +193,8 @@ async def test_set_event_status_happy_path(respx_mock):
     assert post_route.called
     req = post_route.calls.last.request
     sent = json.loads(req.read())
-    assert isinstance(sent, list)
-    assert len(sent) == 2
-    updated_doc = sent[0]
+    assert isinstance(sent, dict)
+    updated_doc = sent
     assert updated_doc["status"] == "closed"
     assert req.url.params["author"] == "service:queryd"
 
@@ -276,7 +276,7 @@ async def test_update_task_only_provided_fields_changed(respx_mock):
         "required_context": [],
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
 
     ctx = _make_ctx()
     result = await update_task(ctx, "Task/abc", name="New name")
@@ -437,7 +437,7 @@ async def test_update_routine_name_only(respx_mock):
         "steps": [],
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Routine/r1"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Routine/r1"])
 
     ctx = _make_ctx()
     result = await update_routine(ctx, "Routine/r1", name="New routine")
@@ -459,10 +459,12 @@ async def test_update_routine_replace_steps(respx_mock):
         "@type": "Routine",
         "name": "Old routine",
         "required_context": [],
-        "steps": [{"@type": "RoutineStep", "name": "Old step", "activity": {"@type": "ActivitySpec", "name": "Old step"}}],
+        "steps": [
+            {"@type": "RoutineStep", "name": "Old step", "activity": {"@type": "ActivitySpec", "name": "Old step"}}
+        ],
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Routine/r1"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Routine/r1"])
 
     ctx = _make_ctx()
     new_steps = [
@@ -488,7 +490,7 @@ async def test_update_routine_partial_name_and_context(respx_mock):
         "steps": [],
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Routine/r1"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Routine/r1"])
 
     ctx = _make_ctx()
     result = await update_routine(ctx, "Routine/r1", name="Updated", required_context=["fitness"])
@@ -610,7 +612,8 @@ async def test_log_activity_routine_wrong_type(respx_mock):
 async def test_set_task_status_normalizes_full_iri(respx_mock):
     doc = {"@id": "Task/abc", "@type": "Task", "name": "X", "status": "open"}
     respx_mock.get(DOC_PATH).respond(json=dict(doc))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
+    respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
 
     ctx = _make_ctx()
     result = await set_task_status(ctx, "terminusdb:///data/Task/abc", "done")
@@ -678,7 +681,7 @@ async def test_update_project_only_provided_fields_changed(respx_mock):
         "status": "active",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Project/p1"])
 
     ctx = _make_ctx()
     result = await update_project(ctx, "Project/p1", name="New Project")
@@ -725,7 +728,8 @@ async def test_set_project_status_happy_path(respx_mock):
         "status": "active",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Project/p1"])
+    respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
 
     ctx = _make_ctx()
     result = await set_project_status(ctx, "Project/p1", "on_hold")
@@ -735,7 +739,7 @@ async def test_set_project_status_happy_path(respx_mock):
 
     req = post_route.calls.last.request
     sent = json.loads(req.read())
-    updated_doc = sent[0]
+    updated_doc = sent
     assert updated_doc["status"] == "on_hold"
 
 
@@ -747,7 +751,8 @@ async def test_set_project_status_on_hold_to_active(respx_mock):
         "status": "on_hold",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Project/p1"])
+    respx_mock.post(DOC_PATH).respond(json=["Project/p1"])
 
     ctx = _make_ctx()
     result = await set_project_status(ctx, "Project/p1", "active")
@@ -854,35 +859,39 @@ async def test_set_goal_status_happy_path(respx_mock):
         "status": "active",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
+    put_route = respx_mock.put(DOC_PATH).respond(json=["Goal/g1"])
     post_route = respx_mock.post(DOC_PATH).respond(json=["Goal/g1"])
 
     ctx = _make_ctx()
     result = await set_goal_status(ctx, "Goal/g1", "achieved")
 
     assert result == {"ok": True, "iri": "Goal/g1"}
+    assert put_route.called
     assert post_route.called
-
-    req = post_route.calls.last.request
-    sent = json.loads(req.read())
-    updated_doc = sent[0]
-    assert updated_doc["status"] == "achieved"
+    assert len(put_route.calls) == 1
+    assert len(post_route.calls) == 1
 
 
 async def test_set_goal_status_abandoned_to_active(respx_mock):
+    """abandoned -> active is a valid transition."""
     orig_doc = {
         "@id": "Goal/g1",
         "@type": "Goal",
-        "name": "Old goal",
+        "name": "Goal",
         "status": "abandoned",
     }
     respx_mock.get(DOC_PATH).respond(json=dict(orig_doc))
+    put_route = respx_mock.put(DOC_PATH).respond(json=["Goal/g1"])
     post_route = respx_mock.post(DOC_PATH).respond(json=["Goal/g1"])
 
     ctx = _make_ctx()
     result = await set_goal_status(ctx, "Goal/g1", "active")
 
     assert result == {"ok": True, "iri": "Goal/g1"}
+    assert put_route.called
     assert post_route.called
+    assert len(put_route.calls) == 1
+    assert len(post_route.calls) == 1
 
 
 async def test_set_goal_status_illegal_transition(respx_mock):
@@ -964,9 +973,7 @@ async def test_create_area_duplicate_name(respx_mock):
     """When an Area with the same lexical key already exists, report the error."""
     respx_mock.post(DOC_PATH).respond(
         status_code=400,
-        json={"@type": "api:ErrorResponse",
-              "api:status": "api:failure",
-              "api:message": "Duplicate key: Area/Health"},
+        json={"@type": "api:ErrorResponse", "api:status": "api:failure", "api:message": "Duplicate key: Area/Health"},
     )
     ctx = _make_ctx()
     result = await create_area(ctx, "Health")
@@ -997,7 +1004,7 @@ async def test_assign_contexts_happy_path(respx_mock):
 
     respx_mock.get(DOC_PATH, params={"id": "Task/abc"}).respond(json=dict(task_doc))
     respx_mock.get(DOC_PATH, params={"id": "Project/p1"}).respond(json=dict(project_doc))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
 
     ctx = _make_ctx()
     result = await assign_contexts(ctx, "Task/abc", ["Project/p1"])
@@ -1024,7 +1031,7 @@ async def test_assign_contexts_dedupe(respx_mock):
 
     respx_mock.get(DOC_PATH, params={"id": "Task/abc"}).respond(json=dict(task_doc))
     respx_mock.get(DOC_PATH, params={"id": "Area/a1"}).respond(json=dict(ctx_doc))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
 
     ctx = _make_ctx()
     result = await assign_contexts(ctx, "Task/abc", ["Area/a1"])
@@ -1091,7 +1098,7 @@ async def test_remove_contexts_happy_path(respx_mock):
         "contexts": ["Project/p1", "Area/a1"],
     }
     respx_mock.get(DOC_PATH).respond(json=dict(task_doc))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
 
     ctx = _make_ctx()
     result = await remove_contexts(ctx, "Task/abc", ["Project/p1"])
@@ -1116,7 +1123,7 @@ async def test_remove_contexts_non_present_iri(respx_mock):
         "contexts": ["Project/p1"],
     }
     respx_mock.get(DOC_PATH).respond(json=dict(task_doc))
-    post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
+    post_route = respx_mock.put(DOC_PATH).respond(json=["Task/abc"])
 
     ctx = _make_ctx()
     result = await remove_contexts(ctx, "Task/abc", ["Project/missing"])
