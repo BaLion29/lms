@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import structlog
@@ -13,7 +13,7 @@ from effectd.engine import EffectEngine, _scheduled_after
 from effectd.legacy_notify import _strip_nones
 from effectd.settings import EffectdSettings
 from firnline_core.base import _format_datetime
-from firnline_core.plugins import ExecutionResult, ModuleRequirement
+from firnline_core.plugins import ExecutionResult, HostResult, ModuleRequirement
 from firnline_core.tdb import TdbConflictError
 
 UTC = timezone.utc
@@ -1073,6 +1073,7 @@ class TestGotifyExecutorE2E:
     async def test_notify_action_gotify_sends_and_succeeds(self):
         """NotifyAction (auto) + firing → exactly one HTTP call, succeeded with external_ref."""
         pytest.importorskip("respx")
+        pytest.importorskip("firnline_ext_gotify")
         import json
         import respx
 
@@ -1194,3 +1195,82 @@ class TestScheduledAfter:
 
 def test_module_imports_with_zero_extensions():
     """All modules import successfully even with no extensions installed."""
+    import importlib
+    for mod in ("effectd", "effectd.main", "effectd.engine", "effectd.legacy_notify", "effectd.settings"):
+        importlib.import_module(mod)
+
+
+class TestDefaultNotifyExecutorFallback:
+    """When action has no executor field, settings.default_notify_executor is used."""
+
+    @pytest.mark.asyncio
+    async def test_missing_executor_falls_back_to_default_notify_executor(self):
+        """Action with no executor field → uses settings.default_notify_executor."""
+        now = _frozen_now()
+        action = {
+            "@id": "NotifyAction/na1",
+            "@type": "NotifyAction",
+            "trigger": "OneShotTrigger/t1",
+            "mode": "auto",
+            "enabled": True,
+            "name": "na1",
+            # No "executor" field
+        }
+        firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
+        execution = {
+            "@id": "ActionExecution/ae1",
+            "@type": "ActionExecution",
+            "action": "NotifyAction/na1",
+            "firing": "TriggerFiring/f1",
+            "status": "pending",
+            "attempt": 0,
+            "idempotency_key": "na1#f1",
+        }
+
+        # Executor provides "notify:gotify" (the default_notify_executor)
+        executor = FakeExecutor(kinds=("notify:gotify",), ok=True, external_ref="ext-123")
+        settings = EffectdSettings(
+            tdb_db="test",
+            tdb_password="pw",
+            legacy_notification_loop=False,
+            default_notify_executor="notify:gotify",
+        )
+        engine, tdb = _make_engine(
+            actions=[action], firings=[firing],
+            executions=[execution], executors=[executor],
+            now=now, settings=settings,
+        )
+        engine.repo.create = AsyncMock()
+
+        await engine.run_cycle()
+
+        # Executor was called (default_notify_executor matched)
+        assert len(executor.calls) == 1
+        engine.repo.transition.assert_called_once_with(
+            "ActionExecution/ae1", "status", "pending", "succeeded",
+            agent="service:effectd",
+        )
+
+
+class TestStrictChannelDiscovery:
+    """strict parameter is correctly passed to channel plugin discovery."""
+
+    @pytest.mark.asyncio
+    async def test_strict_passed_to_channel_discovery(self):
+        """When strict=True, HostPolicy for channel discovery gets strict=True."""
+        from effectd.main import _discover_channel_plugins_async
+
+        # Patch PluginHost and HostPolicy
+        with patch("effectd.main.PluginHost") as mock_host_cls, \
+             patch("effectd.main.HostPolicy") as mock_policy_cls:
+            mock_policy = mock_policy_cls.return_value
+            mock_host = mock_host_cls.return_value
+            mock_host.start = AsyncMock(return_value=HostResult(active=[]))
+
+            tdb = AsyncMock()
+            await _discover_channel_plugins_async(tdb, "main", None, strict=True)
+
+            # Verify HostPolicy was called with strict=True
+            mock_policy_cls.assert_called_once()
+            _, kwargs = mock_policy_cls.call_args
+            assert kwargs.get("strict") is True

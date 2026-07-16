@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, TYPE_CHECKING
 
 import structlog
@@ -20,8 +20,6 @@ if TYPE_CHECKING:
     from effectd.settings import EffectdSettings
 
 logger = structlog.get_logger(__name__)
-
-_UTC = timezone.utc
 
 # Concrete Action subclasses queryable via TerminusDB document API.
 # The abstract "Action" class cannot be queried — see docs/terminusdb-notes.md §8.
@@ -326,7 +324,7 @@ class EffectEngine:
         subject = await self._resolve_subject(firing.get("subject"))
 
         # ── Select executor ────────────────────────────────────────────
-        executor_kind = action.get("executor", "")
+        executor_kind = action.get("executor", "") or (self.settings.default_notify_executor if self.settings else "")
         executor = _select_executor(self.executors, executor_kind)
         if executor is None:
             if executor_kind not in missing_kinds:
@@ -377,9 +375,9 @@ class EffectEngine:
 
         max_attempts = action.get("max_attempts") or (self.settings.default_max_attempts if self.settings else 3)
         backoff_raw = action.get("retry_backoff") or (self.settings.default_retry_backoff if self.settings else "PT1M")
-        backoff_base = parse_duration(backoff_raw)
-        backoff_td = backoff_base if backoff_base else parse_duration("PT1M")
-        assert backoff_td is not None
+        backoff_td = parse_duration(backoff_raw)
+        if backoff_td is None:
+            backoff_td = parse_duration("PT1M")
 
         repo = self.repo
         now_str = _format_datetime(now)
