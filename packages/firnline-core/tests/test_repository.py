@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from copy import deepcopy
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from firnline_core.repository import Repository
@@ -12,6 +14,7 @@ from firnline_core.tdb import TdbConflictError, TdbError
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_repo() -> Repository:
     """Create a Repository with a mocked TdbClient."""
@@ -30,6 +33,105 @@ def _existing_doc() -> dict:
         "priority": 1,
         "provenance": {"agent": "user:basti", "at": "2025-01-01T00:00:00Z"},
     }
+
+
+class FakeTdbClient:
+    """In-memory fake that preserves POST-versus-PUT document semantics."""
+
+    def __init__(self, docs: list[dict[str, Any]]) -> None:
+        self.store = {doc["@id"]: deepcopy(doc) for doc in docs}
+        self._next_id = 1
+
+    async def get_document(self, iri: str, branch: str = "main") -> dict[str, Any]:
+        del branch
+        try:
+            return deepcopy(self.store[iri])
+        except KeyError as exc:
+            raise TdbError(404, f"Document not found: {iri}") from exc
+
+    async def insert_documents(
+        self,
+        docs: list[dict[str, Any]],
+        branch: str = "main",
+        message: str = "ingestd",
+    ) -> list[str]:
+        del branch, message
+        if any(doc.get("@id") in self.store for doc in docs if doc.get("@id")):
+            raise TdbError(400, "api:DocumentIdAlreadyExists")
+
+        iris = []
+        for source in docs:
+            doc = deepcopy(source)
+            iri = doc.get("@id") or f"{doc['@type']}/{self._next_id}"
+            self._next_id += 1
+            doc["@id"] = iri
+            self.store[iri] = doc
+            iris.append(iri)
+        return iris
+
+    async def replace_document(
+        self,
+        doc: dict[str, Any],
+        branch: str = "main",
+        message: str = "ingestd",
+    ) -> None:
+        del branch, message
+        iri = doc.get("@id")
+        if not iri:
+            raise ValueError("Document must contain '@id' for replace")
+        self.store[iri] = deepcopy(doc)
+
+
+# ---------------------------------------------------------------------------
+# Transition and archive regressions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_transition_replaces_entity_and_inserts_audit_document():
+    """Transition uses PUT for the entity and POST only for its new audit doc."""
+    execution = {
+        "@id": "ActionExecution/ae1",
+        "@type": "ActionExecution",
+        "status": "pending",
+    }
+    tdb = FakeTdbClient([execution])
+    repo = Repository(
+        tdb,
+        transitions={"ActionExecution": {"pending": ["succeeded"]}},
+    )
+
+    await repo.transition(
+        execution["@id"],
+        "status",
+        "pending",
+        "succeeded",
+        agent="service:effectd",
+        branch="main",
+    )
+
+    assert tdb.store[execution["@id"]]["status"] == "succeeded"
+    audits = [doc for doc in tdb.store.values() if doc.get("@type") == "Transition"]
+    assert len(audits) == 1
+    assert audits[0]["subject"] == execution["@id"]
+    assert audits[0]["from_status"] == "pending"
+    assert audits[0]["to_status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_archive_replaces_entity_and_inserts_audit_document():
+    """Archive uses PUT for the entity and POST only for its new audit doc."""
+    task = {"@id": "Task/abc", "@type": "Task", "name": "Example"}
+    tdb = FakeTdbClient([task])
+    repo = Repository(tdb)
+
+    await repo.archive(task["@id"], agent="service:effectd", branch="main")
+
+    assert tdb.store[task["@id"]]["archived_at"].endswith("Z")
+    audits = [doc for doc in tdb.store.values() if doc.get("@type") == "Transition"]
+    assert len(audits) == 1
+    assert audits[0]["subject"] == task["@id"]
+    assert audits[0]["field"] == "archived_at"
 
 
 # ---------------------------------------------------------------------------

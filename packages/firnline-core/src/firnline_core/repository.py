@@ -49,7 +49,7 @@ class Repository:
         confidence: float | None = None,
         branch: str = "main",
     ) -> str:
-        """        Insert *doc*, stamping provenance.
+        """Insert *doc*, stamping provenance.
 
         Validates the *agent* grammar.  Overwrites any existing
         ``provenance`` on *doc*.  Timestamps are covered by prov and
@@ -59,7 +59,6 @@ class Repository:
         """
         parse_agent(agent)
         now = utc_now()
-        now_str = _format_datetime(now)
 
         prov = Provenance(
             agent=agent,
@@ -104,7 +103,6 @@ class Repository:
         parse_agent(agent)
         short = short_iri(iri)
         now = utc_now()
-        now_str = _format_datetime(now)
 
         # Fetch existing document
         doc = await self._tdb.get_document(short, branch=branch)
@@ -114,13 +112,9 @@ class Repository:
 
         # Disallow @type / @id changes
         if "@type" in fields and fields.get("@type") != existing_type:
-            raise ValueError(
-                f"Cannot change @type from {existing_type!r} to {fields['@type']!r}"
-            )
+            raise ValueError(f"Cannot change @type from {existing_type!r} to {fields['@type']!r}")
         if "@id" in fields and fields.get("@id") != existing_id:
-            raise ValueError(
-                f"Cannot change @id from {existing_id!r} to {fields['@id']!r}"
-            )
+            raise ValueError(f"Cannot change @id from {existing_id!r} to {fields['@id']!r}")
 
         # Shallow merge
         doc.update(fields)
@@ -178,10 +172,7 @@ class Repository:
         current = doc.get(field)
 
         if current != from_status:
-            raise TransitionError(
-                f"Stale status on {short}: expected '{from_status}', "
-                f"got '{current}'"
-            )
+            raise TransitionError(f"Stale status on {short}: expected '{from_status}', got '{current}'")
 
         table = self._transitions.get(class_name, {})
         allowed = table.get(from_status, [])
@@ -206,8 +197,9 @@ class Repository:
 
         msg = f"repo: transition {short} {from_status}->{to_status}"
         try:
+            await self._tdb.replace_document(doc, branch=branch, message=msg)
             await self._tdb.insert_documents(
-                [doc, transition_doc],
+                [transition_doc],
                 branch=branch,
                 message=msg,
             )
@@ -250,10 +242,12 @@ class Repository:
             "agent": agent,
         }
 
+        msg = f"repo: archive {short}"
+        await self._tdb.replace_document(doc, branch=branch, message=msg)
         await self._tdb.insert_documents(
-            [doc, archive_doc],
+            [archive_doc],
             branch=branch,
-            message=f"repo: archive {short}",
+            message=msg,
         )
 
     # ------------------------------------------------------------------

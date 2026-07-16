@@ -454,7 +454,7 @@ class EffectEngine:
                 self.log.warning("transition_failed", execution=execution_iri, error=str(exc))
                 return
 
-            # Write extra fields via insert (mirrors legacy loop pattern)
+            # Write extra fields back to the existing execution document
             try:
                 doc = await repo.get_document(execution_iri, branch=branch)
                 doc["attempt"] = new_attempt
@@ -462,8 +462,8 @@ class EffectEngine:
                 doc["external_ref"] = result.external_ref
                 doc["result_detail"] = result.detail or None
                 cleaned = _strip_nones(doc)
-                await repo.tdb.insert_documents(
-                    [cleaned],
+                await repo.tdb.replace_document(
+                    cleaned,
                     branch=branch,
                     message=f"effectd: success {short_iri(execution_iri)}",
                 )
@@ -483,8 +483,8 @@ class EffectEngine:
                     doc["next_attempt_at"] = next_at
                     doc["result_detail"] = result.detail or None
                     cleaned = _strip_nones(doc)
-                    await repo.tdb.insert_documents(
-                        [cleaned],
+                    await repo.tdb.replace_document(
+                        cleaned,
                         branch=branch,
                         message=f"effectd: retry {short_iri(execution_iri)}",
                     )
@@ -510,8 +510,8 @@ class EffectEngine:
                     doc["executed_at"] = now_str
                     doc["result_detail"] = result.detail or None
                     cleaned = _strip_nones(doc)
-                    await repo.tdb.insert_documents(
-                        [cleaned],
+                    await repo.tdb.replace_document(
+                        cleaned,
                         branch=branch,
                         message=f"effectd: dead {short_iri(execution_iri)}",
                     )
@@ -537,8 +537,8 @@ class EffectEngine:
                     doc["executed_at"] = now_str
                     doc["result_detail"] = result.detail or None
                     cleaned = _strip_nones(doc)
-                    await repo.tdb.insert_documents(
-                        [cleaned],
+                    await repo.tdb.replace_document(
+                        cleaned,
                         branch=branch,
                         message=f"effectd: failed {short_iri(execution_iri)}",
                     )

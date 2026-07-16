@@ -113,6 +113,7 @@ def _make_engine(
     tdb.get_document = AsyncMock()
     tdb.get_documents = AsyncMock()
     tdb.insert_documents = AsyncMock(return_value=["fake-iri"])
+    tdb.replace_document = AsyncMock()
     # Default: schema fetch raises so _get_concrete_action_types falls back
     # to the hardcoded _CONCRETE_ACTION_TYPES for tests that don't mock it.
     tdb.get_schema = AsyncMock(side_effect=RuntimeError("schema not mocked"))
@@ -471,13 +472,9 @@ class TestExecutorSuccess:
         # Executor invoked
         assert len(executor.calls) == 1
 
-        # insert_documents called for field update
-        assert tdb.insert_documents.call_count >= 1
-        # Check the last insert call directly for field updates
-        last_call = tdb.insert_documents.call_args_list[-1]
-        docs = last_call[0][0]
-        assert len(docs) == 1
-        updated = docs[0]
+        # replace_document called for the existing execution field update
+        tdb.replace_document.assert_awaited_once()
+        updated = tdb.replace_document.call_args.args[0]
         assert updated["attempt"] == 1
         assert updated["executed_at"].endswith("Z")
         assert updated.get("external_ref") == "ext-123"
@@ -517,10 +514,10 @@ class TestRetryBackoff:
         # No transition — status stays pending
         engine.repo.transition.assert_not_called()
 
-        # Field update via insert_documents
-        retry_calls = [c for c in tdb.insert_documents.call_args_list if "retry" in str(c)]
+        # Field update via replace_document
+        retry_calls = [c for c in tdb.replace_document.call_args_list if "retry" in str(c)]
         assert len(retry_calls) == 1
-        updated = retry_calls[0][0][0][0]
+        updated = retry_calls[0].args[0]
         assert updated["attempt"] == 1
         assert updated["status"] == "pending"
         # next_attempt_at should be ~now + 1 minute
@@ -558,9 +555,9 @@ class TestRetryBackoff:
 
         await engine.run_cycle()
 
-        retry_calls = [c for c in tdb.insert_documents.call_args_list if "retry" in str(c)]
+        retry_calls = [c for c in tdb.replace_document.call_args_list if "retry" in str(c)]
         assert len(retry_calls) == 1
-        updated = retry_calls[0][0][0][0]
+        updated = retry_calls[0].args[0]
         assert updated["attempt"] == 2
         next_at_str = updated["next_attempt_at"]
         parsed = datetime.strptime(next_at_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
@@ -604,6 +601,9 @@ class TestRetryBackoff:
             agent="service:effectd",
             branch="main",
         )
+        dead_calls = [c for c in tdb.replace_document.call_args_list if "dead" in str(c)]
+        assert len(dead_calls) == 1
+        assert dead_calls[0].args[0]["attempt"] == 3
 
     @pytest.mark.asyncio
     async def test_nonretryable_failure_transitions_failed(self):
@@ -641,6 +641,9 @@ class TestRetryBackoff:
             agent="service:effectd",
             branch="main",
         )
+        failed_calls = [c for c in tdb.replace_document.call_args_list if "failed" in str(c)]
+        assert len(failed_calls) == 1
+        assert failed_calls[0].args[0]["attempt"] == 1
 
 
 class TestTimeout:
@@ -690,9 +693,9 @@ class TestTimeout:
         await engine.run_cycle()
 
         # Should get a retry persistence (timeout → retryable)
-        retry_calls = [c for c in tdb.insert_documents.call_args_list if "retry" in str(c)]
+        retry_calls = [c for c in tdb.replace_document.call_args_list if "retry" in str(c)]
         assert len(retry_calls) >= 1
-        updated = retry_calls[0][0][0][0]
+        updated = retry_calls[0].args[0]
         assert updated["result_detail"] == "timeout"
 
     @pytest.mark.asyncio
@@ -724,9 +727,9 @@ class TestTimeout:
         await engine.run_cycle()
 
         # Should be retryable with detail containing the exception
-        retry_calls = [c for c in tdb.insert_documents.call_args_list if "retry" in str(c)]
+        retry_calls = [c for c in tdb.replace_document.call_args_list if "retry" in str(c)]
         assert len(retry_calls) >= 1
-        updated = retry_calls[0][0][0][0]
+        updated = retry_calls[0].args[0]
         assert "boom" in updated.get("result_detail", "")
 
 
@@ -1187,9 +1190,9 @@ class TestGotifyExecutorE2E:
             )
 
             # ── external_ref persisted ──
-            success_calls = [c for c in tdb.insert_documents.call_args_list if "success" in str(c)]
+            success_calls = [c for c in tdb.replace_document.call_args_list if "success" in str(c)]
             assert len(success_calls) >= 1
-            updated = success_calls[-1][0][0][0]
+            updated = success_calls[-1].args[0]
             assert updated.get("external_ref") == "55"
 
 
@@ -1401,7 +1404,7 @@ class TestBranchThreading:
 
     @pytest.mark.asyncio
     async def test_execute_phase_uses_configured_branch(self):
-        """Execute phase: get_documents_by_status, get_document, transition, insert_documents all use tdb_branch."""
+        """Execute phase reads, transitions, and replacements all use tdb_branch."""
         now = _frozen_now()
         action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
         firing = _firing(iri="TriggerFiring/f1", trigger="OneShotTrigger/t1")
@@ -1452,11 +1455,11 @@ class TestBranchThreading:
             f"transition called with branch={engine.repo.transition.call_args.kwargs.get('branch')!r}, expected 'production'"
         )
 
-        # insert_documents called with branch="production"
-        assert tdb.insert_documents.call_count >= 1
-        for call in tdb.insert_documents.call_args_list:
+        # replace_document called with branch="production"
+        assert tdb.replace_document.call_count >= 1
+        for call in tdb.replace_document.call_args_list:
             assert call.kwargs.get("branch") == "production", (
-                f"insert_documents called with branch={call.kwargs.get('branch')!r}, expected 'production'"
+                f"replace_document called with branch={call.kwargs.get('branch')!r}, expected 'production'"
             )
 
 
