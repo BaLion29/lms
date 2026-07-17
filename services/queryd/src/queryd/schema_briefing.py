@@ -182,7 +182,20 @@ def render_schema_summary(introspection: dict[str, Any]) -> str:
 
     # Object types
     _header("OBJECT TYPES")
-    reachable = _collect_reachable(query_type_name)
+    reachable: list[str] = _collect_reachable(query_type_name)
+
+    # In the zero-extension ("melt") scenario, Query has no fields, so BFS
+    # only reaches Query itself.  Include all non-introspection OBJECT
+    # types so kernel document classes still appear.
+    extra = sorted(
+        n
+        for n, t in types_by_name.items()
+        if n not in reachable
+        and t.get("kind") in _OBJECT_KINDS
+        and n not in _SKIP_TYPES
+        and n != mutation_type_name
+    )
+    reachable.extend(extra)
 
     for name in reachable:
         t = types_by_name.get(name)

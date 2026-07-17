@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-alpha] - 2026-07-17
+
 ### Changed
 
+- WebUI is EXPERIMENTAL for 0.1.0 — not part of the supported release surface.
+  Event-level auth is deferred. Bind to loopback; do not expose port 3000 to
+  untrusted networks.
+- TUI is in scope for 0.1.0 and supported.
+- Capture API (`POST /v1/capture/note`) now accepts both `text/plain` (raw body)
+  and `application/json` (structured body with text/kind/metadata).
 - **`firnline-ext-time-management` merges planning + routines.** The
   `firnline-ext-planning` and `firnline-ext-routines` extensions are combined
   into a single `time_management` schema module (9 classes: Task, TaskSpec,
@@ -22,7 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`time_management_tools` with `create_routine`, `update_routine`, and
   `log_activity`). The old extensions are removed. Extension migration
   discovery is now supported in `firnline-schema`.
-
 - **Marker grammar refactored.** `Source`, `Context`, and `Anchored` are now all
   pure role markers. `Anchored` no longer carries `anchor_at`; concrete classes
   implementing it declare `@metadata.anchor_field` at the class level. Relative
@@ -69,9 +76,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **webui: internal cleanup.** Shared client factories, shared feedback UI
   helpers (error/empty/loading), healthz parsing updated to services' current
   flat response shape, previously swallowed exceptions now logged.
+- Clean re-baseline for 0.1.0 release.
+- Kernel/extension split enforced — schema modules and handlers now live in kernel
+  packages, extensions only provide third-party integrations.
+- Per-package generated models replace hand-written Pydantic models across all
+  firnline libraries.
+- Core schema: Entity base class with Provenance tracking (created_at,
+  updated_at, provenance — no derived_from).
+- Triggerable and Anchored marker classes for structured document time handling.
+- notifyd notification delivery daemon with gotify channel extension.
+- Inbox schema module (InboxNote, InboxAudio) absorbed into kernel
+  (schema/modules/inbox/); capture handlers moved to captured, ingest sources to
+  ingestd.
+- ContextTrigger removed — replaced by ScheduleTrigger, OneShotTrigger, and
+  TriggerFiring documents handled by triggerd.
+- firnline-core client now exposes a change-feed API for polling services.
+- All package versions reset to 0.1.0.
 
 ### Added
 
+- CI workflow (`.github/workflows/ci.yml`) and pre-commit config (gitleaks + ruff
+  + conflict-marker check).
+- Community files: `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR
+  templates.
 - **`actions` kernel schema module.** Introduces the `Action` hierarchy
   (`WebhookAction`, `NotifyAction`), `ActionExecution` (idempotent execution
   records with Lexical key on `[action, firing]`), `ActionMode` trust ladder
@@ -116,42 +143,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **webui: Accessibility.** Aria-labels on all icon-only buttons, `role="main"`
   on content area, `aria-current` on the active nav link, keyboard-focusable
   table rows.
-
-### Deprecated
-
-- **`firnline.notifyd.channels` entry-point group.** Legacy channel plugins
-  are auto-adapted to executors with kind `notify:<name>` via
-  `ChannelExecutorAdapter` at effectd startup. Migrate to
-  `firnline.effectd.executors`. The legacy group will be removed after one
-  release cycle.
-- **`NotificationChannel`, `DeliveryResult`, `NotifyContext`** — aliased
-  respectively to `ActionExecutor`, `ExecutionResult`, `ActionContext`.
-  Existing channel implementations continue to work; new executors should
-  use the canonical names directly.
-
-## [0.1.0] - 2026-07-07
-
-### Changed
-
-- Clean re-baseline for 0.1.0 release.
-- Kernel/extension split enforced — schema modules and handlers now live in kernel
-  packages, extensions only provide third-party integrations.
-- Per-package generated models replace hand-written Pydantic models across all
-  firnline libraries.
-- Core schema: Entity base class with Provenance tracking (created_at,
-  updated_at, provenance — no derived_from).
-- Triggerable and Anchored marker classes for structured document time handling.
-- notifyd notification delivery daemon with gotify channel extension.
-- Inbox schema module (InboxNote, InboxAudio) absorbed into kernel
-  (schema/modules/inbox/); capture handlers moved to captured, ingest sources to
-  ingestd.
-- ContextTrigger removed — replaced by ScheduleTrigger, OneShotTrigger, and
-  TriggerFiring documents handled by triggerd.
-- firnline-core client now exposes a change-feed API for polling services.
-- All package versions reset to 0.1.0.
-
-### Added
-
 - New `firnline-webui` service — Reflex 0.9.x web dashboard at `services/webui/`.
   Seven introspection-driven pages: Dashboard, Capture (note + file), Inbox
   (auto-discovers Inbox* classes), Browse (generic class browser grouped by
@@ -175,15 +166,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`INGESTD_LIVENESS_FILE` / `TRIGGERD_LIVENESS_FILE`).
 - `triggerd` Docker image, compose service block, `.env.example` entries, and
   documentation coverage.
-
-### Fixed
-
-- Extension test files renamed to prevent shadowing in root `pytest` runs.
-
-## [0.1.0-alpha] - 2026-07-06
-
-### Added
-
 - Initial alpha release of the firnline project (renamed from former working
   name "lms").
 - Monorepo layout: `firnline-core` shared domain library, `firnline-schema`
@@ -201,3 +183,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bootstrap service for schema initialization, and extension management.
 - Registry classes (`SchemaModule`, `SchemaMigration`) for tracking installed
   schema modules and applied migrations.
+
+### Deprecated
+
+- **`firnline.notifyd.channels` entry-point group.** Legacy channel plugins
+  are auto-adapted to executors with kind `notify:<name>` via
+  `ChannelExecutorAdapter` at effectd startup. Migrate to
+  `firnline.effectd.executors`. The legacy group will be removed after one
+  release cycle.
+- **`NotificationChannel`, `DeliveryResult`, `NotifyContext`** — aliased
+  respectively to `ActionExecutor`, `ExecutionResult`, `ActionContext`.
+  Existing channel implementations continue to work; new executors should
+  use the canonical names directly.
+
+### Fixed
+
+- F-1: `push_schema` no longer strips `@abstract`/`@metadata`/`@documentation` —
+  these schema annotations now persist, fixing triggerd anchor resolution,
+  introspect label rendering, and effectd/triggerd concrete-class scanning.
+- F-2: effectd same-cycle execution dedup — newly-planned (action, firing) pairs
+  are now tracked within a cycle to prevent duplicate webhook delivery.
+- F-4: effectd delivery semantics documented as at-least-once with dedup key
+  (was incorrectly claimed as exactly-once).
+- F-5: empty/whitespace-only text captures now terminal-reject instead of looping
+  forever (audio-transcription-pending items still skip correctly).
+- F-6: captured file upload now streams with a running byte cap (413 mid-stream)
+  instead of buffering the whole body.
+- F-11: TUI placeholder screen no longer renders literal "TODO: <title>".
+- Melt test: `render_schema_summary` now emits kernel OBJECT types in the
+  zero-extension scenario (was silently dropping them due to
+  Query-reachability gating).
+- `firnline-ext-decisions` now has a `pyproject.toml` (was missing, blocking
+  `uv sync --all-packages` on fresh clone).
+
+### Security
+
+- S-2: `/mcp` endpoint now requires bearer auth (`MCPD_API_TOKEN`; auto-wired
+  from `QUERYD_API_TOKEN` in the combined apid deployment). Previously the MCP
+  surface on the token-protected port had no inbound auth and forwarded real
+  bearer tokens server-side, bypassing all API token gates.
+- S-4: webhook executor now enforces a URL allowlist (`WEBHOOK_ALLOWED_HOSTS`,
+  fail-closed when empty) and blocks private/loopback/link-local/CGNAT IPs.
+  The default bearer token is no longer sent to arbitrary URLs.
+- S-6: CORS `allow_origins` now rejects `*` and `null` (incompatible with
+  `allow_credentials=True`).
