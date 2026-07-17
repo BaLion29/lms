@@ -206,7 +206,9 @@ async def _tool_capture(text: str) -> dict[str, Any]:
         text: The text content to capture.
     """
     settings = _get_settings()
-    async with _build_client(settings.captured_url, settings.captured_token, settings.request_timeout_seconds) as client:
+    async with _build_client(
+        settings.captured_url, settings.captured_token, settings.request_timeout_seconds
+    ) as client:
         try:
             resp = await client.post(
                 "/v1/capture/note",
@@ -219,9 +221,7 @@ async def _tool_capture(text: str) -> dict[str, Any]:
         return resp.json()
 
 
-async def _tool_create_document(
-    class_name: str, fields: dict[str, Any], agent: str | None = None
-) -> dict[str, Any]:
+async def _tool_create_document(class_name: str, fields: dict[str, Any], agent: str | None = None) -> dict[str, Any]:
     """Create a structured document of a known schema class directly — no LLM extraction.
 
     Use this when you already know the exact field values for a document.
@@ -246,23 +246,17 @@ async def _tool_create_document(
         document's IRI (e.g. ``{"iri": "Task/abc123"}``).
     """
     settings = _get_settings()
-    async with _build_client(
-        settings.queryd_url, settings.queryd_token, settings.request_timeout_seconds
-    ) as client:
+    async with _build_client(settings.queryd_url, settings.queryd_token, settings.request_timeout_seconds) as client:
         headers = {"X-Firnline-Agent": agent} if agent else {"X-Firnline-Agent": "ext:mcp"}
         try:
-            resp = await client.post(
-                f"/v1/documents/{class_name}", json=fields, headers=headers
-            )
+            resp = await client.post(f"/v1/documents/{class_name}", json=fields, headers=headers)
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             raise ToolError(str(e)) from None
         _raise_for_status(resp)
         return resp.json()
 
 
-async def _tool_update_document(
-    iri: str, fields: dict[str, Any], agent: str | None = None
-) -> dict[str, Any]:
+async def _tool_update_document(iri: str, fields: dict[str, Any], agent: str | None = None) -> dict[str, Any]:
     """Update an existing document's fields directly — no LLM extraction.
 
     Use this to modify a document when you know the exact field values to
@@ -285,15 +279,11 @@ async def _tool_update_document(
         document's IRI (e.g. ``{"iri": "Task/abc123"}``).
     """
     settings = _get_settings()
-    async with _build_client(
-        settings.queryd_url, settings.queryd_token, settings.request_timeout_seconds
-    ) as client:
+    async with _build_client(settings.queryd_url, settings.queryd_token, settings.request_timeout_seconds) as client:
         headers = {"X-Firnline-Agent": agent} if agent else {"X-Firnline-Agent": "ext:mcp"}
         iri_stripped = iri.strip("/")
         try:
-            resp = await client.put(
-                f"/v1/documents/{iri_stripped}", json=fields, headers=headers
-            )
+            resp = await client.put(f"/v1/documents/{iri_stripped}", json=fields, headers=headers)
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             raise ToolError(str(e)) from None
         _raise_for_status(resp)
@@ -409,7 +399,7 @@ async def _register_dynamic_tools_with_retry(
             return  # success — empty list is still success
 
         if attempt < max_attempts - 1:
-            delay = base_delay * (2 ** attempt)
+            delay = base_delay * (2**attempt)
             await asyncio.sleep(delay)
 
 
@@ -477,10 +467,7 @@ def create_mcp_component(
         try:
             specs = asyncio.run(fetch_tool_specs(settings))
         except RuntimeError:
-            logger.warning(
-                "Cannot fetch dynamic tools: event loop already running. "
-                "Skipping queryd tool registration."
-            )
+            logger.warning("Cannot fetch dynamic tools: event loop already running. Skipping queryd tool registration.")
             specs = []
         else:
             if specs:
@@ -513,9 +500,7 @@ def create_mcp_component(
             # start a background retry task.
             _dynamic_task: asyncio.Task | None = None
             if settings.enable_queryd_tools and not _dynamic_registered:
-                _dynamic_task = asyncio.create_task(
-                    _register_dynamic_tools_with_retry(mcp, settings)
-                )
+                _dynamic_task = asyncio.create_task(_register_dynamic_tools_with_retry(mcp, settings))
 
             try:
                 yield
@@ -568,4 +553,11 @@ def main() -> None:
 
     settings = McpdSettings()  # type: ignore[call-arg]
     app = create_app(settings)
-    uvicorn.run(app, host=settings.host, port=settings.port, log_level=settings.log_level.lower())
+    uvicorn.run(
+        app,
+        host=settings.host,
+        port=settings.port,
+        log_level=settings.log_level.lower(),
+        proxy_headers=settings.proxy_headers,
+        forwarded_allow_ips=settings.forwarded_allow_ips,
+    )

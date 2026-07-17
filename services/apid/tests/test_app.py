@@ -15,6 +15,7 @@ from starlette.routing import Route
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def set_env(monkeypatch):
     """Set minimum required env vars so all component settings can be constructed."""
@@ -33,6 +34,7 @@ def set_env(monkeypatch):
 # Helpers for tests that need lifespans to succeed
 # ---------------------------------------------------------------------------
 
+
 @asynccontextmanager
 async def _noop_lifespan(app):
     yield
@@ -40,10 +42,12 @@ async def _noop_lifespan(app):
 
 def _wrap_lifespan(orig_factory):
     """Wraps a ``create_component`` factory to use a noop lifespan."""
+
     def wrapped(settings=None):
         comp = orig_factory(settings)
         comp.lifespan = _noop_lifespan
         return comp
+
     return wrapped
 
 
@@ -59,6 +63,7 @@ def _mock_all_components(monkeypatch):
     import apid.app as apid_mod  # noqa: E402
 
     import captured.app as cap_mod
+
     monkeypatch.setattr(
         apid_mod,
         "captured_create_component",
@@ -66,6 +71,7 @@ def _mock_all_components(monkeypatch):
     )
 
     import queryd.app as qd_mod
+
     monkeypatch.setattr(
         apid_mod,
         "queryd_create_component",
@@ -73,13 +79,13 @@ def _mock_all_components(monkeypatch):
     )
 
     import indexed.app as idx_mod
+
     monkeypatch.setattr(
         apid_mod,
         "indexed_create_component",
         _wrap_lifespan(idx_mod.create_component),
     )
 
-    import mcpd.main as mcpd_mod
     noop_starlette = Starlette()
     monkeypatch.setattr(
         apid_mod,
@@ -91,6 +97,7 @@ def _mock_all_components(monkeypatch):
 # ---------------------------------------------------------------------------
 # Tests — app construction & openapi (no lifespan needed)
 # ---------------------------------------------------------------------------
+
 
 def test_app_builds(set_env):
     """App factory returns a FastAPI instance without error."""
@@ -121,6 +128,7 @@ def test_openapi_has_routes(set_env):
 # Tests — healthz & /mcp (need lifespan to succeed)
 # ---------------------------------------------------------------------------
 
+
 def test_healthz(set_env, monkeypatch):
     """/healthz returns 200 with per-component status."""
     _mock_all_components(monkeypatch)
@@ -144,20 +152,26 @@ def test_mcp_mount_healthz(set_env, monkeypatch):
     import apid.app as apid_mod  # noqa: E402
 
     import captured.app as cap_mod
+
     monkeypatch.setattr(
-        apid_mod, "captured_create_component",
+        apid_mod,
+        "captured_create_component",
         _wrap_lifespan(cap_mod.create_component),
     )
 
     import queryd.app as qd_mod
+
     monkeypatch.setattr(
-        apid_mod, "queryd_create_component",
+        apid_mod,
+        "queryd_create_component",
         _wrap_lifespan(qd_mod.create_component),
     )
 
     import indexed.app as idx_mod
+
     monkeypatch.setattr(
-        apid_mod, "indexed_create_component",
+        apid_mod,
+        "indexed_create_component",
         _wrap_lifespan(idx_mod.create_component),
     )
 
@@ -167,7 +181,8 @@ def test_mcp_mount_healthz(set_env, monkeypatch):
 
     mcp_subapp = Starlette(routes=[Route("/healthz", mcp_healthz)])
     monkeypatch.setattr(
-        apid_mod, "mcpd_create_mcp_component",
+        apid_mod,
+        "mcpd_create_mcp_component",
         lambda settings=None: (mcp_subapp, _noop_lifespan, None),
     )
 
@@ -184,20 +199,26 @@ def test_mcp_mount(set_env, monkeypatch):
     import apid.app as apid_mod  # noqa: E402
 
     import captured.app as cap_mod
+
     monkeypatch.setattr(
-        apid_mod, "captured_create_component",
+        apid_mod,
+        "captured_create_component",
         _wrap_lifespan(cap_mod.create_component),
     )
 
     import queryd.app as qd_mod
+
     monkeypatch.setattr(
-        apid_mod, "queryd_create_component",
+        apid_mod,
+        "queryd_create_component",
         _wrap_lifespan(qd_mod.create_component),
     )
 
     import indexed.app as idx_mod
+
     monkeypatch.setattr(
-        apid_mod, "indexed_create_component",
+        apid_mod,
+        "indexed_create_component",
         _wrap_lifespan(idx_mod.create_component),
     )
 
@@ -207,7 +228,8 @@ def test_mcp_mount(set_env, monkeypatch):
 
     mcp_subapp = Starlette(routes=[Route("/", mcp_root)])
     monkeypatch.setattr(
-        apid_mod, "mcpd_create_mcp_component",
+        apid_mod,
+        "mcpd_create_mcp_component",
         lambda settings=None: (mcp_subapp, _noop_lifespan, None),
     )
 
@@ -217,3 +239,61 @@ def test_mcp_mount(set_env, monkeypatch):
         resp = c.get("/mcp")
     assert resp.status_code == 200
     assert resp.json() == {"jsonrpc": "2.0"}
+
+
+# ---------------------------------------------------------------------------
+# Tests — proxy / trusted-host settings
+# ---------------------------------------------------------------------------
+
+
+def test_trusted_hosts_disabled_by_default(set_env, monkeypatch):
+    """TrustedHostMiddleware is NOT active when APID_TRUSTED_HOSTS is empty."""
+    _mock_all_components(monkeypatch)
+
+    from apid.app import create_app  # noqa: E402
+
+    with TestClient(create_app()) as c:
+        resp = c.get("/healthz", headers={"Host": "evil.example.com"})
+    # Middleware is not added → request succeeds regardless of Host
+    assert resp.status_code == 200
+
+
+def test_trusted_hosts_rejects_wrong_host(set_env, monkeypatch):
+    """TrustedHostMiddleware rejects requests with an unlisted Host header."""
+    monkeypatch.setenv("APID_TRUSTED_HOSTS", "firnline.example.com")
+    _mock_all_components(monkeypatch)
+
+    from apid.app import create_app  # noqa: E402
+
+    with TestClient(create_app()) as c:
+        # Wrong host → 400 Bad Request
+        resp = c.get("/healthz", headers={"Host": "evil.example.com"})
+        assert resp.status_code == 400
+
+        # Correct host → 200 OK
+        resp = c.get("/healthz", headers={"Host": "firnline.example.com"})
+        assert resp.status_code == 200
+
+
+def test_proxy_settings_via_env(monkeypatch):
+    """ApidSettings reads proxy_headers and forwarded_allow_ips via APID_ env vars."""
+    monkeypatch.setenv("APID_PROXY_HEADERS", "true")
+    monkeypatch.setenv("APID_FORWARDED_ALLOW_IPS", "10.0.0.0/8")
+
+    from apid.settings import ApidSettings  # noqa: E402
+
+    settings = ApidSettings()
+    assert settings.proxy_headers is True
+    assert settings.forwarded_allow_ips == "10.0.0.0/8"
+
+
+def test_apid_env_prefix_still_works(monkeypatch):
+    """Existing APID_ env vars still work after base-class change."""
+    monkeypatch.setenv("APID_LISTEN_ADDR", "127.0.0.1:9090")
+    monkeypatch.setenv("APID_LOG_LEVEL", "DEBUG")
+
+    from apid.settings import ApidSettings  # noqa: E402
+
+    settings = ApidSettings()
+    assert settings.listen_addr == "127.0.0.1:9090"
+    assert settings.log_level == "DEBUG"

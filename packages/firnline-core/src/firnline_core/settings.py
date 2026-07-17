@@ -21,9 +21,10 @@ Subclasses should set their own ``env_prefix`` via
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
-from pydantic_settings import BaseSettings
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode
 from pydantic_settings.sources import InitSettingsSource, TomlConfigSettingsSource
 
 if TYPE_CHECKING:
@@ -66,6 +67,25 @@ class FirnlineBaseSettings(BaseSettings):
     See the module docstring for the full precedence table and naming
     convention.
     """
+
+    # ── Reverse-proxy / TLS settings (inherited by all services) ──────────
+    proxy_headers: bool = False
+    forwarded_allow_ips: str = "127.0.0.1"
+    # ``NoDecode`` prevents pydantic-settings from JSON-decoding the env var
+    # value; the field_validator below parses comma-separated strings instead.
+    trusted_hosts: Annotated[list[str], NoDecode] = []
+
+    @field_validator("trusted_hosts", mode="before")
+    @classmethod
+    def _parse_trusted_hosts(cls, v: object) -> list[str]:
+        """Accept a comma-separated string or a list (env-var friendly)."""
+        if isinstance(v, str):
+            if v.strip() == "":
+                return []
+            return [host.strip() for host in v.split(",") if host.strip()]
+        if isinstance(v, list):
+            return [str(item).strip() for item in v if str(item).strip()]
+        return []
 
     @classmethod
     def settings_customise_sources(  # noqa: D102
