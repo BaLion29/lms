@@ -8,6 +8,7 @@ status flip after success, empty-text guard.
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -1360,7 +1361,7 @@ class TestEnsureEntityUpdatePath:
         ensure = pipeline._make_ensure_entity(index, batch, existing_ids)
 
         from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
 
         factory_called = False
 
@@ -1418,7 +1419,7 @@ class TestEnsureEntityUpdatePath:
         ensure = pipeline._make_ensure_entity(index, batch, existing_ids)
 
         from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
 
         iri = await ensure(
             "Location",
@@ -1449,7 +1450,7 @@ class TestEnsureEntityUpdatePath:
         ensure = pipeline._make_ensure_entity(index, batch, existing_ids)
 
         from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
 
         # First reference
         iri1 = await ensure(

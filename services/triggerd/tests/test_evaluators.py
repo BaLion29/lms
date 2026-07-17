@@ -30,6 +30,20 @@ from firnline_core.tdb import ChangeEvent
 # Helpers
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _reset_structlog():
+    """Reset structlog to defaults before each test.
+
+    Other services (e.g. queryd) call configure_logging which sets up a
+    filtering bound logger at INFO level.  This persists globally and causes
+    capture_logs to miss DEBUG-level events.  Resetting ensures a clean
+    state for structlog's testing capture.
+    """
+    structlog.reset_defaults()
+    yield
+    structlog.reset_defaults()
+
+
 UTC = timezone.utc
 ZURICH = ZoneInfo("Europe/Zurich")
 

@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 import pytest
 import respx
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from firnline_core.plugins import DiscoveryResult, PluginSelection

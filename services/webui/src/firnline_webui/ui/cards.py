@@ -106,3 +106,29 @@ def status_dot_text(status: rx.Var[str] | str, color_map: dict[str, str] | None 
         spacing="2",
         align="center",
     )
+
+
+def status_badge(status: rx.Var[str] | str, color_map: dict[str, str] | None = None) -> rx.Component:
+    """Coloured badge pill for table-row statuses.
+
+    Follows the same status→colour mapping pattern as :func:`status_dot_text`,
+    but renders as an ``rx.badge`` pill.
+
+    Args:
+        status: The status text to display (also used as lookup key).
+        color_map: Optional dict mapping status values to colour-scheme
+            names (e.g. ``"blue"``, ``"green"``).  Unknown statuses fall
+            back to ``"gray"``.
+    """
+    s = rx.Var.create(status)
+    _map = color_map or {}
+
+    mapped_color: rx.Var = "gray"
+    for key, val in reversed(list(_map.items())):
+        mapped_color = rx.cond(s == key, val, mapped_color)
+
+    return rx.badge(
+        rx.text(s, size="1"),
+        variant="surface",
+        color_scheme=mapped_color,
+    )

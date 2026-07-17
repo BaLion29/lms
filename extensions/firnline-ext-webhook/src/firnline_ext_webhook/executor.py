@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from firnline_core.plugins import ActionContext, ActionExecutor, ExecutionResult, ModuleRequirement
+from firnline_core.plugins import ActionContext, ExecutionResult, ModuleRequirement
 from firnline_core.templates import default_webhook_payload, render as render_template
 
 logger = logging.getLogger(__name__)

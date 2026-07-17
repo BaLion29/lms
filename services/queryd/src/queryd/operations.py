@@ -12,7 +12,7 @@ from typing import Any
 import structlog
 
 from firnline_core.indexed_client import IndexedClient
-from firnline_core.tdb import TdbClient, TdbError
+from firnline_core.tdb import TdbClient
 
 from queryd.schema_briefing import (
     fetch_introspection,

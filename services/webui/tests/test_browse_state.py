@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
 
 from firnline_core.tdb import TdbError
-from firnline_webui.clients import TdbBrowser, WebuiClientError
+from firnline_webui.clients import TdbBrowser
 from firnline_webui.state.browse import BrowseState
 
 

@@ -818,7 +818,7 @@ class TestFiringDocEntityFields:
 
         await engine.run_cycle()
         assert len(inserted) == 1
-        doc = inserted[0]
+        inserted[0]
 
 
 class TestBaselineFirstCycle:
@@ -961,7 +961,6 @@ class TestStateFilePersistence:
     @pytest.mark.asyncio
     async def test_corrupt_state_file_tolerated(self):
         """A corrupt/missing state file is tolerated → no crash, empty dict."""
-        import json
         import tempfile
         from pathlib import Path
 

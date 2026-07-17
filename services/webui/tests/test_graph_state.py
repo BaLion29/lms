@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
 
-from firnline_webui.graph_index import Edge, EdgeIndex, NodeInfo, build_edge_index
+from firnline_webui.graph_index import Edge, EdgeIndex, NodeInfo
 from firnline_webui.state.graph import GraphState, _assign_colors, _build_legend
 
 # ── Minimal fake TdbClient + Browser factory ─────────────────────────────────
@@ -120,7 +119,7 @@ def test_build_legend_filters_by_index():
     )
     legend = _build_legend(colors, idx)
     assert len(legend) == 2
-    labels = {l["label"] for l in legend}
+    labels = {item["label"] for item in legend}
     assert labels == {"Person", "Task"}
 
 
@@ -477,9 +476,9 @@ async def test_legend_items_computed_var():
 
     legend = state.legend_items
     assert len(legend) == 2
-    labels = {l["label"] for l in legend}
+    labels = {item["label"] for item in legend}
     assert labels == {"Person", "Task"}
-    assert all("color" in l for l in legend)
+    assert all("color" in item for item in legend)
 
 
 # ── Index errors ─────────────────────────────────────────────────────────────
@@ -488,7 +487,7 @@ async def test_legend_items_computed_var():
 async def test_index_errors_stored():
     """Per-class errors from build_edge_index are stored."""
     fake = _FakeTdb(schema=_schema(), docs_by_class={"Task": []})
-    browser = _make_browser(fake)
+    _make_browser(fake)
 
     state = GraphState()  # type: ignore[call-arg]
     with patch(
@@ -596,7 +595,7 @@ async def test_select_node_unknown_still_sets_basic_info():
 
 async def test_clear_selection_resets_doc():
     fake = _FakeTdb(schema=_schema(), docs_by_class=_docs())
-    browser = _make_browser(fake)
+    _make_browser(fake)
     state = GraphState()  # type: ignore[call-arg]
 
     state.selected_doc = {"@id": "x"}

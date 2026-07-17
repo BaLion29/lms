@@ -16,7 +16,9 @@ from firnline_core.plugins import (
     DiscoveryResult,
     EntityIndex,
     ExecutionResult,
+    HostPolicy,
     ModuleRequirement,
+    PluginHost,
     check_requirements,
     discover_plugins,
     select_plugins,
@@ -818,20 +820,6 @@ class TestSelectPluginsRequiresClasses:
 # ---------------------------------------------------------------------------
 # PluginHost
 # ---------------------------------------------------------------------------
-
-
-from firnline_core.plugins import HostPolicy, HostResult, PluginHost
-
-
-class FakeEntryPoint:
-    """Minimal fake matching the importlib.metadata.EntryPoint protocol."""
-
-    def __init__(self, name: str, load_fn) -> None:
-        self.name = name
-        self._load_fn = load_fn
-
-    def load(self):
-        return self._load_fn()
 
 
 class TestPluginHostHappyPath:

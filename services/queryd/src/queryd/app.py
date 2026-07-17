@@ -7,7 +7,6 @@ import json
 import re
 import secrets
 import tempfile
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -19,7 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
 from firnline_core.conventions import blob_root_from_env, parse_agent
-from firnline_core.plugins import HostPolicy, PluginHost, ToolPlugin, ToolSpecPlugin
+from firnline_core.plugins import HostPolicy, PluginHost, ToolSpecPlugin
 from firnline_core.logging import configure_logging
 from firnline_core.repository import Repository
 from firnline_core.tdb import TdbClient, TdbConflictError, TdbError

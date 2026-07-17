@@ -85,7 +85,7 @@ def _fetch_tdb_registry(timeout: float) -> list[dict[str, Any]] | None:
     inside a running event loop (e.g. Reflex dev-mode reloads).
     """
     async def _fetch() -> list[dict[str, Any]]:
-        from firnline_webui.clients import make_tdb_browser  # noqa: PLC0415
+        from firnline_webui.clients import make_tdb_browser  # noqa: PLC0415, F401
 
         tdb = make_tdb_browser()
         try:
@@ -183,7 +183,7 @@ def _build_registry() -> _PageRegistry:
     # Only bother if there are external plugins to validate.
     if discovered.active:
         try:
-            from firnline_webui.clients import make_tdb_browser  # noqa: PLC0415
+            from firnline_webui.clients import make_tdb_browser  # noqa: PLC0415, F401
         except ImportError:
             log.warning("TDB client unavailable — loading external plugins optimistically")
             tdb_unavailable = True

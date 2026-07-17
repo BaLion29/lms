@@ -326,7 +326,7 @@ def test_datetime_on_model_field():
             at=dt,
         ),
     )
-    result = cap.to_tdb()
+    cap.to_tdb()
 
 
 # ========================================================================
@@ -347,7 +347,7 @@ def test_datetime_with_microseconds_serializes_without_them():
             at=dt,
         ),
     )
-    result = cap.to_tdb()
+    cap.to_tdb()
 
 
 # ========================================================================
@@ -442,7 +442,6 @@ def test_oneshot_trigger_round_trip():
         "fire_at": "2026-07-06T09:00:00Z",
         "renotify_every": "PT30M",
         "max_renotifications": 3,
-        "aliases": [],
         "contexts": [],
         "external_refs": [],
         "derived_from": [],

@@ -12,8 +12,6 @@ from httpx import Response
 from firnline_core.plugins import (
     ActionContext,
     ActionExecutor,
-    ExecutionResult,
-    ModuleRequirement,
     validate_plugin,
 )
 

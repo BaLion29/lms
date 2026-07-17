@@ -79,7 +79,6 @@ def _mock_all_components(monkeypatch):
         _wrap_lifespan(idx_mod.create_component),
     )
 
-    import mcpd.main as mcpd_mod
     noop_starlette = Starlette()
     monkeypatch.setattr(
         apid_mod,
