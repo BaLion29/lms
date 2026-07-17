@@ -38,6 +38,10 @@ else
     echo ">>> Extracted VERSION from pyproject.toml: $VERSION"
 fi
 
+# Strip leading 'v' if present (e.g. v0.1.0-alpha → 0.1.0-alpha) to match
+# the CI workflow convention and Docker Hub tagging best practices.
+VERSION="${VERSION#v}"
+
 # ── Image definitions (name → Dockerfile path) ─────────────────────────────
 declare -A IMAGES=(
     ["firnline-schema"]="packages/firnline-schema/Dockerfile"

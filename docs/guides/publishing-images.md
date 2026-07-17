@@ -41,7 +41,7 @@ architectures and pushes them to a registry in one invocation.
 
 | Variable | Default | Description |
 |---|---|---|
-| `REGISTRY` | `docker.io/firnline` | Registry prefix applied to all image tags. Change to your own Docker Hub namespace (e.g. `docker.io/yourorg`) when publishing to a personal or organisation account. |
+| `REGISTRY` | `firnline` | Registry prefix applied to all image tags. Change to your own Docker Hub namespace (e.g. `docker.io/yourorg`) when publishing to a personal or organisation account. |
 | `VERSION` | auto-detected from `pyproject.toml` (`0.1.0`) | Tag applied to all images. Override with a specific version when publishing a release. |
 | `PLATFORMS` | `linux/amd64,linux/arm64` | Comma-separated target platforms for the multi-arch build. Pass a single platform (e.g. `linux/amd64`) for faster local testing. |
 | `TAG_LATEST` | `true` | Set to `false` to skip pushing the `latest` tag. Use this for pre-release or test builds. |
@@ -58,7 +58,7 @@ bash scripts/build-and-push.sh
 Override the version (e.g. for a release):
 
 ```bash
-VERSION=v0.1.0-alpha bash scripts/build-and-push.sh
+VERSION=0.1.0-alpha bash scripts/build-and-push.sh
 ```
 
 Single-platform build for local smoke testing (skips push):
@@ -160,7 +160,7 @@ Two env vars in `compose.example.yaml` control which images are pulled:
 
 | Variable | Default | Description |
 |---|---|---|
-| `FIRNLINE_IMAGE_REGISTRY` | `docker.io/firnline` | Container registry prefix for all images. |
+| `FIRNLINE_IMAGE_REGISTRY` | `firnline` | Container registry prefix for all images. |
 | `FIRNLINE_VERSION` | `latest` | Image tag for all six services. |
 
 Pin to a specific release to avoid unexpected upgrades:

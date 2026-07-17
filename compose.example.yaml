@@ -14,7 +14,7 @@
 #
 # Using your own TerminusDB:
 #   Delete/comment out the `terminusdb` service and `terminusdb_data` volume.
-#   Set FIRNLINE_TDB_URL=http://your-host:6363 in .env.
+#   Set TDB_URL=http://your-host:6363 in .env.
 #
 # Extensions:
 #   Set FIRNLINE_EXTENSIONS in .env (comma-separated extension specs).
@@ -26,7 +26,7 @@
 
 services:
   # ── TerminusDB (bundled SSOT database) ───────────────────────────────────
-  # OPTIONAL: remove this block and set FIRNLINE_TDB_URL for external TDB.
+  # OPTIONAL: remove this block and set TDB_URL for external TDB.
   terminusdb:
     image: terminusdb/terminusdb-server:v12.0.6
     environment:
@@ -60,7 +60,7 @@ services:
   bootstrap:
     image: ${FIRNLINE_IMAGE_REGISTRY:-firnline}/firnline-schema:${FIRNLINE_VERSION:-latest}
     environment:
-      TDB_URL: ${FIRNLINE_TDB_URL:-http://terminusdb:6363}
+      TDB_URL: ${TDB_URL:-http://terminusdb:6363}
       FIRNLINE_SCHEMA_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
       FIRNLINE_EXTENSIONS_PURGE: ${FIRNLINE_EXTENSIONS_PURGE:-false}
@@ -78,8 +78,23 @@ services:
       - "${APID_HOST_PORT:-8080}:8080"
     environment:
       # TDB connection
+      CAPTURED_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
+      CAPTURED_TDB_ORG: ${TDB_ORG:-admin}
+      CAPTURED_TDB_DB: ${TDB_DB:-firnline}
+      CAPTURED_TDB_BRANCH: ${TDB_BRANCH:-main}
+      CAPTURED_TDB_USER: ${TDB_USER:-admin}
       CAPTURED_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
+      QUERYD_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
+      QUERYD_TDB_ORG: ${TDB_ORG:-admin}
+      QUERYD_TDB_DB: ${TDB_DB:-firnline}
+      QUERYD_TDB_BRANCH: ${TDB_BRANCH:-main}
+      QUERYD_TDB_USER: ${TDB_USER:-admin}
       QUERYD_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
+      INDEXED_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
+      INDEXED_TDB_ORG: ${TDB_ORG:-admin}
+      INDEXED_TDB_DB: ${TDB_DB:-firnline}
+      INDEXED_TDB_BRANCH: ${TDB_BRANCH:-main}
+      INDEXED_TDB_USER: ${TDB_USER:-admin}
       INDEXED_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
       # API tokens
       CAPTURED_API_TOKEN: ${CAPTURED_API_TOKEN:?Set CAPTURED_API_TOKEN in .env}
@@ -108,6 +123,11 @@ services:
       apid:
         condition: service_started
     environment:
+      INGESTD_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
+      INGESTD_TDB_ORG: ${TDB_ORG:-admin}
+      INGESTD_TDB_DB: ${TDB_DB:-firnline}
+      INGESTD_TDB_BRANCH: ${TDB_BRANCH:-main}
+      INGESTD_TDB_USER: ${TDB_USER:-admin}
       INGESTD_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
       INGESTD_LLM_BASE_URL: ${FIRNLINE_LLM_BASE_URL:?Set FIRNLINE_LLM_BASE_URL in .env}
       INGESTD_LLM_API_KEY: ${FIRNLINE_LLM_API_KEY:-}
@@ -127,6 +147,11 @@ services:
       bootstrap:
         condition: service_completed_successfully
     environment:
+      TRIGGERD_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
+      TRIGGERD_TDB_ORG: ${TDB_ORG:-admin}
+      TRIGGERD_TDB_DB: ${TDB_DB:-firnline}
+      TRIGGERD_TDB_BRANCH: ${TDB_BRANCH:-main}
+      TRIGGERD_TDB_USER: ${TDB_USER:-admin}
       TRIGGERD_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
@@ -140,6 +165,11 @@ services:
       bootstrap:
         condition: service_completed_successfully
     environment:
+      EFFECTD_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
+      EFFECTD_TDB_ORG: ${TDB_ORG:-admin}
+      EFFECTD_TDB_DB: ${TDB_DB:-firnline}
+      EFFECTD_TDB_BRANCH: ${TDB_BRANCH:-main}
+      EFFECTD_TDB_USER: ${TDB_USER:-admin}
       EFFECTD_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
@@ -159,6 +189,11 @@ services:
     environment:
       WEBUI_CAPTURED_API_TOKEN: ${CAPTURED_API_TOKEN:?Set CAPTURED_API_TOKEN in .env}
       WEBUI_QUERYD_API_TOKEN: ${QUERYD_API_TOKEN:?Set QUERYD_API_TOKEN in .env}
+      WEBUI_TDB_URL: ${TDB_URL:-http://terminusdb:6363}
+      WEBUI_TDB_ORG: ${TDB_ORG:-admin}
+      WEBUI_TDB_DB: ${TDB_DB:-firnline}
+      WEBUI_TDB_BRANCH: ${TDB_BRANCH:-main}
+      WEBUI_TDB_USER: ${TDB_USER:-admin}
       WEBUI_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
       FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
     volumes:
