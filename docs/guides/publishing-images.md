@@ -82,7 +82,8 @@ REGISTRY=docker.io/myuser bash scripts/build-and-push.sh
 ## Automated CI (GitHub Actions)
 
 The `.github/workflows/docker-publish.yml` workflow builds and pushes all six
-images on every `v*` tag push. No manual invocation is needed once the workflow
+images on every `v*` tag push. The Docker Hub namespace is configurable via the
+`DOCKERHUB_NAMESPACE` secret. No manual invocation is needed once the workflow
 is configured.
 
 ### Required GitHub Secrets
@@ -90,9 +91,10 @@ is configured.
 Set these in the repository's **Settings → Secrets and variables → Actions**:
 
 | Secret | Value |
-|---|---|
+|---|---|---|
 | `DOCKERHUB_USERNAME` | Your Docker Hub username. |
 | `DOCKERHUB_TOKEN` | A Docker Hub access token (not your password). |
+| `DOCKERHUB_NAMESPACE` | Your Docker Hub namespace (usually your username). E.g. `balion29`. |
 
 ### Creating a Docker Hub access token
 
