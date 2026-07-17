@@ -81,5 +81,5 @@ for the full layout.
 
 ## Need Help?
 
-Open a [discussion](https://github.com/BaLion29/lms/discussions) or comment
+Open a [discussion](https://github.com/BaLion29/firnline/discussions) or comment
 on a relevant issue.

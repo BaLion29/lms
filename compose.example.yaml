@@ -2,8 +2,8 @@
 # Firnline — consumer compose (pre-built images from Docker Hub)
 #
 # Quickstart:
-#   1. curl -O https://raw.githubusercontent.com/firnline/firnline/main/compose.example.yaml
-#      curl -O https://raw.githubusercontent.com/firnline/firnline/main/.env.example
+#   1. curl -O https://raw.githubusercontent.com/BaLion29/firnline/main/compose.example.yaml
+#      curl -O https://raw.githubusercontent.com/BaLion29/firnline/main/.env.example
 #      mv .env.example .env && vim .env — set the 4 required secrets below
 #   2. Set these in .env:
 #        TDB_PASSWORD          — TerminusDB admin password (openssl rand -hex 32)

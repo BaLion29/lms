@@ -21,7 +21,7 @@ For development (editing source, running tests, schema work):
 ## Step 1: clone and configure
 
 ```bash
-git clone https://github.com/davidsouther/firnline.git
+git clone https://github.com/BaLion29/firnline.git
 cd firnline
 cp .env.example .env
 ```

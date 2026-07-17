@@ -36,8 +36,8 @@ TerminusDB graph database — the single source of truth.
 ### Option A: Pre-built images (no source needed)
 
 ```bash
-curl -O https://raw.githubusercontent.com/BaLion29/lms/main/compose.example.yaml
-curl -O https://raw.githubusercontent.com/BaLion29/lms/main/.env.example
+curl -O https://raw.githubusercontent.com/BaLion29/firnline/main/compose.example.yaml
+curl -O https://raw.githubusercontent.com/BaLion29/firnline/main/.env.example
 cp .env.example .env && vim .env      # set the 4 required values
 docker compose -f compose.example.yaml up -d
 ```
@@ -45,8 +45,8 @@ docker compose -f compose.example.yaml up -d
 ### Option B: Build from source
 
 ```bash
-git clone https://github.com/BaLion29/lms.git
-cd lms
+git clone https://github.com/BaLion29/firnline.git
+cd firnline
 cp .env.example .env && vim .env      # set the 4 required values
 docker compose up -d                   # bootstrap auto-runs, then all services
 ```

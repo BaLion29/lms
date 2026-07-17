@@ -21,27 +21,38 @@ logger = logging.getLogger(__name__)
 
 
 # ── Private / loopback / link-local IP ranges (SSRF guard) ───────────────
-# IPv4
-_V4_PRIVATE = ipaddress.IPv4Network("10.0.0.0/8")
-_V4_LOOPBACK = ipaddress.IPv4Network("127.0.0.0/8")
-_V4_LINK_LOCAL = ipaddress.IPv4Network("169.254.0.0/16")
-_V4_LOOPBACK_ALT = ipaddress.IPv4Network("0.0.0.0/8")  # "This host on this network"
+# NOTE: This validates resolved IPs at check time; httpx re-resolves at
+# connect time, so a DNS-rebinding attack (allowlisted host flips to a
+# private IP between check and connect) is not fully mitigated. The
+# fail-closed hostname allowlist is the primary SSRF defense; this IP
+# check is defense-in-depth. Full IP-pinning would require a custom
+# httpx transport (complicated by TLS SNI) — deferred to a future release.
 
-# IPv6
-_V6_LOOPBACK = ipaddress.IPv6Address("::1")
+# CGNAT (100.64.0.0/10) is not covered by ipaddress.is_private in
+# Python < 3.13, so we check it explicitly.
+_CGNAT = ipaddress.IPv4Network("100.64.0.0/10")
 
 
 def _is_private_or_loopback(addr: str) -> bool:
-    """Return True if *addr* is in a private / loopback / link-local range."""
+    """Return True if *addr* is in a private / loopback / link-local range.
+
+    Uses ipaddress predicates (``is_private``, ``is_loopback``,
+    ``is_link_local``, ``is_unspecified``) which cover all RFC 1918
+    ranges (10/8, 172.16/12, 192.168/16), loopback (127/8), link-local
+    (169.254/16), and unspecified (0/8). CGNAT (100.64/10) is checked
+    explicitly for Python < 3.13 compat.
+    """
     try:
         ip = ipaddress.ip_address(addr)
     except ValueError:
         return False  # not a valid IP, let it pass (hostname without resolution)
 
-    if isinstance(ip, ipaddress.IPv4Address):
-        return ip in _V4_PRIVATE or ip in _V4_LOOPBACK or ip in _V4_LINK_LOCAL or ip in _V4_LOOPBACK_ALT
-    # IPv6
-    return ip == _V6_LOOPBACK or ip.is_loopback or ip.is_link_local or ip.is_private
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_unspecified:
+        return True
+    # CGNAT — not covered by is_private in Python < 3.13
+    if isinstance(ip, ipaddress.IPv4Address) and ip in _CGNAT:
+        return True
+    return False
 
 
 def _parse_allowed_hosts(raw: str) -> dict[str, set[int]]:

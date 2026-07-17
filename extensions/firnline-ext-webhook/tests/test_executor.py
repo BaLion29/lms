@@ -488,21 +488,77 @@ async def test_allowlist_port_match_passes() -> None:
     assert result.ok is True
 
 
-async def test_private_ip_blocked(monkeypatch) -> None:
-    """URL whose hostname resolves to a private IP is blocked."""
-    executor = _configured_executor(allowed_hosts="localhost,127.0.0.1,internal")
+async def test_private_ip_blocked_10_0_0_1(monkeypatch) -> None:
+    """URL resolving to 10.0.0.1 (RFC 1918 Class A) is blocked."""
+    executor = _configured_executor(allowed_hosts="internal-a")
     ctx = ActionContext(tdb=None, logger=MagicMock())
+    await _assert_ip_blocked("10.0.0.1", "internal-a", monkeypatch, executor, ctx)
 
-    # Override the mock DNS for this test to return a private IP
+
+async def test_private_ip_blocked_192_168_1_1(monkeypatch) -> None:
+    """URL resolving to 192.168.1.1 (RFC 1918 Class C) is blocked."""
+    executor = _configured_executor(allowed_hosts="internal-c")
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+    await _assert_ip_blocked("192.168.1.1", "internal-c", monkeypatch, executor, ctx)
+
+
+async def test_private_ip_blocked_172_16_0_1(monkeypatch) -> None:
+    """URL resolving to 172.16.0.1 (RFC 1918 Class B lower) is blocked."""
+    executor = _configured_executor(allowed_hosts="internal-b1")
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+    await _assert_ip_blocked("172.16.0.1", "internal-b1", monkeypatch, executor, ctx)
+
+
+async def test_private_ip_blocked_172_31_255_255(monkeypatch) -> None:
+    """URL resolving to 172.31.255.255 (RFC 1918 Class B upper edge) is blocked."""
+    executor = _configured_executor(allowed_hosts="internal-b2")
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+    await _assert_ip_blocked("172.31.255.255", "internal-b2", monkeypatch, executor, ctx)
+
+
+async def test_private_ip_blocked_100_64_0_1(monkeypatch) -> None:
+    """URL resolving to 100.64.0.1 (CGNAT) is blocked."""
+    executor = _configured_executor(allowed_hosts="internal-cgn")
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+    await _assert_ip_blocked("100.64.0.1", "internal-cgn", monkeypatch, executor, ctx)
+
+
+async def test_public_ip_not_blocked(monkeypatch) -> None:
+    """URL resolving to 93.184.216.34 (public, example.com) is NOT blocked."""
+    executor = _configured_executor(allowed_hosts="public-host")
+    ctx = ActionContext(tdb=None, logger=MagicMock(), idempotency_key="ik-pub")
+
     import firnline_ext_webhook.executor as exec_mod
 
-    async def fake_private_resolve(hostname: str, port: int):
-        return [(2, 1, 6, "", ("10.0.0.1", port))]
+    async def fake_public_resolve(hostname: str, port: int):
+        return [(2, 1, 6, "", (_PUBLIC_IP, port))]
 
-    monkeypatch.setattr(exec_mod, "_resolve_addrs", fake_private_resolve)
+    monkeypatch.setattr(exec_mod, "_resolve_addrs", fake_public_resolve)
+
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("https://public-host/hook").mock(
+            return_value=Response(200)
+        )
+        result = await executor.execute(
+            {"url": "https://public-host/hook"}, {}, None, ctx
+        )
+
+    assert result.ok is True
+
+
+async def _assert_ip_blocked(
+    ip: str, hostname: str, monkeypatch, executor: WebhookExecutor, ctx: ActionContext
+) -> None:
+    """Drive a webhook and assert it is blocked because the hostname resolves to *ip*."""
+    import firnline_ext_webhook.executor as exec_mod
+
+    async def fake_resolve(_hostname: str, port: int):
+        return [(2, 1, 6, "", (ip, port))]
+
+    monkeypatch.setattr(exec_mod, "_resolve_addrs", fake_resolve)
 
     result = await executor.execute(
-        {"url": "https://internal/hook"}, {}, None, ctx
+        {"url": f"https://{hostname}/hook"}, {}, None, ctx
     )
 
     assert result.ok is False

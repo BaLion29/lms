@@ -46,7 +46,7 @@ subsequent commits are clean — only pre-0.1.0 history is affected.
 ## Reporting a Vulnerability
 
 - **Preferred**: Open a [GitHub Security
-  Advisory](https://github.com/BaLion29/lms/security/advisories) (private to
+  Advisory](https://github.com/BaLion29/firnline/security/advisories) (private to
   maintainers).
 
 - **Alternative**: Email the maintainers directly. We aim to acknowledge

@@ -40,15 +40,12 @@ _uv() {
 check "No 'lms' in git ls-files names" \
     bash -c '! git ls-files | grep -qi lms'
 
-# git grep with pathspec exclusions; CHANGELOG.md, docs, RELEASE.md, and
-# source comments use "lms"/"LLMs" legitimately (not the old project name)
-check "No 'lms' in tracked file contents (except allowed files)" \
-    bash -c '! git grep -Iil lms -- . \
-        ":!CHANGELOG.md" \
-        ":!scripts/RELEASE.md" \
+# git grep for old repo-name patterns (not "LLMs" etc.)
+# Excludes binary lock files and this script itself.
+check "No old repo-name references (lms/davidsouther) in tracked files" \
+    bash -c '! git grep -nE "(BaLion29/lms|/lms\.git|davidsouther/lms|davidsouther/firnline)" -- . \
         ":!scripts/validate-release.sh" \
-        ":!docs/indexed.md" \
-        ":!services/indexed/src/indexed/store.py" \
+        ":!services/webui/reflex.lock/bun.lock" \
         | grep -q .'
 
 # ── 2. No secrets ──────────────────────────────────────────────────────────
