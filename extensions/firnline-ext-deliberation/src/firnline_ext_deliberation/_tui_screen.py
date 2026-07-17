@@ -113,24 +113,16 @@ class DeliberationScreen(ShellScreen):
             self._problems = [_normalize_problem(d) for d in problems_raw]
             self._questions = [_normalize_question(d) for d in questions_raw]
 
-            self._populate_table(
-                "decisions-table", ["Title", "Status", "Decision"], self._decisions
-            )
-            self._populate_table(
-                "problems-table", ["Title", "Status", "Impact"], self._problems
-            )
-            self._populate_table(
-                "questions-table", ["Question", "Status", "Answer"], self._questions
-            )
+            self._populate_table("decisions-table", ["Title", "Status", "Decision"], self._decisions)
+            self._populate_table("problems-table", ["Title", "Status", "Impact"], self._problems)
+            self._populate_table("questions-table", ["Question", "Status", "Answer"], self._questions)
 
         except Exception as exc:
             self.query_one("#error", ErrorBanner).show(str(exc))
         finally:
             self.query_one("#loading", LoadingIndicator).display = False
 
-    def _populate_table(
-        self, table_id: str, columns: list[str], rows: list[dict[str, Any]]
-    ) -> None:
+    def _populate_table(self, table_id: str, columns: list[str], rows: list[dict[str, Any]]) -> None:
         """Populate a DocTable with rows."""
         table = self.query_one(f"#{table_id}", DocTable)
         table.set_columns(columns)
@@ -201,18 +193,24 @@ class DeliberationScreen(ShellScreen):
 
         if active == "tab-decisions":
             self._filter_table(
-                "decisions-table", ["Title", "Status", "Decision"],
-                self._decisions, query,
+                "decisions-table",
+                ["Title", "Status", "Decision"],
+                self._decisions,
+                query,
             )
         elif active == "tab-problems":
             self._filter_table(
-                "problems-table", ["Title", "Status", "Impact"],
-                self._problems, query,
+                "problems-table",
+                ["Title", "Status", "Impact"],
+                self._problems,
+                query,
             )
         elif active == "tab-questions":
             self._filter_table(
-                "questions-table", ["Question", "Status", "Answer"],
-                self._questions, query,
+                "questions-table",
+                ["Question", "Status", "Answer"],
+                self._questions,
+                query,
             )
 
     def _filter_table(
@@ -225,11 +223,6 @@ class DeliberationScreen(ShellScreen):
         if not query:
             self._populate_table(table_id, columns, rows)
         else:
-<<<<<<< HEAD
             key = columns[0]
             filtered = [r for r in rows if query in str(r.get(key, "")).casefold()]
-=======
-            filtered = [r for r in rows if query in str(r.get("Title", "")).casefold()
-                        or query in str(r.get("Question", "")).casefold()]
->>>>>>> ensemble/preserved/firnline-deliberation-extension/deliberation-ext#t7bf0r/tui-builder-2
             self._populate_table(table_id, columns, filtered)
