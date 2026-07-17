@@ -33,6 +33,7 @@ where every change is traceable and revertible.
 | [Writing extensions](guides/writing-extensions.md) | Ship a schema module + extractor + tools as one installable package |
 | [Automations](guides/automations.md) | Configure triggerd, effectd, and custom action executors |
 | [Web UI](guides/webui.md) | Run and customise the Reflex frontend |
+| [Publishing images](guides/publishing-images.md) | Build and push Docker images to Docker Hub |
 
 ### Reference — exhaustive technical facts
 

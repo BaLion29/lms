@@ -1,0 +1,173 @@
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Firnline — consumer compose (pre-built images from Docker Hub)
+#
+# Quickstart:
+#   1. curl -O https://raw.githubusercontent.com/firnline/firnline/main/compose.example.yaml
+#      curl -O https://raw.githubusercontent.com/firnline/firnline/main/.env.example
+#      mv .env.example .env && vim .env — set the 4 required secrets below
+#   2. Set these in .env:
+#        TDB_PASSWORD          — TerminusDB admin password (openssl rand -hex 32)
+#        CAPTURED_API_TOKEN    — captured API token   (openssl rand -hex 32)
+#        QUERYD_API_TOKEN      — queryd API token     (openssl rand -hex 32)
+#        FIRNLINE_LLM_BASE_URL — LLM endpoint (e.g. http://host.docker.internal:4000)
+#   3. docker compose up -d
+#
+# Using your own TerminusDB:
+#   Delete/comment out the `terminusdb` service and `terminusdb_data` volume.
+#   Set FIRNLINE_TDB_URL=http://your-host:6363 in .env.
+#
+# Extensions:
+#   Set FIRNLINE_EXTENSIONS in .env (comma-separated extension specs).
+#   The bootstrap container installs them into the shared overlay volume.
+#   First-party wheels are baked into the image at build time.
+#
+# Requires Docker Compose >= 2.24.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+services:
+  # ── TerminusDB (bundled SSOT database) ───────────────────────────────────
+  # OPTIONAL: remove this block and set FIRNLINE_TDB_URL for external TDB.
+  terminusdb:
+    image: terminusdb/terminusdb-server:v12.0.6
+    environment:
+      TERMINUSDB_ADMIN_PASS: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
+    volumes:
+      - terminusdb_data:/app/terminusdb/storage
+    ports:
+      - "${TDB_HOST_PORT:-6363}:6363"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6363'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  # ── LiteLLM (optional — commented out by default) ────────────────────────
+  # Uncomment to run a LiteLLM proxy.  Set FIRNLINE_LLM_BASE_URL=http://litellm:4000.
+  # litellm:
+  #   image: ghcr.io/berriai/litellm:main-stable
+  #   ports:
+  #     - "4000:4000"
+  #   volumes:
+  #     - ./litellm_config.yaml:/app/litellm_config.yaml:ro
+  #   command: --config /app/litellm_config.yaml --port 4000
+  #   restart: unless-stopped
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+
+  # ── Bootstrap — auto-runs, exits after completion ──────────────────────
+  bootstrap:
+    image: ${FIRNLINE_IMAGE_REGISTRY:-firnline}/firnline-schema:${FIRNLINE_VERSION:-latest}
+    environment:
+      TDB_URL: ${FIRNLINE_TDB_URL:-http://terminusdb:6363}
+      FIRNLINE_SCHEMA_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+      FIRNLINE_EXTENSIONS_PURGE: ${FIRNLINE_EXTENSIONS_PURGE:-false}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv             # writeable — installs extensions here
+    restart: "no"
+
+  # ── apid — unified API (captured + queryd + indexed + mcpd on one port) ──
+  apid:
+    image: ${FIRNLINE_IMAGE_REGISTRY:-firnline}/apid:${FIRNLINE_VERSION:-latest}
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    ports:
+      - "${APID_HOST_PORT:-8080}:8080"
+    environment:
+      # TDB connection
+      CAPTURED_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
+      QUERYD_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
+      INDEXED_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
+      # API tokens
+      CAPTURED_API_TOKEN: ${CAPTURED_API_TOKEN:?Set CAPTURED_API_TOKEN in .env}
+      QUERYD_API_TOKEN: ${QUERYD_API_TOKEN:?Set QUERYD_API_TOKEN in .env}
+      MCPD_QUERYD_TOKEN: ${QUERYD_API_TOKEN:?Set QUERYD_API_TOKEN in .env}
+      MCPD_CAPTURED_TOKEN: ${CAPTURED_API_TOKEN:?Set CAPTURED_API_TOKEN in .env}
+      # LLM
+      INDEXED_LLM_BASE_URL: ${FIRNLINE_LLM_BASE_URL:?Set FIRNLINE_LLM_BASE_URL in .env}
+      INDEXED_LLM_API_KEY: ${FIRNLINE_LLM_API_KEY:-}
+      # Extensions
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
+      - blobs:/var/lib/firnline/blobs
+      - firnline_index:/var/lib/firnline/index
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── ingestd — polling worker ───────────────────────────────────────────
+  ingestd:
+    image: ${FIRNLINE_IMAGE_REGISTRY:-firnline}/ingestd:${FIRNLINE_VERSION:-latest}
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      apid:
+        condition: service_started
+    environment:
+      INGESTD_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
+      INGESTD_LLM_BASE_URL: ${FIRNLINE_LLM_BASE_URL:?Set FIRNLINE_LLM_BASE_URL in .env}
+      INGESTD_LLM_API_KEY: ${FIRNLINE_LLM_API_KEY:-}
+      INGESTD_INDEXED_URL: ${INGESTD_INDEXED_URL:-http://apid:8080}
+      INGESTD_INDEXED_TOKEN: ${INDEXED_API_TOKEN:-}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── triggerd — trigger evaluation daemon ────────────────────────────────
+  triggerd:
+    image: ${FIRNLINE_IMAGE_REGISTRY:-firnline}/triggerd:${FIRNLINE_VERSION:-latest}
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    environment:
+      TRIGGERD_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
+    restart: unless-stopped
+
+  # ── effectd — effect delivery daemon ──────────────────────────────────────
+  effectd:
+    image: ${FIRNLINE_IMAGE_REGISTRY:-firnline}/effectd:${FIRNLINE_VERSION:-latest}
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    environment:
+      EFFECTD_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
+    restart: unless-stopped
+
+  # ── webui — Reflex-based web UI ───────────────────────────────────────────
+  webui:
+    image: ${FIRNLINE_IMAGE_REGISTRY:-firnline}/webui:${FIRNLINE_VERSION:-latest}
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      apid:
+        condition: service_started
+    ports:
+      - "${WEBUI_HOST_PORT:-3000}:3000"
+    environment:
+      WEBUI_CAPTURED_API_TOKEN: ${CAPTURED_API_TOKEN:?Set CAPTURED_API_TOKEN in .env}
+      WEBUI_QUERYD_API_TOKEN: ${QUERYD_API_TOKEN:?Set QUERYD_API_TOKEN in .env}
+      WEBUI_TDB_PASSWORD: ${TDB_PASSWORD:?Set TDB_PASSWORD in .env}
+      FIRNLINE_EXTENSIONS: ${FIRNLINE_EXTENSIONS:-}
+    volumes:
+      - firnline_ext_venv:/opt/firnline-ext-venv:ro
+    restart: unless-stopped
+
+# ── Volumes ───────────────────────────────────────────────────────────────
+volumes:
+  firnline_ext_venv:
+  firnline_index:
+  blobs:
+  terminusdb_data:

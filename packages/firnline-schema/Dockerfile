@@ -23,6 +23,10 @@ RUN uv sync --frozen --no-dev --package firnline-schema
 # Build first-party extension wheels so they are baked into the image.
 # This avoids requiring a host-side ./dist bind mount.
 COPY extensions/ /app/extensions/
+
+# Bake the schema modules into the image so they are available at runtime
+# without host-side bind mounts.
+COPY schema/ /app/schema/
 RUN mkdir -p /app/wheels && \
     for ext in /app/extensions/*/; do \
         uv build --wheel --out-dir /app/wheels/ "$ext"; \
@@ -58,11 +62,17 @@ RUN mkdir -p /opt/firnline-ext-venv/lib && chown -R firnlineschema:firnlineschem
 # Shared extension-installer entrypoint
 COPY --chmod=0755 docker/entrypoint.sh /entrypoint.sh
 
+# Bootstrap script — default CMD (entrypoint installs extensions first).
+COPY --chmod=0755 scripts/bootstrap.sh /scripts/bootstrap.sh
+
+# Create the build output directory used by the bootstrap script.
+RUN mkdir -p /tmp/build
+
 WORKDIR /app/packages/firnline-schema
 
 USER firnlineschema
 
 # The entrypoint script installs extensions, then execs CMD.
-# Default CMD is the firnline-schema help; compose overrides this.
+# Default CMD runs the bootstrap: wait for TDB, create DB, compose/apply/validate schema.
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["firnline-schema", "--help"]
+CMD ["/scripts/bootstrap.sh"]
