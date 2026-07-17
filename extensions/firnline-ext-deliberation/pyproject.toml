@@ -1,7 +1,7 @@
 [project]
-name = "firnline-ext-decisions"
+name = "firnline-ext-deliberation"
 version = "0.1.0"
-description = "ADR-style decision records for firnline"
+description = "Firnline deliberation extension — problems, decisions, and questions"
 authors = [
     { name = "BaLion29", email = "bastien.aeby@familyaeby.ch" }
 ]
@@ -12,13 +12,16 @@ dependencies = [
 ]
 
 [project.entry-points."firnline.schema_modules"]
-decisions = "firnline_ext_decisions"
+deliberation = "firnline_ext_deliberation"
 
 [project.entry-points."firnline.ingestd.extractors"]
-decisions_extractor = "firnline_ext_decisions.extract:plugin"
+deliberation_extractor = "firnline_ext_deliberation.extract:plugin"
 
 [project.entry-points."firnline.indexed.indexers"]
-decisions_indexer = "firnline_ext_decisions.indexer:plugin"
+deliberation_indexer = "firnline_ext_deliberation.indexer:plugin"
+
+[project.entry-points."firnline.tui.screens"]
+deliberation_tui = "firnline_ext_deliberation.tui:plugin"
 
 [tool.uv.sources]
 firnline-core = { workspace = true }
@@ -28,7 +31,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/firnline_ext_decisions"]
+packages = ["src/firnline_ext_deliberation"]
 
 [dependency-groups]
 dev = [
