@@ -15,7 +15,7 @@ members = [
     "effectd",
     "firnline-core",
     "firnline-ext-address-book",
-    "firnline-ext-decisions",
+    "firnline-ext-deliberation",
     "firnline-ext-gotify",
     "firnline-ext-time-management",
     "firnline-ext-webhook",
@@ -524,9 +524,9 @@ dev = [
 ]
 
 [[package]]
-name = "firnline-ext-decisions"
+name = "firnline-ext-deliberation"
 version = "0.1.0"
-source = { editable = "extensions/firnline-ext-decisions" }
+source = { editable = "extensions/firnline-ext-deliberation" }
 dependencies = [
     { name = "firnline-core" },
 ]
@@ -534,6 +534,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
 
@@ -543,6 +544,7 @@ requires-dist = [{ name = "firnline-core", editable = "packages/firnline-core" }
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
 
