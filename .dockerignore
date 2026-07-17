@@ -25,3 +25,6 @@ node_modules/
 
 # Environment
 .env
+
+# graphify knowledge graph (generated, not included in images)
+graphify-out/

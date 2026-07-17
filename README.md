@@ -27,14 +27,17 @@ TerminusDB graph database — the single source of truth.
   and deliver effects through pluggable channels.
 - **Web dashboard** — Reflex WebUI with capture, inbox, document browser, and
   health monitoring.
+- **TUI (experimental)** — extension bundles include optional terminal-UI apps
+  (deliberation, time-management, address-book). The TUI is **experimental**
+  and not part of the 0.1.0-announcement scope; expect breaking changes.
 
 ## Quickstart
 
 ### Option A: Pre-built images (no source needed)
 
 ```bash
-curl -O https://raw.githubusercontent.com/BaLion29/firnline/main/compose.example.yaml
-curl -O https://raw.githubusercontent.com/BaLion29/firnline/main/.env.example
+curl -O https://raw.githubusercontent.com/BaLion29/lms/main/compose.example.yaml
+curl -O https://raw.githubusercontent.com/BaLion29/lms/main/.env.example
 cp .env.example .env && vim .env      # set the 4 required values
 docker compose -f compose.example.yaml up -d
 ```
@@ -42,17 +45,28 @@ docker compose -f compose.example.yaml up -d
 ### Option B: Build from source
 
 ```bash
-git clone https://github.com/davidsouther/firnline.git
-cd firnline
+git clone https://github.com/BaLion29/lms.git
+cd lms
 cp .env.example .env && vim .env      # set the 4 required values
 docker compose up -d                   # bootstrap auto-runs, then all services
 ```
+
+Send a text/plain capture (frictionless — suitable for shell pipes and quick notes):
+
+```bash
+curl -s -X POST http://localhost:8080/v1/capture/note \
+  -H "Authorization: Bearer $CAPTURED_API_TOKEN" \
+  -H "Content-Type: text/plain" \
+  --data-binary "Buy milk on the way home"
+```
+
+Or send a structured JSON capture with kind and optional metadata:
 
 ```bash
 curl -s -X POST http://localhost:8080/v1/capture/note \
   -H "Authorization: Bearer $CAPTURED_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"text": "Buy milk on the way home", "kind": "note"}'
+  -d '{"text": "Buy milk on the way home", "kind": "note", "metadata": {}}'
 ```
 
 Port 8080 (API) and 3000 (WebUI). Full walkthrough:
@@ -72,7 +86,7 @@ All docs live under [`docs/`](docs/) — start at the
 ## Development
 
 ```bash
-uv sync
+uv sync --all-packages
 uv run pytest          # all tests (no network required)
 uv run ruff check      # lint
 uv run ruff format     # format

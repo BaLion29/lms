@@ -275,6 +275,7 @@ class EffectEngine:
                     method="planner",
                     branch=branch,
                 )
+                existing.add((action_short, firing_short))
                 self.log.info(
                     "execution_planned",
                     action=action_name,
@@ -403,7 +404,8 @@ class EffectEngine:
                 self.log.warning("executor_missing", kind=executor_kind)
             return  # leave pending, do not consume an attempt
 
-        # ── Execute with timeout ───────────────────────────────────────
+        # ── Execute with timeout (at-least-once delivery; webhook receivers
+        #     MUST dedupe on X-Firnline-Idempotency-Key) ─────────────────
         timeout_raw = action.get("timeout") or (self.settings.default_timeout if self.settings else "PT30S")
         timeout_td = parse_duration(timeout_raw)
         timeout_secs = timeout_td.total_seconds() if timeout_td else 30.0

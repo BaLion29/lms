@@ -481,17 +481,25 @@ class TdbClient:
         When *branch* is ``"main"`` the schema is pushed to the default
         (non-branch-scoped) path for backward compatibility.  For any other
         branch the branch-scoped document path is used.
+
+        The schema is sent verbatim -- ``@abstract``, ``@documentation``, and
+        ``@metadata`` keys are NOT stripped.  An earlier revision (commit
+        709d9e6) introduced a ``_strip_non_woql`` helper to remove these keys
+        before pushing, but that commit had an empty body and no documentation
+        record explains why any ``@``-key should be rejected at push time.
+        The schema composer *intentionally* emits these keys and TerminusDB
+        persists them; stripping them breaks four downstream services that
+        rely on them at query time:
+
+        * **triggerd** -- reads ``@metadata`` for ``anchor_field``.
+        * **introspect** -- reads ``@metadata`` for ``label_field``.
+        * **effectd / triggerd** -- scan ``@abstract`` to identify abstract
+          classes that should be excluded from concrete-class iteration.
+
+        Stripping those keys at push time means they never land in the
+        database, so the downstream reads silently return nothing.  Keep the
+        schema body untouched.
         """
-        _NON_WOQL_KEYS = frozenset({"@abstract", "@documentation", "@metadata"})
-
-        def _strip_non_woql(item: dict[str, Any]) -> dict[str, Any]:
-            return {k: v for k, v in item.items() if k not in _NON_WOQL_KEYS}
-
-        clean_schema = [
-            _strip_non_woql(item) if isinstance(item, dict) else item
-            for item in schema
-        ]
-
         if branch == "main":
             path = f"/api/document/{self.org}/{self.db}"
         else:
@@ -505,7 +513,7 @@ class TdbClient:
                 "author": self._author,
                 "message": message,
             },
-            json=clean_schema,
+            json=schema,
         )
         await self._raise_on_error(response)
 

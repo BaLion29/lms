@@ -305,6 +305,42 @@ class TestPlanner:
         doc = call_args[0][0]
         assert doc["firing"] == "TriggerFiring/recent"
 
+    @pytest.mark.asyncio
+    async def test_same_cycle_duplicate_pair_dedup(self):
+        """Two firings that normalize to the same IRI after URL-unquoting
+         → only one ActionExecution created (same-cycle dedup)."""
+        now = _frozen_now()
+        action = _action(iri="WebhookAction/wa", trigger="OneShotTrigger/t1")
+
+        # Two firings that differ only in URL encoding of the @id
+        firing_encoded = {
+            "@id": "TriggerFiring/OneShotTrigger%2Ft1+2026-07-07T12:00:00Z",
+            "@type": "TriggerFiring",
+            "trigger": "OneShotTrigger/t1",
+            "scheduled_for": _utc_iso(now),
+            "status": "pending",
+        }
+        firing_decoded = {
+            "@id": "TriggerFiring/OneShotTrigger/t1+2026-07-07T12:00:00Z",
+            "@type": "TriggerFiring",
+            "trigger": "OneShotTrigger/t1",
+            "scheduled_for": _utc_iso(now),
+            "status": "pending",
+        }
+
+        engine, tdb = _make_engine(
+            actions=[action],
+            firings=[firing_encoded, firing_decoded],
+            now=now,
+        )
+        engine.repo.create = AsyncMock()
+
+        await engine.run_cycle()
+
+        # Only ONE ActionExecution should be created — the second firing
+        # normalizes to the same short IRI and is deduped same-cycle.
+        assert engine.repo.create.call_count == 1
+
 
 class TestModeRouting:
     """ActionExecution status depends on action.mode and global dry_run."""

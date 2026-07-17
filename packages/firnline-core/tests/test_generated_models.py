@@ -445,6 +445,7 @@ def test_oneshot_trigger_round_trip():
         "contexts": [],
         "external_refs": [],
         "derived_from": [],
+        "aliases": [],
         "provenance": {
             "@type": "Provenance",
             "agent": "service:scheduler",

@@ -53,6 +53,11 @@ def create_app() -> FastAPI:
     indexed_settings = IndexedSettings()
     mcpd_settings = McpdSettings()  # type: ignore[call-arg]
 
+    # ── Gate the mounted /mcp with the same bearer token as queryd ────────
+    # No new env var required: the common single-port deployment reuses
+    # QUERYD_API_TOKEN so every route (FastAPI + MCP) is gated uniformly.
+    mcpd_settings.api_token = queryd_settings.api_token
+
     # ── Build components ────────────────────────────────────────────────
     captured_component = captured_create_component(captured_settings)
     queryd_component = queryd_create_component(queryd_settings)

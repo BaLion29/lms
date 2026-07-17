@@ -26,14 +26,29 @@ class Settings(TdbSettings):
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _parse_cors_origins(cls, v: object) -> list[str]:
-        """Accept a comma-separated string or a list."""
+        """Accept a comma-separated string or a list.
+
+        Rejects wildcard origins (``*``, ``null``) because
+        ``allow_credentials=True`` forbids a wildcard origin per the
+        Fetch standard.
+        """
         if isinstance(v, str):
             if v.strip() == "":
                 return []
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        if isinstance(v, list):
-            return [str(item).strip() for item in v if str(item).strip()]
-        return []
+            origins = [origin.strip() for origin in v.split(",") if origin.strip()]
+        elif isinstance(v, list):
+            origins = [str(item).strip() for item in v if str(item).strip()]
+        else:
+            return []
+
+        for origin in origins:
+            if origin in ("*", "null"):
+                raise ValueError(
+                    f"CORS origin {origin!r} is forbidden when "
+                    "allow_credentials=True (Fetch standard §7.1.3). "
+                    "Use a specific origin instead."
+                )
+        return origins
 
     @field_validator("listen_addr")
     @classmethod

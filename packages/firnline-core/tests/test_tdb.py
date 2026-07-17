@@ -738,6 +738,56 @@ async def test_push_schema_custom_author_message(respx_mock):
         await c.aclose()
 
 
+async def test_push_schema_retains_at_abstract_metadata_documentation(client, respx_mock):
+    """Regression: push_schema must NOT strip @abstract/@metadata/@documentation.
+
+    Commit 709d9e6 introduced a _strip_non_woql helper that removed these keys
+    before sending the schema to TerminusDB.  That broke four downstream
+    services (triggerd anchor_field, introspect label_field, effectd/triggerd
+    abstract-class scan) because the keys never landed in the database.
+
+    This test pushes a schema containing all three @-keys and asserts (via
+    respx) that the POSTed request body retains them unstripped.
+    """
+    schema_with_at_keys = [
+        {"@type": "@context", "@base": "terminusdb:///data/"},
+        {
+            "@id": "Source",
+            "@type": "Class",
+            "@abstract": [],
+            "@documentation": {
+                "@title": "Source",
+                "@description": "Abstract base class",
+            },
+            "@metadata": {"anchor_field": "name", "label_field": "name"},
+        },
+        {
+            "@id": "Task",
+            "@type": "Class",
+            "@inherits": "Source",
+            "name": "xsd:string",
+            "@documentation": {"@title": "Task", "@description": "A task"},
+        },
+    ]
+    route = respx_mock.post(
+        f"{BASE}/api/document/{ORG}/{DB}",
+    ).respond(status_code=200, json=[])
+
+    await client.push_schema(schema_with_at_keys)
+    assert route.called
+
+    sent = json.loads(route.calls.last.request.read())
+    assert sent == schema_with_at_keys
+    # Explicitly verify the three @-keys survive in the Source class entry
+    source_entry = next(e for e in sent if e.get("@id") == "Source")
+    assert "@abstract" in source_entry
+    assert "@documentation" in source_entry
+    assert "@metadata" in source_entry
+    # And @documentation in the Task entry too
+    task_entry = next(e for e in sent if e.get("@id") == "Task")
+    assert "@documentation" in task_entry
+
+
 # ---------------------------------------------------------------------------
 # Branch operations
 # ---------------------------------------------------------------------------

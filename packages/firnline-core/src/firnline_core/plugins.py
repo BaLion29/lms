@@ -629,7 +629,8 @@ class ActionContext:
         now: Callable returning a tz-aware UTC ``datetime``
             (default: :func:`~firnline_core.conventions.utc_now`).
         idempotency_key: Stable per (action, firing); executors SHOULD pass it
-            downstream for exactly-once semantics.
+            downstream for at-least-once with dedup key (X-Firnline-Idempotency-Key);
+            webhook receivers MUST dedupe on the header.
         dry_run: When ``True``, executors MUST NOT produce side effects.
     """
 

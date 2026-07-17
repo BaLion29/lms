@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import secrets
 from typing import Any
 
 import httpx
@@ -17,6 +18,7 @@ import structlog
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
@@ -406,6 +408,73 @@ async def _register_dynamic_tools_with_retry(
 # ── App construction ────────────────────────────────────────────────────────
 
 
+class _BearerAuthMiddleware:
+    """ASGI middleware that validates ``Authorization: Bearer <token>``.
+
+    When ``settings.api_token`` is non-empty, every request must carry a
+    matching bearer token.  ``/healthz`` is always exempted so readiness
+    probes work without a token.  Uses ``secrets.compare_digest`` for
+    timing-safe comparison.
+    """
+
+    _TOKEN_HEADER: bytes = b"authorization"
+    _BEARER_PREFIX: bytes = b"bearer "
+
+    def __init__(self, app: ASGIApp, api_token: str) -> None:
+        self._app = app
+        self._expected: bytes = api_token.encode() if api_token else b""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        path: str = scope["path"]
+        # Exempt health checks so probes work without a token.
+        if path == "/healthz" or path == "/healthz/":
+            await self._app(scope, receive, send)
+            return
+
+        if not self._expected:
+            await self._app(scope, receive, send)
+            return
+
+        # Pick up the header (case-insensitive via lowercased header names).
+        raw_headers: list[tuple[bytes, bytes]] = scope.get("headers", [])
+        auth_value: bytes | None = None
+        for name, value in raw_headers:
+            if name.lower() == self._TOKEN_HEADER:
+                auth_value = value
+                break
+
+        if auth_value is None or len(auth_value) <= len(self._BEARER_PREFIX):
+            await self._send_401(send)
+            return
+
+        token = auth_value[len(self._BEARER_PREFIX) :]
+        if not secrets.compare_digest(token, self._expected):
+            await self._send_401(send)
+            return
+
+        await self._app(scope, receive, send)
+
+    @staticmethod
+    async def _send_401(send: Send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b'{"detail":"unauthorized"}',
+            }
+        )
+
+
 def create_mcp_component(
     settings: McpdSettings | None = None,
 ) -> tuple[Any, Any, Any]:
@@ -488,6 +557,10 @@ def create_mcp_component(
             Mount("/", mcp_streamable),
         ],
     )
+
+    # ── Apply bearer auth middleware when an api_token is configured ──────
+    if settings.api_token:
+        wrapped = _BearerAuthMiddleware(wrapped, settings.api_token)  # type: ignore[assignment]
 
     # ── Lifespan for the outer caller (includes session + dynamic tools) ──
     @contextlib.asynccontextmanager

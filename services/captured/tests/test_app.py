@@ -362,17 +362,140 @@ def test_note_capture_content_type_with_charset(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_note_capture_json_body_415(monkeypatch):
-    """Sending application/json to /note returns 415."""
+def test_note_capture_json_body_accepted(monkeypatch):
+    """Sending valid application/json to /note returns 201."""
     _patch_app(monkeypatch, handlers=[StubNoteHandler()])
     with _make_client(monkeypatch) as c:
         resp = c.post(
             "/v1/capture/note",
-            json={"text": "hello"},
+            json={"text": "hello from json"},
             headers={"Authorization": "Bearer test-token"},
         )
-    assert resp.status_code == 415
-    assert "text/plain" in resp.json()["detail"]
+    assert resp.status_code == 201
+    assert resp.json()["id"] == "stub-note-id"
+
+
+def test_note_capture_json_with_kind(monkeypatch):
+    """JSON body with explicit kind is accepted and forwarded."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            json={"text": "note with kind", "kind": "note"},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 201
+    assert resp.json()["kind"] == "note"
+
+
+def test_note_capture_json_with_metadata(monkeypatch):
+    """JSON body with metadata is passed through to the handler."""
+    _patch_app(monkeypatch, handlers=[MetadataVerifyingHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            json={"text": "with meta", "metadata": {"source": "web"}},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 201
+    assert resp.json()["id"] == "meta-ok"
+
+
+def test_note_capture_json_missing_text_422(monkeypatch):
+    """JSON body missing the 'text' field returns 422."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            json={"kind": "note"},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 422
+    assert "empty" in resp.json()["detail"]
+
+
+def test_note_capture_json_empty_text_422(monkeypatch):
+    """JSON body with whitespace-only text returns 422."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            json={"text": "   "},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 422
+    assert "empty" in resp.json()["detail"]
+
+
+def test_note_capture_json_invalid_json_422(monkeypatch):
+    """Malformed JSON body returns 422."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            content="{not valid",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test-token",
+            },
+        )
+    assert resp.status_code == 422
+    assert "valid JSON" in resp.json()["detail"]
+
+
+def test_note_capture_json_non_object_422(monkeypatch):
+    """JSON array body returns 422 (must be an object)."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            json=[1, 2, 3],
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 422
+    assert "JSON object" in resp.json()["detail"]
+
+
+def test_note_capture_json_non_string_kind_422(monkeypatch):
+    """JSON body with non-string kind returns 422."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            json={"text": "hello", "kind": 123},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 422
+    assert "kind must be a string" in resp.json()["detail"]
+
+
+def test_note_capture_json_non_dict_metadata_422(monkeypatch):
+    """JSON body with non-object metadata returns 422."""
+    _patch_app(monkeypatch, handlers=[StubNoteHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            json={"text": "hello", "metadata": [1, 2, 3]},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    assert resp.status_code == 422
+    assert "metadata must be a JSON object" in resp.json()["detail"]
+
+
+def test_note_capture_json_with_captured_at_header(monkeypatch):
+    """X-Captured-At header works with application/json body."""
+    _patch_app(monkeypatch, handlers=[CapturedAtHandler()])
+    with _make_client(monkeypatch) as c:
+        resp = c.post(
+            "/v1/capture/note",
+            json={"text": "timestamped json"},
+            headers={
+                "Authorization": "Bearer test-token",
+                "X-Captured-At": "2026-07-05T14:00:00Z",
+            },
+        )
+    assert resp.status_code == 201
+    assert resp.json()["id"] == "captured-at-id"
 
 
 def test_note_capture_no_content_type_415(monkeypatch):
@@ -385,6 +508,7 @@ def test_note_capture_no_content_type_415(monkeypatch):
             headers={"Authorization": "Bearer test-token"},
         )
     assert resp.status_code == 415
+    assert "application/json" in resp.json()["detail"]
 
 
 def test_note_capture_empty_body_422(monkeypatch):
@@ -724,6 +848,16 @@ class CapturedAtHandler:
     async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
         assert payload.captured_at is not None
         return "captured-at-id"
+
+
+class MetadataVerifyingHandler:
+    name = "meta-handler"
+    kinds = ("note",)
+    requires: list[ModuleRequirement] = []
+
+    async def handle(self, payload: CapturePayload, ctx: CaptureContext) -> str:
+        assert payload.metadata == {"source": "web"}
+        return "meta-ok"
 
 
 def test_captured_at_roundtrips_to_handler(monkeypatch):

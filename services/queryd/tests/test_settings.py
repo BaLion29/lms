@@ -148,3 +148,36 @@ def test_api_token_required():
             tdb_db="db",
             tdb_password="pw",
         )
+
+
+def test_cors_origins_rejects_wildcard():
+    """'*' is rejected because allow_credentials=True forbids wildcard."""
+    with pytest.raises(ValidationError, match="forbidden"):
+        Settings(
+            api_token="t",
+            tdb_db="db",
+            tdb_password="pw",
+            cors_origins="*",
+        )
+
+
+def test_cors_origins_rejects_null():
+    """'null' is rejected because allow_credentials=True forbids wildcard."""
+    with pytest.raises(ValidationError, match="forbidden"):
+        Settings(
+            api_token="t",
+            tdb_db="db",
+            tdb_password="pw",
+            cors_origins="null",
+        )
+
+
+def test_cors_origins_rejects_wildcard_in_list():
+    """'*' in a list is also rejected."""
+    with pytest.raises(ValidationError, match="forbidden"):
+        Settings(
+            api_token="t",
+            tdb_db="db",
+            tdb_password="pw",
+            cors_origins=["http://a.com", "*"],
+        )

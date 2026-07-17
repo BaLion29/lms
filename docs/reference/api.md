@@ -28,14 +28,27 @@ service validates against its own token:
 
 ### POST /v1/capture/note
 
+The endpoint accepts two content types:
+
+**text/plain** — frictionless raw-text submission (best for shell pipes, quick notes):
+
 ```bash
-curl -X POST http://localhost:8088/v1/capture/note \
+curl -X POST http://localhost:8080/v1/capture/note \
+  -H "Authorization: Bearer $CAPTURED_API_TOKEN" \
+  -H "Content-Type: text/plain" \
+  --data-binary "Buy milk"
+```
+
+**application/json** — structured submission with kind and optional metadata:
+
+```bash
+curl -X POST http://localhost:8080/v1/capture/note \
   -H "Authorization: Bearer $CAPTURED_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"text": "Buy milk", "kind": "note", "metadata": {}}'
 ```
 
-**Request body** — `NoteRequest`:
+**Request body (application/json)** — `NoteRequest`:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -43,6 +56,9 @@ curl -X POST http://localhost:8088/v1/capture/note \
 | `kind` | `string` | `"note"` | Handler kind (must match a registered `CaptureHandler.kinds` entry) |
 | `metadata` | `object` | `{}` | Arbitrary key-value metadata |
 | `captured_at` | `string` (ISO 8601) | server time | Time of capture |
+
+**Request body (text/plain)** — raw UTF-8 text, treated as `kind: "note"` with
+no metadata and server-assigned `captured_at`.
 
 **Response** — 201:
 

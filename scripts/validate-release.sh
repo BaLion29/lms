@@ -52,8 +52,11 @@ check "No 'lms' in tracked file contents (except allowed files)" \
         | grep -q .'
 
 # ── 2. No secrets ──────────────────────────────────────────────────────────
-check "No API keys in tracked files (except opencode config)" \
-    bash -c '! git grep -nE "sk-[A-Za-z0-9]{16,}" -- . ":!opencode.json" | grep -q .'
+check "No API keys in working tree" \
+    bash -c '! git grep -nE "sk-[A-Za-z0-9]{16,}" -- . | grep -q .'
+
+check "No API keys in git history" \
+    bash -c '! git log --all -p -S '\''sk-'\'' -- . | grep -qE "^\+.*sk-[A-Za-z0-9]{16,}"'
 
 # ── 3. No tracked junk ─────────────────────────────────────────────────────
 check "No tracked __pycache__ / .pyc / .pytest_cache / node_modules" \

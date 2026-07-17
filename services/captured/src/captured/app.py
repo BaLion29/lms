@@ -196,36 +196,71 @@ def create_component(settings: Settings | None = None) -> Component:
 
     @router.post("/v1/capture/note", dependencies=[Depends(_bearer_auth)])
     async def v1_capture_note(request: Request):
-        # Reject non-text/plain content types
         content_type = request.headers.get("content-type", "")
         if not content_type:
             raise HTTPException(
                 status_code=415,
-                detail="Content-Type header is required; expected text/plain",
+                detail="Content-Type header is required; expected text/plain or application/json",
             )
         # Split on ";" to handle charset parameter
         media_type = content_type.split(";")[0].strip().lower()
-        if media_type != "text/plain":
+
+        if media_type == "text/plain":
+            # ── text/plain: raw-body (frictionless curl --data-binary @-) ──
+            body_bytes = await request.body()
+            if not body_bytes:
+                raise HTTPException(
+                    status_code=422,
+                    detail="note text must not be empty",
+                )
+            try:
+                text = body_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                raise HTTPException(
+                    status_code=422,
+                    detail="request body must be valid UTF-8 text",
+                )
+            kind = "note"
+            meta: dict[str, Any] = {}
+        elif media_type == "application/json":
+            # ── application/json: structured body {"text","kind","metadata"} ──
+            try:
+                body = await request.json()
+            except Exception:
+                raise HTTPException(
+                    status_code=422,
+                    detail="request body must be valid JSON",
+                )
+            if not isinstance(body, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail="request body must be a JSON object",
+                )
+            text = body.get("text")
+            if not text or not isinstance(text, str) or not text.strip():
+                raise HTTPException(
+                    status_code=422,
+                    detail="note text must not be empty",
+                )
+            kind = body.get("kind", "note")
+            if not isinstance(kind, str):
+                raise HTTPException(
+                    status_code=422,
+                    detail="kind must be a string",
+                )
+            meta = body.get("metadata", {})
+            if not isinstance(meta, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail="metadata must be a JSON object",
+                )
+        else:
             raise HTTPException(
                 status_code=415,
-                detail=f"Unsupported media type '{media_type}'; expected text/plain",
+                detail=f"Unsupported media type '{media_type}'; expected text/plain or application/json",
             )
 
-        body_bytes = await request.body()
-        if not body_bytes:
-            raise HTTPException(
-                status_code=422,
-                detail="note text must not be empty",
-            )
-        try:
-            text = body_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            raise HTTPException(
-                status_code=422,
-                detail="request body must be valid UTF-8 text",
-            )
-
-        # Parse captured_at from X-Captured-At header
+        # ── X-Captured-At header (common to both content types) ──────────
         captured_at: datetime | None = None
         captured_at_raw = request.headers.get("X-Captured-At")
         if captured_at_raw:
@@ -235,14 +270,15 @@ def create_component(settings: Settings | None = None) -> Component:
                 raise HTTPException(status_code=422, detail=str(exc))
 
         payload = CapturePayload(
-            kind="note",
+            kind=kind,
             text=text,
+            metadata=meta,
             captured_at=captured_at,
         )
         doc_id = await _dispatch(payload, state)
         return JSONResponse(
             status_code=201,
-            content={"id": doc_id, "kind": "note"},
+            content={"id": doc_id, "kind": kind},
         )
 
     @router.post("/v1/capture/file", dependencies=[Depends(_bearer_auth)])
@@ -281,14 +317,19 @@ def create_component(settings: Settings | None = None) -> Component:
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
 
-        # Read file bytes (with size cap)
-        data = await file.read()
+        # Stream file chunks with running byte cap (F-6)
         max_bytes = state.settings.max_upload_bytes
-        if len(data) > max_bytes:
-            raise HTTPException(
-                status_code=413,
-                detail=f"upload exceeds maximum size of {max_bytes} bytes",
-            )
+        chunks: list[bytes] = []
+        total = 0
+        while chunk := await file.read(65536):
+            total += len(chunk)
+            if total > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"upload exceeds maximum size of {max_bytes} bytes",
+                )
+            chunks.append(chunk)
+        data = b"".join(chunks)
 
         # Store blob — BlobStore derives ext/mime from suggested_name
         blob_ref = blob_store_local.put(data, suggested_name=file.filename)

@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master, pre-release-0.1.0]
+    branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
   lint-and-test:
@@ -20,10 +21,10 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --all-packages --frozen
+        run: uv sync --all-packages
 
       - name: Check linting (ruff)
-        run: uv run ruff check .
+        run: uv run ruff check
 
       - name: Run tests
-        run: uv run pytest
+        run: uv run pytest -q

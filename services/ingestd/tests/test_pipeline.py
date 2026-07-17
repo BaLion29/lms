@@ -1337,6 +1337,104 @@ async def test_empty_text_skipped_no_status_flip():
     tdb.replace_document.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_empty_text_capture_rejected():
+    """Plain-text Captured doc with empty content → terminal "rejected" status."""
+    empty_note = {
+        "@id": "Captured/empty",
+        "@type": "Captured",
+        "content": "   ",
+        "content_type": "text/plain",
+        "captured_at": "2026-07-05T14:00:00Z",
+        "status": "new",
+    }
+    tdb = _fake_tdb(captured_docs=[empty_note])
+
+    extract_called = False
+
+    async def fake_extract(
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
+    ):
+        nonlocal extract_called
+        extract_called = True
+        return ExtractionResult(proposals=[], reasoning="", confidence=1.0)
+
+    if _EXTRACTION_CTX is None:
+        pytest.skip("extension pending kernel migration")
+    pipeline = _make_pipeline(tdb, extract_fn=fake_extract)
+
+    from structlog.testing import capture_logs
+    with capture_logs() as captured:
+        await pipeline.run_cycle()
+
+    # Extraction should NOT be called (empty text guard)
+    assert not extract_called
+    # Status should be flipped to "rejected"
+    tdb.replace_document.assert_called_once()
+    rejected = tdb.replace_document.call_args[0][0]
+    assert rejected["@id"] == "Captured/empty"
+    assert rejected["status"] == "rejected"
+    assert "Empty or whitespace-only text content" in rejected.get("result_detail", "")
+
+    # Verify the rejected log event
+    rejected_logs = [e for e in captured if e.get("event") == "empty_text_rejected"]
+    assert len(rejected_logs) == 1
+
+
+@pytest.mark.asyncio
+async def test_audio_awaiting_transcription_still_skipped():
+    """Audio capture with no transcription → skipped, NOT rejected (preserves waiting behavior)."""
+    audio_new = {
+        "@id": "Captured/aud_waiting",
+        "@type": "Captured",
+        "content_type": "audio/wav",
+        "file_name": "rec.wav",
+        "transcription": None,
+        "captured_at": "2026-07-05T14:00:00Z",
+        "status": "new",
+    }
+    tdb = _fake_tdb(captured_docs=[audio_new])
+
+    extract_called = False
+
+    async def fake_extract(
+        agent, text, reference_dt, context_block, error_feedback=None,
+        extraction_ctx=None,
+    ):
+        nonlocal extract_called
+        extract_called = True
+        return ExtractionResult(proposals=[], reasoning="", confidence=1.0)
+
+    # Use CapturedTextSource (which picks up status="new" docs)
+    from ingestd.sources import CapturedTextSource
+    src = CapturedTextSource()
+    assert src.text(audio_new) == ""  # no content field → empty text
+
+    if _EXTRACTION_CTX is None:
+        pytest.skip("extension pending kernel migration")
+    pipeline = Pipeline(
+        tdb=tdb, agent=None, settings=_settings(),
+        source_plugins=[src],
+        extraction_ctx=_EXTRACTION_CTX,
+        extract_fn=fake_extract,
+    )
+
+    from structlog.testing import capture_logs
+    with capture_logs() as captured:
+        await pipeline.run_cycle()
+
+    # Extraction should NOT be called (empty text guard)
+    assert not extract_called
+    # Status should NOT be flipped — audio awaiting transcription stays
+    tdb.replace_document.assert_not_called()
+
+    # Verify the skip log event
+    skip_logs = [e for e in captured if e.get("event") == "empty_text_skipped"]
+    assert len(skip_logs) >= 1
+    assert any(e.get("reason") == "audio_awaiting_transcription" for e in skip_logs)
+
+
 # ---------------------------------------------------------------------------
 # Entity-update ("fetch+merge") path tests
 # ---------------------------------------------------------------------------
@@ -1359,9 +1457,6 @@ class TestEnsureEntityUpdatePath:
         batch: list[dict[str, Any]] = []
         existing_ids: set[str] = set()
         ensure = pipeline._make_ensure_entity(index, batch, existing_ids)
-
-        from datetime import datetime, timezone
-        datetime.now(timezone.utc)
 
         factory_called = False
 
@@ -1418,9 +1513,6 @@ class TestEnsureEntityUpdatePath:
         existing_ids: set[str] = set()
         ensure = pipeline._make_ensure_entity(index, batch, existing_ids)
 
-        from datetime import datetime, timezone
-        datetime.now(timezone.utc)
-
         iri = await ensure(
             "Location",
             "NewPlace",
@@ -1448,9 +1540,6 @@ class TestEnsureEntityUpdatePath:
         batch: list[dict[str, Any]] = []
         existing_ids: set[str] = set()
         ensure = pipeline._make_ensure_entity(index, batch, existing_ids)
-
-        from datetime import datetime, timezone
-        datetime.now(timezone.utc)
 
         # First reference
         iri1 = await ensure(

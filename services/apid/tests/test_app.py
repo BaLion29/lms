@@ -297,3 +297,81 @@ def test_apid_env_prefix_still_works(monkeypatch):
     settings = ApidSettings()
     assert settings.listen_addr == "127.0.0.1:9090"
     assert settings.log_level == "DEBUG"
+
+
+# ---------------------------------------------------------------------------
+# Tests — /mcp bearer auth (S-2)
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_mount_requires_bearer_token(set_env, monkeypatch):
+    """/mcp returns 401 without a token, 200 with; /mcp/healthz is exempt."""
+    import apid.app as apid_mod  # noqa: E402
+
+    import captured.app as cap_mod
+
+    monkeypatch.setattr(
+        apid_mod,
+        "captured_create_component",
+        _wrap_lifespan(cap_mod.create_component),
+    )
+
+    import queryd.app as qd_mod
+
+    monkeypatch.setattr(
+        apid_mod,
+        "queryd_create_component",
+        _wrap_lifespan(qd_mod.create_component),
+    )
+
+    import indexed.app as idx_mod
+
+    monkeypatch.setattr(
+        apid_mod,
+        "indexed_create_component",
+        _wrap_lifespan(idx_mod.create_component),
+    )
+
+    # Build a mock MCP sub-app with the real bearer auth middleware.
+    from mcpd.main import _BearerAuthMiddleware  # noqa: E402
+
+    async def mcp_root(request):
+        return StarletteJSONResponse({"jsonrpc": "2.0"})
+
+    async def mcp_healthz(request):
+        return StarletteJSONResponse({"status": "ok"})
+
+    inner = Starlette(
+        routes=[
+            Route("/healthz", mcp_healthz),
+            Route("/", mcp_root),
+        ],
+    )
+    wrapped = _BearerAuthMiddleware(inner, "test-token")
+
+    monkeypatch.setattr(
+        apid_mod,
+        "mcpd_create_mcp_component",
+        lambda settings=None: (wrapped, _noop_lifespan, None),
+    )
+
+    from apid.app import create_app  # noqa: E402
+
+    with TestClient(create_app()) as c:
+        # No token → 401
+        resp = c.get("/mcp")
+        assert resp.status_code == 401
+
+        # Wrong token → 401
+        resp = c.get("/mcp", headers={"Authorization": "Bearer wrong"})
+        assert resp.status_code == 401
+
+        # Correct token → 200
+        resp = c.get("/mcp", headers={"Authorization": "Bearer test-token"})
+        assert resp.status_code == 200
+        assert resp.json() == {"jsonrpc": "2.0"}
+
+        # /mcp/healthz is exempt from auth
+        resp = c.get("/mcp/healthz")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}

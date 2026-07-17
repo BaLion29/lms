@@ -29,5 +29,8 @@ opencode.json
 # Node
 node_modules/
 
+# graphify knowledge graph (generated, not committed)
+graphify-out/
+
 # OS
 .DS_Store

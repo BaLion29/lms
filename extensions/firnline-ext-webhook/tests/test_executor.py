@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import pytest
 import respx
 from httpx import Response
 
@@ -16,6 +17,10 @@ from firnline_core.plugins import (
 )
 
 from firnline_ext_webhook.executor import WebhookExecutor, WebhookSettings, plugin
+
+
+# ── Public IP used in mock DNS resolution ────────────────────────────────
+_PUBLIC_IP = "93.184.216.34"  # example.com (IPv4)
 
 
 # ---------------------------------------------------------------------------
@@ -407,15 +412,115 @@ async def test_unexpected_exception_retryable() -> None:
 
 
 # ---------------------------------------------------------------------------
+# SSRF guard — WEBHOOK_ALLOWED_HOSTS enforcement (S-4)
+# ---------------------------------------------------------------------------
+
+
+async def test_allowlist_empty_fails_closed() -> None:
+    """When WEBHOOK_ALLOWED_HOSTS is empty, webhooks are refused."""
+    executor = _configured_executor(allowed_hosts="")
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+
+    result = await executor.execute(
+        {"url": "https://example.com/hook"}, {}, None, ctx
+    )
+
+    assert result.ok is False
+    assert result.retryable is False
+    assert "empty" in result.detail.lower() or "allow" in result.detail.lower()
+
+
+async def test_allowlist_host_not_matched() -> None:
+    """Host not in the allowlist is rejected."""
+    executor = _configured_executor(allowed_hosts="example.com")
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+
+    result = await executor.execute(
+        {"url": "https://evil.example.com/hook"}, {}, None, ctx
+    )
+
+    assert result.ok is False
+    assert result.retryable is False
+    assert "not in" in result.detail.lower()
+
+
+async def test_allowlist_host_matched_allows() -> None:
+    """Host in the allowlist passes the guard."""
+    executor = _configured_executor(allowed_hosts="example.com")
+    ctx = ActionContext(tdb=None, logger=MagicMock(), idempotency_key="ik-ok")
+
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("https://example.com/hook").mock(
+            return_value=Response(200)
+        )
+        result = await executor.execute(
+            {"url": "https://example.com/hook"}, {}, None, ctx
+        )
+
+    assert result.ok is True
+
+
+async def test_allowlist_port_mismatch_rejected() -> None:
+    """When allowlist specifies a port, requests to other ports are rejected."""
+    executor = _configured_executor(allowed_hosts="example.com:443")
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+
+    result = await executor.execute(
+        {"url": "https://example.com:8080/hook"}, {}, None, ctx
+    )
+
+    assert result.ok is False
+    assert result.retryable is False
+
+
+async def test_allowlist_port_match_passes() -> None:
+    """When allowlist specifies a port, requests to that port pass."""
+    executor = _configured_executor(allowed_hosts="example.com:443")
+    ctx = ActionContext(tdb=None, logger=MagicMock(), idempotency_key="ik-port")
+
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("https://example.com:443/hook").mock(
+            return_value=Response(200)
+        )
+        result = await executor.execute(
+            {"url": "https://example.com:443/hook"}, {}, None, ctx
+        )
+
+    assert result.ok is True
+
+
+async def test_private_ip_blocked(monkeypatch) -> None:
+    """URL whose hostname resolves to a private IP is blocked."""
+    executor = _configured_executor(allowed_hosts="localhost,127.0.0.1,internal")
+    ctx = ActionContext(tdb=None, logger=MagicMock())
+
+    # Override the mock DNS for this test to return a private IP
+    import firnline_ext_webhook.executor as exec_mod
+
+    async def fake_private_resolve(hostname: str, port: int):
+        return [(2, 1, 6, "", ("10.0.0.1", port))]
+
+    monkeypatch.setattr(exec_mod, "_resolve_addrs", fake_private_resolve)
+
+    result = await executor.execute(
+        {"url": "https://internal/hook"}, {}, None, ctx
+    )
+
+    assert result.ok is False
+    assert "private" in result.detail.lower() or "loopback" in result.detail.lower()
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _configured_executor(token: str = "") -> WebhookExecutor:
+def _configured_executor(token: str = "", allowed_hosts: str = "example.com") -> WebhookExecutor:
     """Return a WebhookExecutor pre-configured with test settings."""
     executor = WebhookExecutor()
     executor._settings = WebhookSettings(
         default_token=token,
         timeout_seconds=10,
+        allowed_hosts=allowed_hosts,
     )
     return executor

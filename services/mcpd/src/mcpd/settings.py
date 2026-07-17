@@ -16,6 +16,7 @@ class McpdSettings(FirnlineBaseSettings):
     host: str = "0.0.0.0"
     port: int = 8090
     log_level: str = "INFO"
+    api_token: str = ""
     queryd_url: str = "http://localhost:8080"
     queryd_token: str = ""
     captured_url: str = "http://localhost:8080"

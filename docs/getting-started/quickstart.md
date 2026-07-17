@@ -18,11 +18,24 @@ installation.
 
 ## Step 1: capture a note
 
+The capture endpoint accepts both plain text and structured JSON:
+
+**text/plain** (frictionless — shell pipes, quick notes):
+
+```bash
+curl -s -X POST http://localhost:8080/v1/capture/note \
+  -H "Authorization: Bearer $CAPTURED_API_TOKEN" \
+  -H "Content-Type: text/plain" \
+  --data-binary "Buy milk on the way home"
+```
+
+**application/json** (with kind and optional metadata):
+
 ```bash
 curl -s -X POST http://localhost:8080/v1/capture/note \
   -H "Authorization: Bearer $CAPTURED_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"text": "Buy milk on the way home", "kind": "note"}'
+  -d '{"text": "Buy milk on the way home", "kind": "note", "metadata": {}}'
 ```
 
 You should get a `201` response with the new document ID:

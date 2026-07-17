@@ -449,9 +449,23 @@ class Pipeline:
         text = src.text(doc)
         reference_dt = src.reference_time(doc)
 
-        # Guard: skip items with empty text (e.g. audio captures not yet transcribed)
+        # Guard: empty/whitespace text.  Audio captures awaiting transcription
+        # (content_type like "audio/…" with no transcription yet) are skipped so
+        # they get a chance to be transcribed in the future.  Plain-text captures
+        # with empty content are terminal — flip to "rejected" so polling stops.
         if not text or not text.strip():
-            logger.info("empty_text_skipped", iri=doc_iri)
+            content_type = doc.get("content_type", "")
+            if content_type.startswith("audio/"):
+                logger.info("empty_text_skipped", iri=doc_iri, reason="audio_awaiting_transcription")
+                return
+            logger.info("empty_text_rejected", iri=doc_iri)
+            doc["status"] = "rejected"
+            doc["result_detail"] = "Empty or whitespace-only text content"
+            await self.tdb.replace_document(
+                doc,
+                branch=branch,
+                message=f"ingestd: rejected empty text {doc_iri}",
+            )
             return
 
         # 3. Extraction retry loop
@@ -576,7 +590,6 @@ class Pipeline:
             )
             return
 
-        datetime.now(timezone.utc)
         doc["status"] = status
 
         await self.tdb.replace_document(
