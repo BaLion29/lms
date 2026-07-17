@@ -69,6 +69,6 @@ USER captured
 # All configuration is supplied via environment variables (CAPTURED_ prefix).
 # See src/captured/settings.py for the full list.
 #
-# captured has no console-script entry point; launch via uvicorn factory.
+# Launch via console script entrypoint (captured = captured.main:main).
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["uvicorn", "--factory", "captured.app:create_app", "--host", "0.0.0.0", "--port", "8088"]
+CMD ["captured"]

@@ -148,6 +148,63 @@ Open <http://localhost:3000> for the WebUI dashboard.
 5. The bootstrap container re-runs and applies any pending schema migrations
    (additive only). **Always back up first** — see [Backup and restore](backup-and-restore.md).
 
+## HTTPS behind Traefik
+
+Run firnline behind a Traefik reverse proxy with automatic Let's Encrypt TLS
+certificates.  Traefik terminates TLS on ports 80/443 and forwards requests
+to firnline services over plain HTTP on the internal compose network.
+
+### Prerequisites
+
+- A **real, publicly-resolvable domain name** (e.g. `firnline.example.com`).
+  `localhost` or internal Docker hostnames will NOT work for Let's Encrypt.
+- The domain must point to the server's public IP (A/AAAA record).
+- Ports 80 and 443 must be reachable from the internet on the host.
+
+### Setup
+
+```bash
+cp .env.example .env
+# Edit .env and set:
+#   DOMAIN=your-domain.example.com
+#   ACME_EMAIL=you@example.com
+#   TDB_PASSWORD=<openssl rand -hex 32>
+#   CAPTURED_API_TOKEN=<openssl rand -hex 32>
+#   QUERYD_API_TOKEN=<openssl rand -hex 32>
+#   FIRNLINE_LLM_BASE_URL=http://host.docker.internal:4000
+```
+
+Then start the full stack with the Traefik overlay:
+
+```bash
+docker compose -f compose.yaml -f compose.traefik.yaml up -d
+```
+
+### What happens
+
+- **Traefik** listens on ports 80 and 443.  HTTP on port 80 is redirected
+  to HTTPS on port 443.
+- Let's Encrypt ACME TLS challenge automatically provisions a certificate
+  for `api.${DOMAIN}` and `${DOMAIN}`.
+- **api.${DOMAIN}** → Traefik → `apid:8080` (plain HTTP inside the network).
+- **${DOMAIN}** → Traefik → `webui:3000` (plain HTTP inside the network).
+- **TerminusDB** host ports are un-published (`compose.traefik.yaml` overrides
+  `terminusdb` with `ports: []`).  The database is accessible only from
+  containers on the compose network.
+- **apid** and **webui** host ports are also un-published — only Traefik
+  handles ingress.
+- Within the Docker network, all inter-service calls (apid → terminusdb:
+  `http://terminusdb:6363`, webui → apid: `http://apid:8080`) remain plain
+  HTTP — no TLS overhead for internal traffic.
+- `APID_PROXY_HEADERS=true` and `APID_FORWARDED_ALLOW_IPS=*` are set so
+  uvicorn respects `X-Forwarded-*` headers from Traefik.  Trusting all
+  forwarded IPs is safe because apid's ports are un-published.
+
+### Accessing
+
+After startup, navigate to `https://${DOMAIN}` for the WebUI and
+`https://api.${DOMAIN}/healthz` for the API health check.
+
 ## Related documents
 
 - [../reference/configuration.md](../reference/configuration.md) — complete env-var reference

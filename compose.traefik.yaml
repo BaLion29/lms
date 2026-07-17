@@ -1,0 +1,90 @@
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Firnline — Traefik reverse-proxy overlay
+#
+# Usage:
+#   cp .env.example .env && vim .env
+#   # Required: DOMAIN=<your-real-domain>  ACME_EMAIL=<your-email>
+#   docker compose -f compose.yaml -f compose.traefik.yaml up -d
+#
+# This overlay:
+#   • Adds a Traefik v3 reverse proxy with Let's Encrypt TLS termination.
+#   • Routes api.${DOMAIN} → apid:8080  and  ${DOMAIN} → webui:3000.
+#   • Un-publishes terminusdb, apid, and webui host ports (Traefik handles
+#     ingress on 80/443 only).
+#   • Keeps all inter-service traffic on the compose network as plain HTTP.
+#
+# Required env vars:
+#   DOMAIN      – a real, publicly-resolvable domain name for ACME TLS.
+#   ACME_EMAIL  – email address used for Let's Encrypt registration.
+#
+# NOTE:
+#   - ACME (Let's Encrypt) requires a *real, publicly-resolvable* DOMAIN.
+#     localhost, 127.0.0.1, or internal Docker hostnames will NOT work.
+#   - TLS is terminated at Traefik; firnline services remain HTTP internally.
+#   - APID_FORWARDED_ALLOW_IPS=* is safe ONLY because apid's ports are
+#     un-published — only Traefik on the compose network can reach apid.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+services:
+  # ── Traefik reverse proxy ───────────────────────────────────────────────
+  traefik:
+    image: traefik:v3.3
+    command:
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      # Let's Encrypt
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?err ACME_EMAIL must be set}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      # Providers
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  # ── terminusdb: un-publish host port (internal-only) ─────────────────────
+  terminusdb:
+    ports: []
+
+  # ── apid: route via Traefik, un-publish host port ────────────────────────
+  apid:
+    ports: []
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.apid.rule=Host(`api.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.apid.entrypoints=websecure"
+      - "traefik.http.routers.apid.tls=true"
+      - "traefik.http.routers.apid.tls.certresolver=letsencrypt"
+      - "traefik.http.services.apid.loadbalancer.server.port=8080"
+    environment:
+      APID_PROXY_HEADERS: "true"
+      # Safe ONLY because apid's ports are un-published — only Traefik on the
+      # compose network can reach apid. If ports are re-published, trusting
+      # all forwarded headers becomes unsafe.
+      APID_FORWARDED_ALLOW_IPS: "*"
+
+  # ── webui: route via Traefik, un-publish host port ───────────────────────
+  webui:
+    ports: []
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.webui.rule=Host(`${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.webui.entrypoints=websecure"
+      - "traefik.http.routers.webui.tls=true"
+      - "traefik.http.routers.webui.tls.certresolver=letsencrypt"
+      - "traefik.http.services.webui.loadbalancer.server.port=3000"
+    environment:
+      WEBUI_API_URL: "https://${DOMAIN:-localhost}"
+      REFLEX_API_URL: "https://${DOMAIN:-localhost}"
+
+# ── Let's Encrypt certificate volume ──────────────────────────────────────
+volumes:
+  letsencrypt:

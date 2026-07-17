@@ -12,6 +12,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from firnline_core.logging import configure_logging
 
@@ -92,6 +93,10 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+    # ── Trusted Host middleware (driven by apid settings) ───────────────
+    if apid_settings.trusted_hosts:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=apid_settings.trusted_hosts)
 
     # ── /healthz ───────────────────────────────────────────────────────
     @app.get("/healthz")

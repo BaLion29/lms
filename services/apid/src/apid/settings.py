@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+from pydantic_settings import SettingsConfigDict
+
+from firnline_core.settings import FirnlineBaseSettings
 
 
-class ApidSettings(BaseSettings):
+class ApidSettings(FirnlineBaseSettings):
     """Combined API daemon settings.
 
     All fields can be set via environment variables with the ``APID_`` prefix
@@ -28,9 +30,7 @@ class ApidSettings(BaseSettings):
         try:
             port = int(parts[1])
         except ValueError:
-            raise ValueError(
-                f"listen_addr port must be an integer, got {parts[1]!r}"
-            ) from None
+            raise ValueError(f"listen_addr port must be an integer, got {parts[1]!r}") from None
         if port < 0 or port > 65535:
             raise ValueError(f"listen_addr port out of range: {port}")
         return v
