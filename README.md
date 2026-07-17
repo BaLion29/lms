@@ -30,6 +30,17 @@ TerminusDB graph database — the single source of truth.
 
 ## Quickstart
 
+### Option A: Pre-built images (no source needed)
+
+```bash
+curl -O https://raw.githubusercontent.com/BaLion29/firnline/main/compose.example.yaml
+curl -O https://raw.githubusercontent.com/BaLion29/firnline/main/.env.example
+cp .env.example .env && vim .env      # set the 4 required values
+docker compose -f compose.example.yaml up -d
+```
+
+### Option B: Build from source
+
 ```bash
 git clone https://github.com/davidsouther/firnline.git
 cd firnline

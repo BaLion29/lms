@@ -6,6 +6,38 @@ How to deploy the full firnline stack in production using Docker Compose.
 Covers prerequisites, configuration, service startup, extension installation,
 and upgrades.
 
+## Quick deployment with pre-built images
+
+Pre-built firnline images are published to Docker Hub at `docker.io/firnline`
+for every tagged release. Consumers can start firnline without cloning the
+source repository by using the consumer-facing compose file
+(`compose.example.yaml`) which pulls pre-built images instead of building
+from source.
+
+```bash
+# 1. Download the consumer compose file and env template
+curl -O https://raw.githubusercontent.com/BaLion29/firnline/main/compose.example.yaml
+curl -O https://raw.githubusercontent.com/BaLion29/firnline/main/.env.example
+
+# 2. Configure secrets
+cp .env.example .env && vim .env    # set the 4 required values
+
+# 3. Start
+docker compose -f compose.example.yaml up -d
+```
+
+The four required `.env` values are the same as in the full deployment below:
+`TDB_PASSWORD`, `CAPTURED_API_TOKEN`, `QUERYD_API_TOKEN`, and
+`FIRNLINE_LLM_BASE_URL`. Use `openssl rand -hex 32` to generate the three
+secrets.
+
+The developer compose file (`compose.yaml`) described below is for building
+from source and development — it uses `build:` directives and requires a full
+source checkout.
+
+Maintainers should read [Publishing images](publishing-images.md) for the
+full image build-and-push workflow.
+
 ## Prerequisites
 
 - Docker and Docker Compose >= 2.24.
