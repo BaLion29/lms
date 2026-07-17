@@ -14,16 +14,13 @@ from typing import Any, Callable, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
+import httpx
+
 from firnline_core.conventions import BlobStore, utc_now
 from firnline_core.semver import Range, Version
 from firnline_core.tdb import TdbError
 
-try:
-    import httpx
-
-    _REGISTRY_ERRORS: tuple[type[BaseException], ...] = (TdbError, OSError, httpx.HTTPError)
-except ImportError:
-    _REGISTRY_ERRORS = (TdbError, OSError)
+_REGISTRY_ERRORS: tuple[type[BaseException], ...] = (TdbError, OSError, httpx.HTTPError)
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +188,7 @@ class BuildContext:
     Fields:
         tdb: The TerminusDB client (``Any`` — avoids a service dep in firnline-core).
         captured_iri: The IRI of the entity being processed.
-        now: Callable returning ``datetime`` (default: ``datetime.now``).
+        now: Callable returning ``datetime`` (default: ``utc_now`` (tz-aware UTC)).
         ensure_entity: ``async ensure_entity(type_name: str, name: str, factory: Callable[[], dict | None]) -> str | None``
             Resolves an entity by name via the generic index / match service, or
             creates it with a client-supplied ``@id`` and queues it in the current
@@ -211,7 +208,7 @@ class BuildContext:
     ) -> None:
         self.tdb = tdb
         self.captured_iri = captured_iri
-        self._now = now if now is not None else datetime.now
+        self._now = now if now is not None else utc_now
         self.ensure_entity = ensure_entity
         self.branch = branch
 

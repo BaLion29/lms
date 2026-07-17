@@ -203,13 +203,14 @@ class TestDiscoverPlugins:
 
 
 class TestBuildContext:
-    def test_default_now_is_datetime_now(self) -> None:
-        from datetime import datetime
+    def test_default_now_is_utc_now(self) -> None:
+        from datetime import datetime, timezone
 
         ctx = BuildContext(tdb=None, captured_iri="test/1")
         now = ctx.now()
         assert isinstance(now, datetime)
-        assert now.tzinfo is None  # default datetime.now is naive
+        assert now.tzinfo is not None  # default utc_now is tz-aware UTC
+        assert now.utcoffset() == timezone.utc.utcoffset(None)
 
     def test_custom_now(self) -> None:
         from datetime import datetime, timezone

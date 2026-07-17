@@ -9,8 +9,15 @@ from pydantic import BaseModel, Field
 
 from firnline_core.generated.core import Provenance
 from firnline_core.plugins import ModuleRequirement
-from firnline_core.repository import Repository
 from firnline_core.toolspec import ToolContext, ToolSpec
+from firnline_core.toolspec_helpers import (
+    error_envelope,
+    make_repo,
+    not_found_envelope,
+    ok_envelope,
+    type_mismatch_error,
+    write_error_envelope,
+)
 
 from firnline_ext_address_book.geocode import GeocodingClient
 from firnline_ext_address_book.models import (
@@ -110,7 +117,7 @@ async def _do_lookup(
     elif kind == "organization":
         classes = [("Organization", "organization")]
     else:
-        return {"ok": False, "error": f"invalid kind filter: {kind!r}"}
+        return error_envelope(f"invalid kind filter: {kind!r}")
 
     hits: list[dict[str, object]] = []
 
@@ -138,7 +145,7 @@ async def _do_lookup(
         if len(hits) >= limit:
             break
 
-    return {"ok": True, "hits": hits[:limit]}
+    return ok_envelope(hits=hits[:limit])
 
 
 async def _do_get(
@@ -151,9 +158,9 @@ async def _do_get(
     try:
         doc = await tdb.get_document(id_, branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": f"document not found: {id_}: {exc}"}
+        return not_found_envelope(id_, exc)
 
-    return {"ok": True, "doc": doc}
+    return ok_envelope(doc=doc)
 
 
 async def _validate_location(
@@ -169,7 +176,9 @@ async def _validate_location(
         return f"location not found: {location_id}: {exc}"
 
     if doc.get("@type") != "Location":
-        return f"{location_id} is not a Location (type={doc.get('@type')})"
+        type_err = type_mismatch_error(location_id, doc, "Location")
+        if type_err is not None:
+            return type_err
 
     return None
 
@@ -185,7 +194,7 @@ async def _do_create_person(
     branch: str,
 ) -> dict[str, object]:
     """Create a new Person document."""
-    repo = Repository(tdb, transitions={}) if not isinstance(tdb, Repository) else tdb
+    repo = make_repo(tdb, transitions={})
 
     if domicile_id is not None:
         err = await _validate_location(domicile_id, tdb=tdb, branch=branch)
@@ -208,9 +217,9 @@ async def _do_create_person(
     try:
         iri = await repo.create(person, agent=_AGENT, method="tool_call", branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": iri}
+    return ok_envelope(iri=iri)
 
 
 async def _do_create_location(
@@ -224,7 +233,7 @@ async def _do_create_location(
     branch: str,
 ) -> dict[str, object]:
     """Create a new Location document."""
-    repo = Repository(tdb, transitions={}) if not isinstance(tdb, Repository) else tdb
+    repo = make_repo(tdb, transitions={})
 
     coordinates: tuple[float, float] | None = None
     if lat is not None and lon is not None:
@@ -243,9 +252,9 @@ async def _do_create_location(
     try:
         iri = await repo.create(loc, agent=_AGENT, method="tool_call", branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": iri}
+    return ok_envelope(iri=iri)
 
 
 async def _do_create_organization(
@@ -257,7 +266,7 @@ async def _do_create_organization(
     branch: str,
 ) -> dict[str, object]:
     """Create a new Organization document."""
-    repo = Repository(tdb, transitions={}) if not isinstance(tdb, Repository) else tdb
+    repo = make_repo(tdb, transitions={})
 
     if location_id is not None:
         err = await _validate_location(location_id, tdb=tdb, branch=branch)
@@ -276,9 +285,9 @@ async def _do_create_organization(
     try:
         iri = await repo.create(org, agent=_AGENT, method="tool_call", branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": iri}
+    return ok_envelope(iri=iri)
 
 
 async def _do_geocode(
@@ -290,9 +299,9 @@ async def _do_geocode(
 ) -> dict[str, object]:
     """Geocode a query string or a stored Location by IRI."""
     if query is not None and location_id is not None:
-        return {"ok": False, "error": "provide exactly one of 'query' or 'location_id', not both"}
+        return error_envelope("provide exactly one of 'query' or 'location_id', not both")
     if query is None and location_id is None:
-        return {"ok": False, "error": "provide exactly one of 'query' or 'location_id'"}
+        return error_envelope("provide exactly one of 'query' or 'location_id'")
 
     client = GeocodingClient()
 
@@ -300,47 +309,48 @@ async def _do_geocode(
         try:
             coords = await client.geocode(query)
         except Exception:
-            return {"ok": False, "error": "geocoding failed unexpectedly"}
+            return error_envelope("geocoding failed unexpectedly")
 
         if coords is None:
-            return {"ok": False, "error": f"no geocoding result for query: {query}"}
+            return error_envelope(f"no geocoding result for query: {query}")
 
-        return {"ok": True, "coordinates": list(coords)}
+        return ok_envelope(coordinates=list(coords))
 
     # location_id path
     try:
         doc = await tdb.get_document(location_id, branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": f"location not found: {location_id}: {exc}"}
+        return not_found_envelope(location_id, exc, noun="location")
 
-    if doc.get("@type") != "Location":
-        return {"ok": False, "error": f"{location_id} is not a Location (type={doc.get('@type')})"}
+    type_err = type_mismatch_error(location_id, doc, "Location")
+    if type_err is not None:
+        return error_envelope(type_err)
 
     # Already has coordinates — no need to geocode
     existing = doc.get("coordinates")
     if existing is not None:
-        return {"ok": True, "coordinates": list(existing), "already_set": True}
+        return ok_envelope(coordinates=list(existing), already_set=True)
 
     geocode_query = doc.get("address") or doc.get("name", "")
     if not geocode_query:
-        return {"ok": False, "error": "Location has no address and no name to geocode"}
+        return error_envelope("Location has no address and no name to geocode")
 
     try:
         coords = await client.geocode(geocode_query)
     except Exception:
-        return {"ok": False, "error": "geocoding failed unexpectedly"}
+        return error_envelope("geocoding failed unexpectedly")
 
     if coords is None:
-        return {"ok": False, "error": f"no geocoding result for location: {geocode_query}"}
+        return error_envelope(f"no geocoding result for location: {geocode_query}")
 
     # Persist coordinates
     doc["coordinates"] = list(coords)
     try:
         await tdb.replace_document(doc, branch=branch, message=f"queryd: geocode {location_id}")
     except Exception as exc:
-        return {"ok": False, "error": f"failed to persist coordinates: {exc}"}
+        return error_envelope(f"failed to persist coordinates: {exc}")
 
-    return {"ok": True, "coordinates": list(coords)}
+    return ok_envelope(coordinates=list(coords))
 
 
 # ---------------------------------------------------------------------------
