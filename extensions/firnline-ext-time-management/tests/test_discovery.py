@@ -1,6 +1,6 @@
 """Discovery tests for all four entry points of firnline-ext-time-management:
 - firnline.schema_modules (manifest + schema checks)
-- firnline.ingestd.extractors
+- firnline.ingestd.extractors (two extractor plugins)
 - firnline.queryd.tools
 - firnline.indexed.indexers
 """
@@ -54,6 +54,13 @@ def test_extractor_plugin_loadable():
 
     assert plugin.name == "time_management_extractor"
     assert plugin.produces == ["Task", "Event", "Person", "Location", "Routine", "Activity", "Project", "Area", "Goal"]
+
+
+def test_triggered_routine_plugin_loadable():
+    from firnline_ext_time_management.routine_spawn import plugin
+
+    assert plugin.name == "time_management_triggered_routine"
+    assert plugin.produces == ["Task", "Activity", "Routine"]
 
 
 # ---------------------------------------------------------------------------

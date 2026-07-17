@@ -18,6 +18,7 @@ time_management = "firnline_ext_time_management"
 
 [project.entry-points."firnline.ingestd.extractors"]
 time_management_extractor = "firnline_ext_time_management.extract:plugin"
+time_management_triggered_routine = "firnline_ext_time_management.routine_spawn:plugin"
 
 [project.entry-points."firnline.queryd.tools"]
 time_management_tools = "firnline_ext_time_management.tools:plugin"
