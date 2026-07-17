@@ -36,6 +36,7 @@ packages = ["src/firnline_ext_deliberation"]
 [dependency-groups]
 dev = [
     "pytest",
+    "pytest-asyncio",
     "ruff",
 ]
 

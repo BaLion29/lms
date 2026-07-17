@@ -225,6 +225,6 @@ class DeliberationScreen(ShellScreen):
         if not query:
             self._populate_table(table_id, columns, rows)
         else:
-            filtered = [r for r in rows if query in str(r.get("Title", "")).casefold()
-                        or query in str(r.get("Question", "")).casefold()]
+            key = columns[0]
+            filtered = [r for r in rows if query in str(r.get(key, "")).casefold()]
             self._populate_table(table_id, columns, filtered)

@@ -74,6 +74,16 @@ class TestDecisionProposal:
         with pytest.raises(ValidationError):
             DecisionProposal(title="T", decision="D", status="rejected")
 
+    def test_superseded_status_disallowed(self):
+        """superseded is not in the Literal — LLM should not propose it."""
+        with pytest.raises(ValidationError):
+            DecisionProposal(title="T", decision="D", status="superseded")
+
+    def test_deprecated_status_disallowed(self):
+        """deprecated is not in the Literal — LLM should not propose it."""
+        with pytest.raises(ValidationError):
+            DecisionProposal(title="T", decision="D", status="deprecated")
+
 
 # ---------------------------------------------------------------------------
 # ProblemProposal
@@ -108,6 +118,16 @@ class TestProblemProposal:
     def test_resolved_status_disallowed(self):
         with pytest.raises(ValidationError):
             ProblemProposal(title="T", status="resolved")
+
+    def test_wont_fix_status_disallowed(self):
+        """wont_fix is not in the Literal — LLM should not propose it."""
+        with pytest.raises(ValidationError):
+            ProblemProposal(title="T", status="wont_fix")
+
+    def test_reopened_status_disallowed(self):
+        """reopened is not in the Literal — LLM should not propose it."""
+        with pytest.raises(ValidationError):
+            ProblemProposal(title="T", status="reopened")
 
 
 # ---------------------------------------------------------------------------
