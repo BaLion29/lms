@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -112,6 +113,47 @@ class ChangeEvent:
     inserted: list[str] = field(default_factory=list)
     updated: list[str] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
+
+
+def _parse_commit_timestamp(entry: dict[str, Any]) -> float | None:
+    """Extract a POSIX timestamp from a commit-log *entry*.
+
+    Reads ``entry["timestamp"]``; normalises ISO-8601 strings ending in
+    ``Z`` to the ``+00:00`` form before parsing, and handles plain
+    ``int``/``float`` values directly.  Returns ``None`` on any parse
+    failure or when the field is absent.
+    """
+    ts = entry.get("timestamp")
+    if ts is None:
+        return None
+    try:
+        if isinstance(ts, str):
+            if ts.endswith("Z"):
+                ts = ts[:-1] + "+00:00"
+            return datetime.fromisoformat(ts).timestamp()
+        if isinstance(ts, (int, float)):
+            return float(ts)
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def _event_from_entry(
+    entry: dict[str, Any],
+    ins: list[str],
+    upd: list[str],
+    del_: list[str],
+) -> ChangeEvent:
+    """Build a ``ChangeEvent`` from a log *entry* and diff results."""
+    return ChangeEvent(
+        commit_id=str(entry.get("identifier", "")),
+        author=str(entry.get("author", "")),
+        message=str(entry.get("message", "")),
+        timestamp=_parse_commit_timestamp(entry),
+        inserted=ins,
+        updated=upd,
+        deleted=del_,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -670,6 +712,11 @@ class TdbClient:
         # Fetch log with a large cap to detect truncation.
         log_entries = await self.get_branch_log(branch, count=self._LOG_REQUEST_CAP)
 
+        # Build a lookup map for O(1) parent-index resolution in _diff_commit.
+        ident_to_index: dict[str, int] = {
+            str(e.get("identifier", "")): i for i, e in enumerate(log_entries)
+        }
+
         # Find the cutoff: scan the FULL log for commit_id (before
         # applying *limit*, which only affects returned events).
         newer: list[dict[str, Any]] = []
@@ -701,27 +748,9 @@ class TdbClient:
         # ── Tier 1: per-commit diffs ──────────────────────────────────
         events: list[ChangeEvent] = []
         for i, entry in enumerate(newer):
-            ident = str(entry.get("identifier", ""))
-            author = str(entry.get("author", ""))
-            message = str(entry.get("message", ""))
-            timestamp_str = entry.get("timestamp")
-            timestamp: float | None = None
-            if timestamp_str is not None:
-                try:
-                    ts = timestamp_str
-                    if isinstance(ts, str):
-                        if ts.endswith("Z"):
-                            ts = ts[:-1] + "+00:00"
-                        from datetime import datetime as _dt
-                        timestamp = _dt.fromisoformat(ts).timestamp()
-                    elif isinstance(ts, (int, float)):
-                        timestamp = float(ts)
-                except (ValueError, TypeError):
-                    timestamp = None
-
             try:
                 inserted, updated, deleted = await self._diff_commit(
-                    branch, entry, newer, i, log_entries
+                    branch, entry, newer, i, ident_to_index, log_entries
                 )
             except TdbError as exc:
                 if "NotValidRefError" not in exc.body:
@@ -748,34 +777,14 @@ class TdbClient:
 
                 # Build a single ChangeEvent from head entry + merged ops.
                 head_entry = log_entries[0]
-                head_author = str(head_entry.get("author", ""))
-                head_message = str(head_entry.get("message", ""))
-                head_ts: float | None = None
-                head_ts_str = head_entry.get("timestamp")
-                if head_ts_str is not None:
-                    try:
-                        ts = head_ts_str
-                        if isinstance(ts, str):
-                            if ts.endswith("Z"):
-                                ts = ts[:-1] + "+00:00"
-                            from datetime import datetime as _dt
-                            head_ts = _dt.fromisoformat(ts).timestamp()
-                        elif isinstance(ts, (int, float)):
-                            head_ts = float(ts)
-                    except (ValueError, TypeError):
-                        head_ts = None
-
                 if agg_inserted or agg_updated or agg_deleted:
                     return (
                         [
-                            ChangeEvent(
-                                commit_id=current_head,
-                                author=head_author,
-                                message=head_message,
-                                timestamp=head_ts,
-                                inserted=agg_inserted,
-                                updated=agg_updated,
-                                deleted=agg_deleted,
+                            _event_from_entry(
+                                head_entry,
+                                agg_inserted,
+                                agg_updated,
+                                agg_deleted,
                             )
                         ],
                         current_head,
@@ -783,15 +792,7 @@ class TdbClient:
                 return ([], current_head)
 
             events.append(
-                ChangeEvent(
-                    commit_id=ident,
-                    author=author,
-                    message=message,
-                    timestamp=timestamp,
-                    inserted=inserted,
-                    updated=updated,
-                    deleted=deleted,
-                )
+                _event_from_entry(entry, inserted, updated, deleted)
             )
 
         return (events, current_head)
@@ -802,7 +803,8 @@ class TdbClient:
         entry: dict[str, Any],
         newer_entries: list[dict[str, Any]],
         index: int,
-        all_entries: list[dict[str, Any]],
+        ident_to_index: dict[str, int],
+        log_entries: list[dict[str, Any]],
     ) -> tuple[list[str], list[str], list[str]]:
         """Diff *entry* against its parent commit via POST /api/diff.
 
@@ -812,15 +814,11 @@ class TdbClient:
 
         # Determine parent commit identifier.
         # The parent is the entry immediately after this one in the
-        # full (newest-first) log, OR the next entry in newer_entries
-        # (since newer_entries is oldest-first, the next entry after
-        # this one in the full log is the prev entry in full log).
+        # full (newest-first) log.
         parent_ident: str | None = None
-        # Try to find in the full log (newest-first)
-        for i_ent, log_entry in enumerate(all_entries):
-            if str(log_entry.get("identifier", "")) == ident and i_ent + 1 < len(all_entries):
-                parent_ident = str(all_entries[i_ent + 1].get("identifier", ""))
-                break
+        parent_index = ident_to_index.get(ident)
+        if parent_index is not None and parent_index + 1 < len(log_entries):
+            parent_ident = str(log_entries[parent_index + 1].get("identifier", ""))
 
         if parent_ident is None:
             # Fallback: if the entry is not the last in newer_entries,
@@ -844,20 +842,17 @@ class TdbClient:
 
         Returns (inserted, updated, deleted) lists of document @ids.
         """
-        try:
-            response = await self._client.post(
-                f"/api/diff/{self.org}/{self.db}",
-                json={
-                    "before_data_version": before_descriptor,
-                    "after_data_version": after_descriptor,
-                    "document_id": "",
-                    "keep": {"@id": "", "@type": ""},
-                },
-            )
-            await self._raise_on_error(response)
-            patches = response.json()
-        except TdbError:
-            raise
+        response = await self._client.post(
+            f"/api/diff/{self.org}/{self.db}",
+            json={
+                "before_data_version": before_descriptor,
+                "after_data_version": after_descriptor,
+                "document_id": "",
+                "keep": {"@id": "", "@type": ""},
+            },
+        )
+        await self._raise_on_error(response)
+        patches = response.json()
 
         inserted: list[str] = []
         updated: list[str] = []

@@ -53,7 +53,7 @@ class CycleError(ComposerError):
 
 class L1Error(ComposerError):
     """L1 law violation — a ``@context`` block was found in a module's ``schema.json``.
-    
+
     ``@context`` must live only in core's ``context.json``, not embedded
     in schema fragments.
     """

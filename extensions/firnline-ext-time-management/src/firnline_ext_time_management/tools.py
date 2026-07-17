@@ -20,6 +20,14 @@ from firnline_core.plugins import ModuleRequirement
 from firnline_core.repository import Repository, TransitionError as RepoTransitionError
 from firnline_core.tooling import traced
 from firnline_core.toolspec import ToolContext, ToolSpec
+from firnline_core.toolspec_helpers import (
+    error_envelope,
+    make_repo,
+    not_found_envelope,
+    ok_envelope,
+    type_mismatch_error,
+    write_error_envelope,
+)
 from firnline_ext_time_management.models import (
     Activity,
     ActivitySpec,
@@ -255,15 +263,16 @@ async def _do_set_task_status(
     branch: str,
 ) -> dict[str, object]:
     """Set the status of a Task document (core logic)."""
-    repo = Repository(tdb, transitions=_TASK_TRANSITIONS) if not isinstance(tdb, Repository) else tdb
+    repo = make_repo(tdb, transitions=_TASK_TRANSITIONS)
 
     try:
         doc = await repo.get_document(task_iri, branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": f"document not found: {task_iri}: {exc}"}
+        return not_found_envelope(task_iri, exc)
 
-    if doc.get("@type") != "Task":
-        return {"ok": False, "error": f"{task_iri} is not a Task (type={doc.get('@type')})"}
+    type_err = type_mismatch_error(task_iri, doc, "Task")
+    if type_err is not None:
+        return error_envelope(type_err)
 
     current = doc.get("status", "?")
     log.info("queryd: set_task_status", iri=task_iri, from_status=current, to_status=status)
@@ -278,9 +287,9 @@ async def _do_set_task_status(
             branch=branch,
         )
     except RepoTransitionError as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": task_iri}
+    return ok_envelope(iri=task_iri)
 
 
 async def _do_set_event_status(
@@ -291,15 +300,16 @@ async def _do_set_event_status(
     branch: str,
 ) -> dict[str, object]:
     """Set the status of an Event document (core logic)."""
-    repo = Repository(tdb, transitions=_EVENT_TRANSITIONS) if not isinstance(tdb, Repository) else tdb
+    repo = make_repo(tdb, transitions=_EVENT_TRANSITIONS)
 
     try:
         doc = await repo.get_document(event_iri, branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": f"document not found: {event_iri}: {exc}"}
+        return not_found_envelope(event_iri, exc)
 
-    if doc.get("@type") != "Event":
-        return {"ok": False, "error": f"{event_iri} is not an Event (type={doc.get('@type')})"}
+    type_err = type_mismatch_error(event_iri, doc, "Event")
+    if type_err is not None:
+        return error_envelope(type_err)
 
     current = doc.get("status", "?")
     log.info("queryd: set_event_status", iri=event_iri, from_status=current, to_status=status)
@@ -314,9 +324,9 @@ async def _do_set_event_status(
             branch=branch,
         )
     except RepoTransitionError as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": event_iri}
+    return ok_envelope(iri=event_iri)
 
 
 async def _do_create_task(
@@ -329,7 +339,7 @@ async def _do_create_task(
     branch: str,
 ) -> dict[str, object]:
     """Create a new Task document (core logic)."""
-    repo = Repository(tdb, transitions=_TASK_TRANSITIONS) if not isinstance(tdb, Repository) else tdb
+    repo = make_repo(tdb, transitions=_TASK_TRANSITIONS)
 
     now = datetime.now(_UTC)
     prov = Provenance(agent=_AGENT, at=now, method="tool_call")
@@ -352,9 +362,9 @@ async def _do_create_task(
             branch=branch,
         )
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": iri}
+    return ok_envelope(iri=iri)
 
 
 async def _do_update_task(
@@ -372,15 +382,16 @@ async def _do_update_task(
     Only the provided (non-None) fields are changed.
     always bumped to now.
     """
-    repo = Repository(tdb, transitions=_TASK_TRANSITIONS) if not isinstance(tdb, Repository) else tdb
+    repo = make_repo(tdb, transitions=_TASK_TRANSITIONS)
 
     try:
         doc = await repo.get_document(task_iri, branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": f"document not found: {task_iri}: {exc}"}
+        return not_found_envelope(task_iri, exc)
 
-    if doc.get("@type") != "Task":
-        return {"ok": False, "error": f"{task_iri} is not a Task (type={doc.get('@type')})"}
+    type_err = type_mismatch_error(task_iri, doc, "Task")
+    if type_err is not None:
+        return error_envelope(type_err)
 
     if name is not None:
         doc["name"] = name
@@ -396,9 +407,9 @@ async def _do_update_task(
     try:
         await repo.tdb.replace_document(doc, branch=branch, message=f"queryd: update {task_iri}")
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": task_iri}
+    return ok_envelope(iri=task_iri)
 
 
 async def _do_create_routine(
@@ -419,7 +430,7 @@ async def _do_create_routine(
       - priority (int, optional)
       - estimated_duration (int, optional): in minutes
     """
-    repo = Repository(tdb, transitions={}) if not isinstance(tdb, Repository) else tdb
+    repo = make_repo(tdb, transitions={})
 
     now = datetime.now(_UTC)
     prov = Provenance(agent=_AGENT, at=now, method="tool_call")
@@ -427,7 +438,7 @@ async def _do_create_routine(
     try:
         step_docs = _build_step_dicts(steps, now, prov)
     except Exception as exc:
-        return {"ok": False, "error": f"invalid steps: {exc}"}
+        return error_envelope(f"invalid steps: {exc}")
 
     routine = Routine(
         name=name,
@@ -446,9 +457,9 @@ async def _do_create_routine(
             branch=branch,
         )
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": iri}
+    return ok_envelope(iri=iri)
 
 
 async def _do_update_routine(
@@ -466,15 +477,16 @@ async def _do_update_routine(
     always bumped to now.  When *steps* is provided, the entire steps list
     is replaced.
     """
-    repo = Repository(tdb, transitions={}) if not isinstance(tdb, Repository) else tdb
+    repo = make_repo(tdb, transitions={})
 
     try:
         doc = await repo.get_document(routine_iri, branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": f"document not found: {routine_iri}: {exc}"}
+        return not_found_envelope(routine_iri, exc)
 
-    if doc.get("@type") != "Routine":
-        return {"ok": False, "error": f"{routine_iri} is not a Routine (type={doc.get('@type')})"}
+    type_err = type_mismatch_error(routine_iri, doc, "Routine")
+    if type_err is not None:
+        return error_envelope(type_err)
 
     if name is not None:
         doc["name"] = name
@@ -486,16 +498,16 @@ async def _do_update_routine(
         try:
             doc["steps"] = _build_step_dicts(steps, now, prov)
         except Exception as exc:
-            return {"ok": False, "error": f"invalid steps: {exc}"}
+            return error_envelope(f"invalid steps: {exc}")
 
     log.info("queryd: update_routine", iri=routine_iri, doc=doc)
 
     try:
         await repo.tdb.replace_document(doc, branch=branch, message=f"queryd: update {routine_iri}")
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": routine_iri}
+    return ok_envelope(iri=routine_iri)
 
 
 # ---------------------------------------------------------------------------
@@ -538,9 +550,9 @@ async def create_project(
             branch=branch,
         )
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": iri}
+    return ok_envelope(iri=iri)
 
 
 @traced
@@ -563,10 +575,11 @@ async def update_project(
     try:
         doc = await repo.get_document(project_iri, branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": f"document not found: {project_iri}: {exc}"}
+        return not_found_envelope(project_iri, exc)
 
-    if doc.get("@type") != "Project":
-        return {"ok": False, "error": f"{project_iri} is not a Project (type={doc.get('@type')})"}
+    type_err = type_mismatch_error(project_iri, doc, "Project")
+    if type_err is not None:
+        return error_envelope(type_err)
 
     if name is not None:
         doc["name"] = name
@@ -580,9 +593,9 @@ async def update_project(
     try:
         await repo.tdb.replace_document(doc, branch=branch, message=f"queryd: update {project_iri}")
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": project_iri}
+    return ok_envelope(iri=project_iri)
 
 
 @traced
@@ -602,16 +615,17 @@ async def set_project_status(
     try:
         doc = await repo.get_document(project_iri, branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": f"document not found: {project_iri}: {exc}"}
+        return not_found_envelope(project_iri, exc)
 
-    if doc.get("@type") != "Project":
-        return {"ok": False, "error": f"{project_iri} is not a Project (type={doc.get('@type')})"}
+    type_err = type_mismatch_error(project_iri, doc, "Project")
+    if type_err is not None:
+        return error_envelope(type_err)
 
     current = doc.get("status", "?")
     log.info("queryd: set_project_status", iri=project_iri, from_status=current, to_status=status)
 
     if current == "completed":
-        return {"ok": False, "error": f"Cannot transition from terminal status 'completed' on {project_iri}"}
+        return error_envelope(f"Cannot transition from terminal status 'completed' on {project_iri}")
 
     try:
         await repo.transition(
@@ -623,9 +637,9 @@ async def set_project_status(
             branch=branch,
         )
     except RepoTransitionError as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": project_iri}
+    return ok_envelope(iri=project_iri)
 
 
 # ---------------------------------------------------------------------------
@@ -670,9 +684,9 @@ async def create_goal(
             branch=branch,
         )
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": iri}
+    return ok_envelope(iri=iri)
 
 
 @traced
@@ -692,16 +706,17 @@ async def set_goal_status(
     try:
         doc = await repo.get_document(goal_iri, branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": f"document not found: {goal_iri}: {exc}"}
+        return not_found_envelope(goal_iri, exc)
 
-    if doc.get("@type") != "Goal":
-        return {"ok": False, "error": f"{goal_iri} is not a Goal (type={doc.get('@type')})"}
+    type_err = type_mismatch_error(goal_iri, doc, "Goal")
+    if type_err is not None:
+        return error_envelope(type_err)
 
     current = doc.get("status", "?")
     log.info("queryd: set_goal_status", iri=goal_iri, from_status=current, to_status=status)
 
     if current == "achieved":
-        return {"ok": False, "error": f"Cannot transition from terminal status 'achieved' on {goal_iri}"}
+        return error_envelope(f"Cannot transition from terminal status 'achieved' on {goal_iri}")
 
     try:
         await repo.transition(
@@ -713,9 +728,9 @@ async def set_goal_status(
             branch=branch,
         )
     except RepoTransitionError as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": goal_iri}
+    return ok_envelope(iri=goal_iri)
 
 
 # ---------------------------------------------------------------------------
@@ -756,9 +771,9 @@ async def create_area(
             branch=branch,
         )
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": iri}
+    return ok_envelope(iri=iri)
 
 
 # ---------------------------------------------------------------------------
@@ -799,24 +814,23 @@ async def assign_contexts(
     try:
         doc = await repo.get_document(iri, branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": f"document not found: {iri}: {exc}"}
+        return not_found_envelope(iri, exc)
 
     doc_type = doc.get("@type", "")
     if doc_type not in _CONTEXTABLE_TYPES:
-        return {
-            "ok": False,
-            "error": f"{iri} (type={doc_type}) does not support contexts",
-        }
+        return error_envelope(
+            f"{iri} (type={doc_type}) does not support contexts",
+        )
 
     if doc.get("archived_at"):
-        return {"ok": False, "error": f"Cannot modify archived document: {iri}"}
+        return error_envelope(f"Cannot modify archived document: {iri}")
 
     # Validate each context IRI exists
     for ctx_iri in context_iris:
         try:
             await repo.get_document(ctx_iri, branch=branch)
         except Exception as exc:
-            return {"ok": False, "error": f"context document not found: {ctx_iri}: {exc}"}
+            return not_found_envelope(ctx_iri, exc, noun="context document")
 
     existing: list[str] = doc.get("contexts", [])
     updated = list(dict.fromkeys(existing + context_iris))  # dedupe preserving order
@@ -827,9 +841,9 @@ async def assign_contexts(
     try:
         await repo.tdb.replace_document(doc, branch=branch, message=f"queryd: assign_contexts {iri}")
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": iri}
+    return ok_envelope(iri=iri)
 
 
 @traced
@@ -849,17 +863,16 @@ async def remove_contexts(
     try:
         doc = await repo.get_document(iri, branch=branch)
     except Exception as exc:
-        return {"ok": False, "error": f"document not found: {iri}: {exc}"}
+        return not_found_envelope(iri, exc)
 
     doc_type = doc.get("@type", "")
     if doc_type not in _CONTEXTABLE_TYPES:
-        return {
-            "ok": False,
-            "error": f"{iri} (type={doc_type}) does not support contexts",
-        }
+        return error_envelope(
+            f"{iri} (type={doc_type}) does not support contexts",
+        )
 
     if doc.get("archived_at"):
-        return {"ok": False, "error": f"Cannot modify archived document: {iri}"}
+        return error_envelope(f"Cannot modify archived document: {iri}")
 
     existing: list[str] = doc.get("contexts", [])
     remove_set = set(context_iris)
@@ -871,9 +884,9 @@ async def remove_contexts(
     try:
         await repo.tdb.replace_document(doc, branch=branch, message=f"queryd: remove_contexts {iri}")
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": iri}
+    return ok_envelope(iri=iri)
 
 
 # ---------------------------------------------------------------------------
@@ -898,16 +911,17 @@ async def _do_log_activity(
     If *routine_id* is provided, the Activity is linked to that Routine.
     The referenced Routine must exist; otherwise the call fails with an error.
     """
-    repo = Repository(tdb, transitions={}) if not isinstance(tdb, Repository) else tdb
+    repo = make_repo(tdb, transitions={})
 
     # Validate routine reference if provided
     if routine_id is not None:
         try:
             routine_doc = await repo.get_document(routine_id, branch=branch)
         except Exception as exc:
-            return {"ok": False, "error": f"routine not found: {routine_id}: {exc}"}
-        if routine_doc.get("@type") != "Routine":
-            return {"ok": False, "error": f"{routine_id} is not a Routine (type={routine_doc.get('@type')})"}
+            return not_found_envelope(routine_id, exc, noun="routine")
+        type_err = type_mismatch_error(routine_id, routine_doc, "Routine")
+        if type_err is not None:
+            return error_envelope(type_err)
 
     now = datetime.now(_UTC)
     prov = Provenance(agent=_AGENT, at=now, method="tool_call")
@@ -932,9 +946,9 @@ async def _do_log_activity(
             branch=branch,
         )
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200]}
+        return write_error_envelope(exc)
 
-    return {"ok": True, "iri": iri}
+    return ok_envelope(iri=iri)
 
 
 # ---------------------------------------------------------------------------

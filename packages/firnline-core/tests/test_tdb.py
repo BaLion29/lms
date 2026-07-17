@@ -154,36 +154,8 @@ async def test_get_documents_skip_count_omitted_when_none(client, respx_mock):
 # ---------------------------------------------------------------------------
 
 
-async def test_count_documents_bare_integer(client, respx_mock):
-    """TerminusDB returns a bare integer when count=true is supported."""
-    route = respx_mock.get(
-        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
-    ).respond(text="42")
-
-    result = await client.count_documents("Captured")
-
-    assert route.called
-    req = route.calls.last.request
-    assert req.url.params["count"] == "true"
-    assert req.url.params["type"] == "Captured"
-    assert req.url.params["graph_type"] == "instance"
-    assert result == 42
-
-
-async def test_count_documents_json_count_key(client, respx_mock):
-    """If the response is a JSON object with a 'count' key, extract it."""
-    route = respx_mock.get(
-        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
-    ).respond(json={"count": 7, "@type": "api:CountResponse"})
-
-    result = await client.count_documents("Task")
-
-    assert route.called
-    assert result == 7
-
-
-async def test_count_documents_fallback_list_len(client, respx_mock):
-    """If the server returns a list (e.g. no count=true support), use len()."""
+async def test_count_documents_list(client, respx_mock):
+    """When the server returns a list, use len()."""
     route = respx_mock.get(
         f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
     ).respond(
@@ -197,19 +169,35 @@ async def test_count_documents_fallback_list_len(client, respx_mock):
     result = await client.count_documents("Captured")
 
     assert route.called
+    req = route.calls.last.request
+    assert req.url.params["as_list"] == "true"
+    assert req.url.params["type"] == "Captured"
+    assert req.url.params["graph_type"] == "instance"
     assert result == 3
 
 
-async def test_count_documents_json_string_body(client, respx_mock):
-    """If the server returns a JSON-encoded string like "42", parse it."""
+async def test_count_documents_single_dict(client, respx_mock):
+    """When the server returns a single document dict, result is 1."""
     route = respx_mock.get(
         f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
-    ).respond(text='"42"')  # JSON string, not bare integer
+    ).respond(json={"@id": "Task/t1", "name": "Only task"})
+
+    result = await client.count_documents("Task")
+
+    assert route.called
+    assert result == 1
+
+
+async def test_count_documents_empty_list(client, respx_mock):
+    """When the server returns an empty list, result is 0."""
+    route = respx_mock.get(
+        f"{BASE}/api/document/{ORG}/{DB}/local/branch/main",
+    ).respond(json=[])
 
     result = await client.count_documents("Captured")
 
     assert route.called
-    assert result == 42
+    assert result == 0
 
 
 async def test_count_documents_non_2xx_raises_tdberror(client, respx_mock):
@@ -228,7 +216,7 @@ async def test_count_documents_custom_branch(client, respx_mock):
     """Branch parameter is forwarded."""
     route = respx_mock.get(
         f"{BASE}/api/document/{ORG}/{DB}/local/branch/develop",
-    ).respond(text="0")
+    ).respond(json=[])
 
     result = await client.count_documents("Task", branch="develop")
 

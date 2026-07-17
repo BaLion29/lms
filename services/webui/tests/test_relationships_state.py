@@ -5,9 +5,8 @@ from __future__ import annotations
 import inspect
 from unittest.mock import AsyncMock, patch
 
-import pytest
 
-from firnline_webui.graph_index import Edge, EdgeIndex, NodeInfo, build_edge_index
+from firnline_webui.graph_index import Edge, EdgeIndex, NodeInfo
 from firnline_webui.state.relationships import RelationshipsState
 
 

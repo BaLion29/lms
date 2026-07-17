@@ -291,7 +291,7 @@ class Engine:
             if subject is not None:
                 subjects_resolved += 1
 
-            now_val = self._now()
+            self._now()
             firing_doc: dict[str, Any] = {
                 "@type": "TriggerFiring",
                 "trigger": trigger_iri,
@@ -305,8 +305,8 @@ class Engine:
             grouped.setdefault(trigger_iri, []).append(firing_doc)
 
         for trigger_iri, firings in grouped.items():
-            short = short_iri(trigger_iri)
-            n = len(firings)
+            short_iri(trigger_iri)
+            len(firings)
             _agent = agent_id("service", "triggerd")
 
             for fdoc in firings:

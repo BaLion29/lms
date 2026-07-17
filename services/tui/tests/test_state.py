@@ -128,7 +128,17 @@ class FakeHealth:
         return self._data
 
 
-def make_fake_ctx(make_tdb=None, make_captured=None, make_health=None):
+class FakeIndexed:
+    """Fake IndexedClient for testing."""
+
+    async def healthz(self):
+        return {"status": "healthy", "version": "1.0"}
+
+    async def aclose(self):
+        pass
+
+
+def make_fake_ctx(make_tdb=None, make_captured=None, make_health=None, make_indexed=None):
     """Build a fake AppContext for testing."""
     return AppContext(
         org="admin",
@@ -139,6 +149,7 @@ def make_fake_ctx(make_tdb=None, make_captured=None, make_health=None):
         make_health=make_health or (
             lambda: (FakeHealth(), FakeHealth(), FakeHealth(), FakeHealth())
         ),
+        make_indexed=make_indexed or (lambda: FakeIndexed()),
     )
 
 

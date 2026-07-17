@@ -23,7 +23,6 @@ from ingestd.linking import (
     match,
 )
 from ingestd.settings import Settings
-from firnline_core.models import _format_datetime
 from firnline_core.plugins import BuildContext
 from firnline_core.tdb import TdbClient, TdbError, short_iri
 
@@ -577,7 +576,7 @@ class Pipeline:
             )
             return
 
-        now = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
         doc["status"] = status
 
         await self.tdb.replace_document(

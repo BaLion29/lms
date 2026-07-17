@@ -9,9 +9,6 @@ import pytest
 import respx
 from fastapi.testclient import TestClient
 
-from pydantic_ai.messages import ModelResponse, TextPart
-from pydantic_ai.models.function import FunctionModel
-
 from queryd.app import create_app
 from queryd.settings import Settings
 
@@ -32,9 +29,6 @@ def _make_settings(**overrides) -> Settings:
         api_token="test-token",
         tdb_db=TDB_DB,
         tdb_password="x",
-        llm_base_url="http://llm.test",
-        llm_api_key="sk-test",
-        llm_model="test-model",
         tdb_url=TDB_URL,
     )
     defaults.update(overrides)
@@ -70,10 +64,7 @@ def _setup_startup_mocks(respx_mock: respx.MockRouter) -> None:
 def test_requires_auth():
     """POST without Authorization header → 401."""
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -87,10 +78,7 @@ def test_requires_auth():
 def test_wrong_token_returns_401():
     """POST with wrong bearer token → 401."""
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -112,10 +100,7 @@ def test_writes_disabled_returns_403(respx_mock: respx.MockRouter):
     _setup_startup_mocks(respx_mock)
 
     settings = _make_settings(enable_writes=False)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -139,10 +124,7 @@ def test_happy_path(respx_mock: respx.MockRouter):
     post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -181,10 +163,7 @@ def test_agent_header_override(respx_mock: respx.MockRouter):
     post_route = respx_mock.post(DOC_PATH).respond(json=["Task/abc"])
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -218,10 +197,7 @@ def test_bad_agent_header_returns_400(respx_mock: respx.MockRouter, agent: str):
     _setup_startup_mocks(respx_mock)
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -244,10 +220,7 @@ def test_body_with_at_type_returns_422(respx_mock: respx.MockRouter):
     _setup_startup_mocks(respx_mock)
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -265,10 +238,7 @@ def test_body_with_at_id_returns_422(respx_mock: respx.MockRouter):
     _setup_startup_mocks(respx_mock)
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -303,10 +273,7 @@ def test_non_dict_body_returns_422(
     _setup_startup_mocks(respx_mock)
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -329,10 +296,7 @@ def test_class_name_starts_with_digit_returns_400(respx_mock: respx.MockRouter):
     _setup_startup_mocks(respx_mock)
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -352,10 +316,7 @@ def test_class_name_with_slash_returns_405(respx_mock: respx.MockRouter):
     _setup_startup_mocks(respx_mock)
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -379,10 +340,7 @@ def test_tdb_400_schema_violation_returns_422(respx_mock: respx.MockRouter):
     respx_mock.post(DOC_PATH).respond(status_code=400, text=tdb_body)
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -402,15 +360,12 @@ def test_tdb_conflict_returns_409(respx_mock: respx.MockRouter):
     _setup_startup_mocks(respx_mock)
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
 
     with patch(
         "firnline_core.repository.Repository.create",
         side_effect=TdbConflictError("abc", "def"),
     ):
-        app = create_app(settings, model=model, plugin_tools=[])
+        app = create_app(settings)
 
         with TestClient(app) as client:
             resp = client.post(
@@ -429,10 +384,7 @@ def test_tdb_500_returns_502(respx_mock: respx.MockRouter):
     respx_mock.post(DOC_PATH).respond(status_code=500, text="boom")
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
-    app = create_app(settings, model=model, plugin_tools=[])
+    app = create_app(settings)
 
     with TestClient(app) as client:
         resp = client.post(
@@ -450,15 +402,12 @@ def test_repo_create_valueerror_returns_400(respx_mock: respx.MockRouter):
     _setup_startup_mocks(respx_mock)
 
     settings = _make_settings(enable_writes=True)
-    model = FunctionModel(
-        function=lambda messages, info: ModelResponse(parts=[TextPart(content="ok")])
-    )
 
     with patch(
         "firnline_core.repository.Repository.create",
         side_effect=ValueError("something bad"),
     ):
-        app = create_app(settings, model=model, plugin_tools=[])
+        app = create_app(settings)
 
         with TestClient(app) as client:
             resp = client.post(

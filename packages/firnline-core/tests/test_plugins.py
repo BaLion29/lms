@@ -16,7 +16,9 @@ from firnline_core.plugins import (
     DiscoveryResult,
     EntityIndex,
     ExecutionResult,
+    HostPolicy,
     ModuleRequirement,
+    PluginHost,
     check_requirements,
     discover_plugins,
     select_plugins,
@@ -201,13 +203,14 @@ class TestDiscoverPlugins:
 
 
 class TestBuildContext:
-    def test_default_now_is_datetime_now(self) -> None:
-        from datetime import datetime
+    def test_default_now_is_utc_now(self) -> None:
+        from datetime import datetime, timezone
 
         ctx = BuildContext(tdb=None, captured_iri="test/1")
         now = ctx.now()
         assert isinstance(now, datetime)
-        assert now.tzinfo is None  # default datetime.now is naive
+        assert now.tzinfo is not None  # default utc_now is tz-aware UTC
+        assert now.utcoffset() == timezone.utc.utcoffset(None)
 
     def test_custom_now(self) -> None:
         from datetime import datetime, timezone
@@ -818,20 +821,6 @@ class TestSelectPluginsRequiresClasses:
 # ---------------------------------------------------------------------------
 # PluginHost
 # ---------------------------------------------------------------------------
-
-
-from firnline_core.plugins import HostPolicy, HostResult, PluginHost
-
-
-class FakeEntryPoint:
-    """Minimal fake matching the importlib.metadata.EntryPoint protocol."""
-
-    def __init__(self, name: str, load_fn) -> None:
-        self.name = name
-        self._load_fn = load_fn
-
-    def load(self):
-        return self._load_fn()
 
 
 class TestPluginHostHappyPath:

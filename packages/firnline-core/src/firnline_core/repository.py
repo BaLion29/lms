@@ -12,7 +12,7 @@ from typing import Any
 from firnline_core.base import _format_datetime
 from firnline_core.conventions import parse_agent, utc_now
 from firnline_core.generated.core import Provenance
-from firnline_core.tdb import TdbClient, TdbConflictError, short_iri
+from firnline_core.tdb import TdbClient, short_iri
 
 
 class TransitionError(Exception):
@@ -196,17 +196,12 @@ class Repository:
         }
 
         msg = f"repo: transition {short} {from_status}->{to_status}"
-        try:
-            await self._tdb.replace_document(doc, branch=branch, message=msg)
-            await self._tdb.insert_documents(
-                [transition_doc],
-                branch=branch,
-                message=msg,
-            )
-        except TdbConflictError:
-            raise
-        except Exception:
-            raise
+        await self._tdb.replace_document(doc, branch=branch, message=msg)
+        await self._tdb.insert_documents(
+            [transition_doc],
+            branch=branch,
+            message=msg,
+        )
 
     # ------------------------------------------------------------------
     # Archive
@@ -230,13 +225,14 @@ class Repository:
         now_str = _format_datetime(now)
 
         doc = await self._tdb.get_document(short, branch=branch)
+        prior_archived_at = doc.get("archived_at")
         doc["archived_at"] = now_str
 
         archive_doc: dict[str, Any] = {
             "@type": "Transition",
             "subject": short,
             "field": "archived_at",
-            "from_status": str(doc.get("archived_at", "null")),
+            "from_status": str(prior_archived_at) if prior_archived_at is not None else "null",
             "to_status": "archived",
             "at": now_str,
             "agent": agent,

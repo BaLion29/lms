@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from firnline_core.tdb import TdbError
 from firnline_webui.clients import TdbBrowser, WebuiClientError
@@ -10,7 +9,6 @@ from firnline_webui.graph_index import (
     Edge,
     EdgeIndex,
     NodeInfo,
-    TripleRow,
     build_edge_index,
 )
 

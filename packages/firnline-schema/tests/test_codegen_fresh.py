@@ -1,11 +1,13 @@
 """CI freshness check — ensures generated code matches what compose+codegen produces.
 
-Re-runs codegen in a temp directory with the actual targets and verifies
-the committed files are byte-identical to the regenerated output.  Because
-cross-module imports use absolute paths, the redirect trick from earlier
-versions no longer works — we instead snapshot the committed files, run
-the real ``write_generated`` (which overwrites them), and then assert they
-match the snapshot.  If the test fails, the committed files were stale.
+Re-runs codegen in-memory (via ``generate()``) and compares the output against
+the committed ``generated/*.py`` files.  This test NEVER writes to the working
+tree — it only reads committed files and compares them to freshly-generated
+source text.
+
+If the ``build/`` directory (containing ``composed.schema.json`` and
+``composed.meta.json``) is absent, the test is skipped because the compose
+step has not been run.
 """
 
 from __future__ import annotations
@@ -15,10 +17,22 @@ from pathlib import Path
 
 import pytest
 
-from firnline_schema.codegen import schema_checksum, write_generated
+from firnline_schema.codegen import generate, schema_checksum
 
-BUILD_DIR = Path(__file__).parents[3] / "build"
-GENERATED_DIR = Path(__file__).parents[3] / "packages" / "firnline-core" / "src" / "firnline_core" / "generated"
+# Resolve the workspace root from this test file's location:
+#   tests/test_codegen_fresh.py  ->  parents[2]  (firnline-schema package)
+#   parents[3]                     ->  packages/
+#   parents[4]                     ->  workspace root
+WORKSPACE_ROOT = Path(__file__).parents[4]
+BUILD_DIR = WORKSPACE_ROOT / "build"
+GENERATED_DIR = (
+    WORKSPACE_ROOT
+    / "packages"
+    / "firnline-core"
+    / "src"
+    / "firnline_core"
+    / "generated"
+)
 
 
 def _compose_meta() -> tuple[list[dict], dict[str, str], dict[str, str]]:
@@ -29,22 +43,26 @@ def _compose_meta() -> tuple[list[dict], dict[str, str], dict[str, str]]:
 
 
 def test_codegen_freshness():
-    """Regenerate and assert byte-equality with committed files.
+    """Regenerate in-memory and assert byte-equality with committed files.
 
-    Generates directly to the committed package then verifies the
-    output matches pre-saved copies.  This works because cross-module
-    imports need their absolute target paths.
+    Uses ``generate()`` (which returns source text without writing to disk)
+    so committed ``generated/*.py`` files are never overwritten.
     """
+    # Skip when build/ artifacts are absent (compose has not been run).
+    if not (BUILD_DIR / "composed.schema.json").exists():
+        pytest.skip(
+            "build/composed.schema.json not found — run 'firnline-schema compose' "
+            "to generate the artifacts needed for this freshness check."
+        )
+
     composed_schema, class_id_to_module, module_to_target = _compose_meta()
     if not module_to_target:
-        pytest.skip("No targets in compose meta — run 'firnline-schema compose' first with updated schema.")
+        pytest.skip(
+            "No targets in compose meta — run 'firnline-schema compose' first "
+            "with updated schema."
+        )
 
     checksum = schema_checksum(composed_schema)
-
-    # Snapshot the committed files before regeneration
-    committed_files: dict[str, bytes] = {}
-    for f in sorted(GENERATED_DIR.rglob("*.py")):
-        committed_files[f.name] = f.read_bytes()
 
     # Filter to kernel-only targets (those writing into firnline_core.generated)
     kernel_targets: dict[str, str] = {}
@@ -56,15 +74,29 @@ def test_codegen_freshness():
         if mod_name in kernel_targets:
             kernel_classes[cid] = mod_name
 
-    # Run the real codegen — this will overwrite committed files
-    _paths = write_generated(composed_schema, kernel_classes, kernel_targets, checksum)
+    # Generate source text in-memory — NO disk writes.
+    sources = generate(composed_schema, kernel_classes, kernel_targets, checksum)
 
-    # Verify every committed file was regenerated and content matches
+    # Snapshot the committed files.
+    committed_files: dict[str, bytes] = {}
     for f in sorted(GENERATED_DIR.rglob("*.py")):
-        if f.name not in committed_files:
-            continue
-        assert f.read_bytes() == committed_files[f.name], (
-            f"Freshness check failed for {f.name}. "
+        committed_files[f.name] = f.read_bytes()
+
+    # Compare every generated file against the committed counterpart.
+    for filename, source_text in sources.items():
+        committed = committed_files.get(filename)
+        if committed is None:
+            # File was generated but is not committed — could be __init__.py
+            # or a new module.  Skip files that aren't committed yet.
+            if filename == "__init__.py":
+                continue
+            pytest.fail(
+                f"Freshness check failed: generated file '{filename}' has no "
+                f"committed counterpart. Run 'firnline-schema codegen' and "
+                f"commit the result."
+            )
+        assert committed == (source_text + "\n").encode(), (
+            f"Freshness check failed for {filename}. "
             "Run 'firnline-schema compose && firnline-schema codegen' and commit the result."
         )
 
