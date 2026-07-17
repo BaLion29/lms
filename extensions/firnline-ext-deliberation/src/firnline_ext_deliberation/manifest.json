@@ -1,0 +1,8 @@
+{
+  "name": "deliberation",
+  "version": "0.1.0",
+  "depends_on": [{"name": "core", "range": ">=0.1.0 <0.2.0"}],
+  "models_target": "firnline_ext_deliberation.models",
+  "exports": ["Decision", "ConsideredOption", "DecisionStatus", "Problem", "ProblemStatus", "Question", "QuestionStatus"],
+  "description": "Deliberation records: problems, decisions, and questions — the full lifecycle of structured reasoning from problem identification through decision."
+}

@@ -307,6 +307,34 @@ For the full MCP tools and resources tables, see [reference/mcp.md](mcp.md).
 > When using the bundled TDB overlay, set `TDB_URL=http://terminusdb:6363` in
 > `.env` — the container name is hardcoded in `compose.bundled-tdb.yaml`.
 
+## Reverse proxy / HTTPS
+
+These fields live in `FirnlineBaseSettings` and are inherited by every
+service via its env prefix.  The prefix is the service's own prefix
+(e.g. `APID_`, `CAPTURED_`, `QUERYD_`, `INDEXED_`, `MCPD_`, `WEBUI_`).
+
+| Variable | Default | Description |
+|---|---|---|
+| `{PREFIX}_PROXY_HEADERS` | `false` | Pass `proxy_headers=True` to uvicorn so it respects `X-Forwarded-*` headers from a trusted proxy |
+| `{PREFIX}_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Comma or space separated list of IP addresses or CIDR ranges to trust for forwarded headers (passed as `forwarded_allow_ips` to uvicorn) |
+| `{PREFIX}_TRUSTED_HOSTS` | `[]` (empty) | Comma-separated list of allowed `Host` header values (passed to Starlette's `TrustedHostMiddleware`; only consumed by apid currently) |
+
+Services that consume these:
+
+| Service | Prefix | Notes |
+|---|---|---|
+| apid | `APID_` | All three fields: PROXY_HEADERS controls uvicorn, TRUSTED_HOSTS enables `TrustedHostMiddleware` |
+| captured | `CAPTURED_` | PROXY_HEADERS and FORWARDED_ALLOW_IPS in uvicorn |
+| queryd | `QUERYD_` | PROXY_HEADERS and FORWARDED_ALLOW_IPS in uvicorn |
+| indexed | `INDEXED_` | PROXY_HEADERS and FORWARDED_ALLOW_IPS in uvicorn |
+| mcpd | `MCPD_` | PROXY_HEADERS and FORWARDED_ALLOW_IPS in uvicorn |
+| webui | `WEBUI_` | Inherited but webui uses Reflex, not uvicorn directly |
+
+When deployed behind the Traefik overlay (`compose.traefik.yaml`),
+`APID_PROXY_HEADERS=true` and `APID_FORWARDED_ALLOW_IPS=*` are set
+automatically because apid's ports are un-published and only Traefik
+on the compose network can reach it.
+
 ## Related documents
 
 - [API reference](api.md) — REST endpoints for all services

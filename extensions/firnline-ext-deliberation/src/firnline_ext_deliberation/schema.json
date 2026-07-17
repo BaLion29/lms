@@ -1,0 +1,66 @@
+[
+  {"@id": "Decision", "@type": "Class", "@inherits": ["Entity", "Source"],
+   "@metadata": {"label_field": "title",
+     "transitions": {
+       "draft": ["proposed", "rejected"],
+       "proposed": ["accepted", "rejected", "draft"],
+       "accepted": ["superseded", "deprecated"],
+       "rejected": ["draft"]
+     }},
+   "@documentation": {"@comment": "An ADR-style decision record: context, the decision made, its consequences, considered alternatives, and lifecycle status."},
+   "title": "xsd:string",
+   "context": {"@class": "Context", "@type": "Set"},
+   "decision": "xsd:string",
+   "consequences": {"@class": "xsd:string", "@type": "Optional"},
+   "status": "DecisionStatus",
+   "options": {"@class": "ConsideredOption", "@type": "List"},
+   "supersedes": {"@class": "Decision", "@type": "Optional"},
+   "addresses": {"@class": "Problem", "@type": "Set"}},
+
+  {"@id": "ConsideredOption", "@type": "Class", "@subdocument": [], "@key": {"@type": "Random"},
+   "@documentation": {"@comment": "An alternative that was considered for a Decision."},
+   "name": "xsd:string",
+   "pros": {"@class": "xsd:string", "@type": "Set"},
+   "cons": {"@class": "xsd:string", "@type": "Set"},
+   "rejection_reason": {"@class": "xsd:string", "@type": "Optional"}},
+
+  {"@id": "DecisionStatus", "@type": "Enum",
+   "@documentation": {"@comment": "Lifecycle status of an ADR-style decision record."},
+   "@value": ["draft", "proposed", "accepted", "rejected", "superseded", "deprecated"]},
+
+  {"@id": "Problem", "@type": "Class", "@inherits": ["Entity", "Source", "Context"],
+   "@metadata": {"label_field": "title",
+     "transitions": {
+       "open": ["investigating", "resolved", "wont_fix"],
+       "investigating": ["open", "resolved", "wont_fix"],
+       "resolved": ["reopened"],
+       "wont_fix": ["reopened"],
+       "reopened": ["investigating", "resolved", "wont_fix"]
+     }},
+   "@documentation": {"@comment": "A problem, issue, or question that requires investigation and may be resolved by one or more decisions."},
+   "title": "xsd:string",
+   "description": {"@class": "xsd:string", "@type": "Optional"},
+   "status": "ProblemStatus",
+   "impact": {"@class": "xsd:string", "@type": "Optional"},
+   "open_questions": {"@class": "Question", "@type": "Set"}},
+
+  {"@id": "Question", "@type": "Class", "@inherits": ["Entity", "Source"],
+   "@metadata": {"label_field": "question",
+     "transitions": {
+       "open": ["answered", "closed"],
+       "answered": ["closed", "open"],
+       "closed": ["open"]
+     }},
+   "@documentation": {"@comment": "An open question arising during investigation, with a validation lifecycle."},
+   "question": "xsd:string",
+   "answer": {"@class": "xsd:string", "@type": "Optional"},
+   "status": "QuestionStatus"},
+
+  {"@id": "ProblemStatus", "@type": "Enum",
+   "@documentation": {"@comment": "Lifecycle status of a problem."},
+   "@value": ["open", "investigating", "resolved", "wont_fix", "reopened"]},
+
+  {"@id": "QuestionStatus", "@type": "Enum",
+   "@documentation": {"@comment": "Lifecycle status of a question."},
+   "@value": ["open", "answered", "closed"]}
+]
