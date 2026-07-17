@@ -18,14 +18,13 @@ Key guardrails:
   `MCPD_API_TOKEN` (validated via `secrets.compare_digest`). Unauthenticated
   requests receive 401.
 
-- **WebUI auth is best-effort** — when `WEBUI_PASSWORD` is set the Reflex
-  frontend gates all data pages behind a password form. When empty (default)
-  all pages are open — intended for LAN-only use. **Do NOT expose port 3000
-  directly to the internet.** Bind to loopback (`127.0.0.1:3000`) or place
-  behind a reverse proxy with its own auth layer.
-
-  Full webui event-auth and token hardening (random server secret, nonce,
-  rate-limiting) is scoped for **0.2.0**.
+- **WebUI is EXPERIMENTAL for 0.1.0** — the Reflex WebUI is **not** part of the
+  0.1.0 supported release surface. Event-level auth (S-3) is deferred until
+  WebUI stabilizes. When `WEBUI_PASSWORD` is set the frontend gates all data
+  pages behind a password form (on_load redirect-only — websocket events are
+  NOT individually auth-gated). When empty (default) all pages are open. **Do
+  NOT expose port 3000 directly to the internet.** Bind to loopback
+  (`127.0.0.1:3000`) or place behind a reverse proxy with its own auth layer.
 
 - **Webhook allowlist fail-closed** — `WEBHOOK_ALLOWED_HOSTS` (comma-separated)
   restricts outbound webhook calls. If the list is **empty**, webhook execution

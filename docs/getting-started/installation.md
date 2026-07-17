@@ -65,7 +65,7 @@ Check API health:
 curl http://localhost:8080/healthz
 ```
 
-Open the WebUI at <http://localhost:3000>.
+Open the WebUI (experimental in 0.1.0 — bind to loopback) at <http://localhost:3000>.
 
 If `docker compose ps` shows all services healthy (`Up` / `healthy`), you are
 ready to continue with the [Quickstart](quickstart.md).

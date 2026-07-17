@@ -430,6 +430,12 @@ class _BearerAuthMiddleware:
             return
 
         path: str = scope["path"]
+        root_path: str = scope.get("root_path", "")
+        # Normalize: strip the mount prefix when embedded (e.g. apid mounts
+        # at /mcp, so /mcp/healthz becomes /healthz).  In standalone mode
+        # root_path is empty, leaving path unchanged.
+        if root_path and path.startswith(root_path):
+            path = path[len(root_path) :]
         # Exempt health checks so probes work without a token.
         if path == "/healthz" or path == "/healthz/":
             await self._app(scope, receive, send)

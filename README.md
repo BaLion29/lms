@@ -26,10 +26,10 @@ TerminusDB graph database — the single source of truth.
 - **Trigger-to-action automations** — `triggerd` and `effectd` evaluate triggers
   and deliver effects through pluggable channels.
 - **Web dashboard** — Reflex WebUI with capture, inbox, document browser, and
-  health monitoring.
-- **TUI (experimental)** — extension bundles include optional terminal-UI apps
-  (deliberation, time-management, address-book). The TUI is **experimental**
-  and not part of the 0.1.0-announcement scope; expect breaking changes.
+  health monitoring (experimental — not part of the 0.1.0 supported surface;
+  auth is incomplete, bind to loopback).
+- **TUI** — extension bundles include optional terminal-UI apps
+  (deliberation, time-management, address-book).
 
 ## Quickstart
 
@@ -69,7 +69,7 @@ curl -s -X POST http://localhost:8080/v1/capture/note \
   -d '{"text": "Buy milk on the way home", "kind": "note", "metadata": {}}'
 ```
 
-Port 8080 (API) and 3000 (WebUI). Full walkthrough:
+Port 8080 (API) and 3000 (WebUI, experimental). Full walkthrough:
 [docs/getting-started/quickstart.md](docs/getting-started/quickstart.md).
 
 ## Documentation

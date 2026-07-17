@@ -3,9 +3,9 @@
 ## Purpose
 
 Your first 10 minutes with firnline — capture a note, see the ingestion
-pipeline at work, query your data through GraphQL, browse the WebUI inbox, and
-list available tools. Completing this walkthrough confirms a working
-installation.
+pipeline at work, query your data through GraphQL, browse the WebUI inbox
+(experimental), and list available tools. Completing this walkthrough confirms a
+working installation.
 
 ## Prerequisites
 
@@ -69,11 +69,12 @@ extracted from your note. For the full query surface (document lookup,
 entity/class/field search, schema introspection), see the
 [API reference](../reference/api.md).
 
-## Step 4: browse the WebUI
+## Step 4: browse the WebUI (experimental)
 
-Open <http://localhost:3000/inbox> in your browser. The inbox shows all
-`Captured` documents — your note should be visible with its status, kind, and
-timestamp.
+Open <http://localhost:3000/inbox> in your browser (the WebUI is experimental
+in 0.1.0 — bind to loopback, do not expose to untrusted networks). The inbox
+shows all `Captured` documents — your note should be visible with its status,
+kind, and timestamp.
 
 Other WebUI pages: the dashboard homepage at `/` shows health and module status;
 the generic browser at `/browse` lets you explore any document class. For a

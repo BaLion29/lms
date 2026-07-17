@@ -5,9 +5,10 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Footer, Header
 
 from firnline_tui.ui.nav import NavSidebar
+from firnline_tui.ui.typography import page_heading
 
 
 class ShellScreen(Screen):
@@ -30,4 +31,4 @@ class ShellScreen(Screen):
 
     def compose_content(self) -> ComposeResult:
         """Override to provide screen-specific content."""
-        yield Static(f"TODO: {self.TITLE}")
+        yield page_heading(self.TITLE)
