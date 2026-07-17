@@ -22,6 +22,8 @@
 set -euo pipefail
 
 # ── Configuration (override via environment) ────────────────────────────────
+# For CI (GitHub Actions), this is provided via the DOCKERHUB_NAMESPACE secret.
+# For local runs, set this to your Docker Hub username.
 REGISTRY="${REGISTRY:-firnline}"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 TAG_LATEST="${TAG_LATEST:-true}"
