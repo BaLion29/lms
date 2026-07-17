@@ -225,6 +225,11 @@ class DeliberationScreen(ShellScreen):
         if not query:
             self._populate_table(table_id, columns, rows)
         else:
+<<<<<<< HEAD
             key = columns[0]
             filtered = [r for r in rows if query in str(r.get(key, "")).casefold()]
+=======
+            filtered = [r for r in rows if query in str(r.get("Title", "")).casefold()
+                        or query in str(r.get("Question", "")).casefold()]
+>>>>>>> ensemble/preserved/firnline-deliberation-extension/deliberation-ext#t7bf0r/tui-builder-2
             self._populate_table(table_id, columns, filtered)
